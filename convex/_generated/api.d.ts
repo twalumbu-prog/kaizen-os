@@ -20,6 +20,7 @@ import type * as lib_roles from "../lib/roles.js";
 import type * as lib_scoring from "../lib/scoring.js";
 import type * as organizations from "../organizations.js";
 import type * as profiles from "../profiles.js";
+import type * as reportAssignments from "../reportAssignments.js";
 import type * as reportTemplates from "../reportTemplates.js";
 import type * as scores from "../scores.js";
 import type * as seed from "../seed.js";
@@ -48,6 +49,7 @@ declare const fullApi: ApiFromModules<{
   "lib/scoring": typeof lib_scoring;
   organizations: typeof organizations;
   profiles: typeof profiles;
+  reportAssignments: typeof reportAssignments;
   reportTemplates: typeof reportTemplates;
   scores: typeof scores;
   seed: typeof seed;

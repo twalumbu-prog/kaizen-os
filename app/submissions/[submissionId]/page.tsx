@@ -1,0 +1,146 @@
+"use client";
+
+import { useQuery } from "convex/react";
+import { use } from "react";
+import { CheckCircle2, XCircle, AlertTriangle, FileText } from "lucide-react";
+import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
+import { AppShell } from "@/components/layout/app-shell";
+import { StatusBadge } from "@/components/dashboard/status-badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Progress } from "@/components/ui/progress";
+import { Badge } from "@/components/ui/badge";
+
+const STATUS_ICON = {
+  pass: <CheckCircle2 className="size-4 text-emerald-500" />,
+  fail: <XCircle className="size-4 text-red-500" />,
+  warning: <AlertTriangle className="size-4 text-amber-500" />,
+};
+
+export default function SubmissionDetailPage({
+  params,
+}: {
+  params: Promise<{ submissionId: Id<"submissions"> }>;
+}) {
+  const { submissionId } = use(params);
+  const data = useQuery(api.submissions.getSubmission, { submissionId });
+
+  if (data === undefined) {
+    return (
+      <AppShell>
+        <Skeleton className="h-64 w-full rounded-xl" />
+      </AppShell>
+    );
+  }
+
+  if (!data || !data.submission) {
+    return (
+      <AppShell>
+        <p className="text-sm text-muted-foreground">Submission not found.</p>
+      </AppShell>
+    );
+  }
+
+  const { submission, template, employeeName, files, validationResult, checklist } = data;
+
+  return (
+    <AppShell>
+      <div className="flex flex-col gap-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">{template?.name}</h1>
+            <p className="text-sm text-muted-foreground">{submission.periodLabel}</p>
+          </div>
+          {submission.finalScore !== undefined && <StatusBadge score={submission.finalScore} />}
+        </div>
+
+        <div className="grid gap-6 lg:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Submission Information</CardTitle>
+            </CardHeader>
+            <CardContent className="grid grid-cols-2 gap-y-2 text-sm">
+              <span className="text-muted-foreground">Employee</span>
+              <span>{employeeName ?? "Unknown"}</span>
+              <span className="text-muted-foreground">Due</span>
+              <span>{new Date(submission.dueAt).toLocaleString()}</span>
+              <span className="text-muted-foreground">Submitted</span>
+              <span>{submission.submittedAt ? new Date(submission.submittedAt).toLocaleString() : "—"}</span>
+              <span className="text-muted-foreground">Status</span>
+              <span className="capitalize">{submission.status}</span>
+              <span className="text-muted-foreground">Cadence</span>
+              <span className="capitalize">{template?.cadence}</span>
+              <span className="text-muted-foreground">Submission Score</span>
+              <span>{submission.submissionScore ?? "—"}</span>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Uploaded Documents</CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-2">
+              {files.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No files uploaded.</p>
+              ) : (
+                files.map((f) => (
+                  <a
+                    key={f._id}
+                    href={f.url ?? "#"}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-2 rounded-md border p-2 text-sm hover:bg-accent"
+                  >
+                    <FileText className="size-4 text-muted-foreground" />
+                    <span className="flex-1 truncate">{f.fileName}</span>
+                    <Badge variant="outline" className="uppercase">
+                      {f.fileType}
+                    </Badge>
+                  </a>
+                ))
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="text-base">Validation Checklist</CardTitle>
+            {validationResult && (
+              <span className="text-sm text-muted-foreground">
+                Overall Validation Score: <span className="font-medium text-foreground">{validationResult.score}%</span>
+              </span>
+            )}
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            {validationResult && <Progress value={validationResult.score} />}
+            {!validationResult ? (
+              <p className="text-sm text-muted-foreground">Validation has not run yet.</p>
+            ) : (
+              <div className="flex flex-col divide-y">
+                {checklist.map((item) => (
+                  <div key={item._id} className="flex items-start gap-3 py-3">
+                    {STATUS_ICON[item.status]}
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium">{item.title}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {item.points}/{item.maxPoints} pts
+                        </span>
+                      </div>
+                      <p className="text-sm text-muted-foreground">{item.explanation}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {validationResult?.summary && (
+              <p className="text-sm text-muted-foreground">{validationResult.summary}</p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </AppShell>
+  );
+}

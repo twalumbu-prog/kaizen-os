@@ -32,6 +32,7 @@ export const organizationDashboard = query({
         const latest = history[0];
         return {
           department: dept,
+          hasData: latest !== undefined,
           healthScore: latest?.healthScore ?? 0,
           submissionRate: latest?.submissionRate ?? 0,
           qualityScore: latest?.qualityScore ?? 0,
@@ -45,6 +46,7 @@ export const organizationDashboard = query({
 
     return {
       organization: org,
+      hasData: orgScoreHistory.length > 0,
       healthScore: orgScoreHistory[0]?.healthScore ?? 0,
       status: statusForScore(orgScoreHistory[0]?.healthScore ?? 0),
       trend: [...orgScoreHistory].reverse().map((h) => ({ periodLabel: h.periodLabel, score: h.healthScore })),
@@ -103,6 +105,7 @@ export const departmentDashboard = query({
 
         return {
           template,
+          hasData: submissions.length > 0,
           healthScore,
           status: statusForScore(healthScore),
           submissionRate: submissionRatePct,
@@ -119,6 +122,7 @@ export const departmentDashboard = query({
 
     return {
       department,
+      hasData: scoreHistory.length > 0,
       healthScore: latestScore?.healthScore ?? 0,
       status: statusForScore(latestScore?.healthScore ?? 0),
       submissionRate: latestScore?.submissionRate ?? 0,
