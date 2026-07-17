@@ -245,7 +245,26 @@ export const myPortal = query({
       else break;
     }
 
-    return { dueToday, upcoming, late, completed, performanceScore, streak };
+    const history = await Promise.all(
+      completed
+        .sort((a, b) => (b.submittedAt ?? b.dueAt) - (a.submittedAt ?? a.dueAt))
+        .map(async (s) => {
+          const [template, files] = await Promise.all([
+            ctx.db.get(s.templateId),
+            ctx.db
+              .query("submissionFiles")
+              .withIndex("by_submissionId", (q) => q.eq("submissionId", s._id))
+              .collect(),
+          ]);
+          return {
+            submission: s,
+            templateName: template?.name ?? "Unknown report",
+            fileCount: files.length,
+          };
+        }),
+    );
+
+    return { dueToday, upcoming, late, completed, performanceScore, streak, history };
   },
 });
 

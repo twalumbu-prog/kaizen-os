@@ -8,6 +8,15 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/dashboard/status-badge";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
 export default function EmployeePortalPage() {
   const portal = useQuery(api.submissions.myPortal);
@@ -73,6 +82,58 @@ export default function EmployeePortalPage() {
                     </div>
                   ),
               )
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Submission History</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {portal.history.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                You haven&apos;t submitted any reports yet.
+              </p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Report</TableHead>
+                    <TableHead>Period</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Files</TableHead>
+                    <TableHead>Submitted</TableHead>
+                    <TableHead>Score</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {portal.history.map(({ submission, templateName, fileCount }) => (
+                    <TableRow key={submission._id}>
+                      <TableCell>
+                        <Link href={`/submissions/${submission._id}`} className="hover:underline">
+                          {templateName}
+                        </Link>
+                      </TableCell>
+                      <TableCell>{submission.periodLabel}</TableCell>
+                      <TableCell className="capitalize">{submission.status}</TableCell>
+                      <TableCell>{fileCount}</TableCell>
+                      <TableCell>
+                        {submission.submittedAt
+                          ? new Date(submission.submittedAt).toLocaleString()
+                          : "—"}
+                      </TableCell>
+                      <TableCell>
+                        {submission.finalScore !== undefined ? (
+                          <StatusBadge score={submission.finalScore} />
+                        ) : (
+                          <span className="text-muted-foreground">Pending</span>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             )}
           </CardContent>
         </Card>
