@@ -47,7 +47,7 @@ export const seedFinance = mutation({
       weight: 1,
       requiredFiles: [
         { label: "Internal Ledger", fileType: "xlsx", required: true },
-        { label: "Bank Statement", fileType: "pdf", required: true },
+        { label: "Bank Statement", fileType: "xlsx", required: true },
         { label: "Supporting Documents", fileType: "pdf", required: false },
       ],
       validationRules: BANK_RECONCILIATION_RULES,

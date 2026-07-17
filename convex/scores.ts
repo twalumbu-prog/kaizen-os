@@ -53,6 +53,7 @@ export const recomputeDepartmentScore = internalMutation({
           ctx.db
             .query("validationResults")
             .withIndex("by_submissionId", (q) => q.eq("submissionId", s._id))
+            .order("desc")
             .first(),
         ),
       );

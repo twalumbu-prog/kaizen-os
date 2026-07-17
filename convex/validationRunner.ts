@@ -4,7 +4,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalAction } from "./_generated/server";
 import { parseBankCsv } from "./lib/parsers/csv";
-import { parseLedgerExcel } from "./lib/parsers/excel";
+import { parseSpreadsheet, type SpreadsheetRole } from "./lib/parsers/excel";
 import { parseBankPdf } from "./lib/parsers/pdf";
 import { getValidator } from "./validators/registry";
 import type { ParsedFile } from "./validators/types";
@@ -12,8 +12,9 @@ import type { ParsedFile } from "./validators/types";
 async function parseFile(
   fileType: "xlsx" | "pdf" | "csv",
   buffer: ArrayBuffer,
-): Promise<ReturnType<typeof parseLedgerExcel>> {
-  if (fileType === "xlsx") return parseLedgerExcel(buffer);
+  role: SpreadsheetRole,
+): Promise<ReturnType<typeof parseSpreadsheet>> {
+  if (fileType === "xlsx") return parseSpreadsheet(buffer, role);
   if (fileType === "csv") return parseBankCsv(new TextDecoder().decode(buffer));
   return await parseBankPdf(buffer);
 }
@@ -33,7 +34,8 @@ export const runValidation = internalAction({
       if (!url) continue;
       const response = await fetch(url);
       const buffer = await response.arrayBuffer();
-      const statement = await parseFile(file.fileType, buffer);
+      const role: SpreadsheetRole = file.label.toLowerCase().includes("ledger") ? "ledger" : "bank";
+      const statement = await parseFile(file.fileType, buffer, role);
       parsedFiles.push({ label: file.label, fileType: file.fileType, statement });
     }
 

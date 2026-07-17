@@ -87,6 +87,7 @@ export const departmentDashboard = query({
             ctx.db
               .query("validationResults")
               .withIndex("by_submissionId", (q) => q.eq("submissionId", s._id))
+              .order("desc")
               .first(),
           ),
         );
@@ -152,6 +153,7 @@ export const reportDetail = query({
         const validationResult = await ctx.db
           .query("validationResults")
           .withIndex("by_submissionId", (q) => q.eq("submissionId", s._id))
+          .order("desc")
           .first();
         return {
           submission: s,

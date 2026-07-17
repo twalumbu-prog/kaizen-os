@@ -155,6 +155,7 @@ export const getSubmission = query({
       ctx.db
         .query("validationResults")
         .withIndex("by_submissionId", (q) => q.eq("submissionId", submissionId))
+        .order("desc")
         .first(),
     ]);
 
@@ -197,6 +198,7 @@ export const listSubmissionsForTemplate = query({
           ctx.db
             .query("validationResults")
             .withIndex("by_submissionId", (q) => q.eq("submissionId", s._id))
+            .order("desc")
             .first(),
         ]);
         return {

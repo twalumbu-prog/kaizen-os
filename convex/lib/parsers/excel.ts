@@ -1,11 +1,39 @@
 import * as XLSX from "xlsx";
 import type { ParsedStatement, Transaction } from "../../validators/types";
 
-const DATE_KEYS = ["date"];
-const DESCRIPTION_KEYS = ["description", "narration", "particulars", "details"];
-const DEBIT_KEYS = ["debit", "dr", "withdrawal"];
-const CREDIT_KEYS = ["credit", "cr", "deposit"];
+const DATE_KEYS = ["date", "valuedate", "transactiondate", "txndate", "trandate"];
+const DESCRIPTION_KEYS = ["description", "narration", "particulars", "details", "payee"];
 const BALANCE_KEYS = ["balance", "runningbalance"];
+const OPENING_MARKER = /opening\s*balance/i;
+const CLOSING_MARKER = /closing\s*balance/i;
+
+/**
+ * A spreadsheet's "money in" / "money out" columns are only unambiguous once
+ * you know whether it's a bank statement or a cash-book style ledger. Bank
+ * statements label columns from the bank's own point of view (Debit =
+ * withdrawal, Credit = deposit). Ledgers follow cash-book convention, where
+ * receipts (deposits) are recorded on the Debit side and payments on the
+ * Credit side — the opposite of the bank's own labels for the same column
+ * names like "Deposit"/"Payment".
+ */
+export type SpreadsheetRole = "ledger" | "bank";
+
+const MONEY_IN_KEYS: Record<SpreadsheetRole, string[]> = {
+  bank: ["credit", "cr", "deposit", "moneyin", "receipt"],
+  ledger: ["debit", "dr", "deposit", "receipt", "moneyin"],
+};
+const MONEY_OUT_KEYS: Record<SpreadsheetRole, string[]> = {
+  bank: ["debit", "dr", "withdrawal", "payment", "moneyout"],
+  ledger: ["credit", "cr", "payment", "withdrawal", "moneyout"],
+};
+
+// The validator compares ledger and bank totals under the double-entry
+// convention: the same real-world deposit is a ledger "debit" (cash-book
+// receipt) but a bank "credit" (the bank's own liability increases) — same
+// event, opposite perspective labels. So which Transaction.type a "money in"
+// row gets depends on the file's role, not just its direction.
+const IN_TYPE: Record<SpreadsheetRole, Transaction["type"]> = { ledger: "debit", bank: "credit" };
+const OUT_TYPE: Record<SpreadsheetRole, Transaction["type"]> = { ledger: "credit", bank: "debit" };
 
 function normalizeKey(key: string): string {
   return key.toLowerCase().replace(/[^a-z]/g, "");
@@ -26,6 +54,8 @@ function toDateString(value: unknown): string {
     epoch.setUTCDate(epoch.getUTCDate() + value);
     return epoch.toISOString().slice(0, 10);
   }
+  const parsed = new Date(String(value ?? ""));
+  if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
   return String(value ?? "").slice(0, 10);
 }
 
@@ -35,47 +65,65 @@ function toNumber(value: unknown): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-/** Parses a ledger spreadsheet (Date, Description, Debit, Credit, Balance columns). */
-export function parseLedgerExcel(buffer: ArrayBuffer): ParsedStatement {
+/** Parses a ledger or bank statement spreadsheet into a normalized statement. */
+export function parseSpreadsheet(buffer: ArrayBuffer, role: SpreadsheetRole): ParsedStatement {
   const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
   const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
     defval: null,
   });
 
+  const moneyInKeys = MONEY_IN_KEYS[role];
+  const moneyOutKeys = MONEY_OUT_KEYS[role];
+
   const transactions: Transaction[] = [];
   const balances: number[] = [];
+  let openingOverride: number | null = null;
+  let closingOverride: number | null = null;
 
   for (const row of rows) {
-    const debit = toNumber(pickValue(row, DEBIT_KEYS));
-    const credit = toNumber(pickValue(row, CREDIT_KEYS));
+    const moneyIn = toNumber(pickValue(row, moneyInKeys));
+    const moneyOut = toNumber(pickValue(row, moneyOutKeys));
     const balanceValue = pickValue(row, BALANCE_KEYS);
+    const description = String(pickValue(row, DESCRIPTION_KEYS) ?? "");
+
+    if (moneyIn === 0 && moneyOut === 0 && OPENING_MARKER.test(description)) {
+      if (balanceValue !== undefined && balanceValue !== null) openingOverride = toNumber(balanceValue);
+      continue;
+    }
+    if (moneyIn === 0 && moneyOut === 0 && CLOSING_MARKER.test(description)) {
+      if (balanceValue !== undefined && balanceValue !== null) closingOverride = toNumber(balanceValue);
+      continue;
+    }
+
     if (balanceValue !== undefined && balanceValue !== null) {
       balances.push(toNumber(balanceValue));
     }
 
     const date = toDateString(pickValue(row, DATE_KEYS));
-    const description = String(pickValue(row, DESCRIPTION_KEYS) ?? "");
 
-    if (debit > 0) {
-      transactions.push({ date, description, amount: debit, type: "debit" });
+    if (moneyIn > 0) {
+      transactions.push({ date, description, amount: moneyIn, type: IN_TYPE[role] });
     }
-    if (credit > 0) {
-      transactions.push({ date, description, amount: credit, type: "credit" });
+    if (moneyOut > 0) {
+      transactions.push({ date, description, amount: moneyOut, type: OUT_TYPE[role] });
     }
   }
 
   // The first row's running balance is *after* that row's transaction; back
-  // it out so openingBalance reflects the balance before any transactions.
+  // it out so openingBalance reflects the balance before any transactions —
+  // unless an explicit opening-balance marker row already gave us the value.
   const first = transactions[0];
+  const firstWasInflow = first !== undefined && first.type === IN_TYPE[role];
   const openingBalance =
-    balances.length > 0
-      ? balances[0] - (first ? (first.type === "debit" ? -first.amount : first.amount) : 0)
-      : null;
+    openingOverride ??
+    (balances.length > 0
+      ? balances[0] - (first ? (firstWasInflow ? first.amount : -first.amount) : 0)
+      : null);
 
   return {
     openingBalance,
-    closingBalance: balances.length > 0 ? balances[balances.length - 1] : null,
+    closingBalance: closingOverride ?? (balances.length > 0 ? balances[balances.length - 1] : null),
     transactions,
   };
 }
