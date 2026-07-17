@@ -112,12 +112,20 @@ export function runBankReconciliationChecks(
       ledger.openingBalance !== null &&
       bank.openingBalance !== null &&
       withinTolerance(ledger.openingBalance, bank.openingBalance, tolerance);
+    const openingDiff =
+      ledger.openingBalance !== null && bank.openingBalance !== null
+        ? ledger.openingBalance - bank.openingBalance
+        : null;
     checklist.push({
       title: "Opening balances match",
       status: ok ? "pass" : "fail",
       explanation: ok
         ? `Ledger opening balance ${ledger.openingBalance} matches bank ${bank.openingBalance}.`
-        : `Ledger opening balance (${ledger.openingBalance ?? "n/a"}) does not match bank statement (${bank.openingBalance ?? "n/a"}).`,
+        : `Ledger opening balance (${ledger.openingBalance ?? "n/a"}) does not match bank statement (${bank.openingBalance ?? "n/a"})${
+            openingDiff !== null
+              ? ` — a difference of ${openingDiff > 0 ? "+" : ""}${openingDiff.toFixed(2)} (ledger ${openingDiff > 0 ? "higher" : "lower"}).`
+              : "."
+          }`,
       severity: ok ? "low" : "high",
       points: ok ? CHECK_POINTS.openingBalance : 0,
       maxPoints: CHECK_POINTS.openingBalance,
@@ -133,12 +141,20 @@ export function runBankReconciliationChecks(
       ledger.closingBalance !== null &&
       bank.closingBalance !== null &&
       withinTolerance(ledger.closingBalance, bank.closingBalance, tolerance);
+    const closingDiff =
+      ledger.closingBalance !== null && bank.closingBalance !== null
+        ? ledger.closingBalance - bank.closingBalance
+        : null;
     checklist.push({
       title: "Closing balances match",
       status: ok ? "pass" : "fail",
       explanation: ok
         ? `Ledger closing balance ${ledger.closingBalance} matches bank ${bank.closingBalance}.`
-        : `Ledger closing balance (${ledger.closingBalance ?? "n/a"}) does not match bank statement (${bank.closingBalance ?? "n/a"}).`,
+        : `Ledger closing balance (${ledger.closingBalance ?? "n/a"}) does not match bank statement (${bank.closingBalance ?? "n/a"})${
+            closingDiff !== null
+              ? ` — a difference of ${closingDiff > 0 ? "+" : ""}${closingDiff.toFixed(2)} (ledger ${closingDiff > 0 ? "higher" : "lower"}).`
+              : "."
+          }`,
       severity: ok ? "low" : "high",
       points: ok ? CHECK_POINTS.closingBalance : 0,
       maxPoints: CHECK_POINTS.closingBalance,

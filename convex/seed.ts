@@ -1,17 +1,18 @@
-import { mutation } from "./_generated/server";
+import { v } from "convex/values";
+import { internalMutation, mutation } from "./_generated/server";
 
 const BANK_RECONCILIATION_RULES = [
   { key: "openingBalance", label: "Opening balance must match", enabled: true, tolerance: 0.01 },
   { key: "closingBalance", label: "Closing balance must match", enabled: true, tolerance: 0.01 },
   { key: "debitsReconcile", label: "Debit total equals bank inflows", enabled: true },
   { key: "creditsReconcile", label: "Credit total equals bank outflows", enabled: true },
-  { key: "duplicates", label: "Duplicate Transactions", enabled: true },
-  { key: "missingEntries", label: "Missing Transactions", enabled: true },
+  { key: "duplicates", label: "Duplicate Transactions", enabled: false },
+  { key: "missingEntries", label: "Missing Transactions", enabled: false },
   { key: "outstandingCheques", label: "Outstanding Cheques", enabled: true },
   { key: "depositsInTransit", label: "Deposits in Transit", enabled: true },
   { key: "bankCharges", label: "Bank Charges Accounted For", enabled: true },
   { key: "interest", label: "Interest Accounted For", enabled: true },
-  { key: "unknownTransactions", label: "Unknown Transactions", enabled: true },
+  { key: "unknownTransactions", label: "Unknown Transactions", enabled: false },
 ];
 
 /**
@@ -54,5 +55,13 @@ export const seedFinance = mutation({
     });
 
     return { status: "seeded", orgId, departmentId, templateId };
+  },
+});
+
+/** Internal-only, CLI-driven config fix: syncs a template's rules to the current defaults above. */
+export const devSyncValidationRules = internalMutation({
+  args: { templateId: v.id("reportTemplates") },
+  handler: async (ctx, { templateId }) => {
+    await ctx.db.patch(templateId, { validationRules: BANK_RECONCILIATION_RULES });
   },
 });
