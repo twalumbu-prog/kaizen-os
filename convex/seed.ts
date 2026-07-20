@@ -4,6 +4,7 @@ import { internalMutation, mutation } from "./_generated/server";
 const BANK_RECONCILIATION_RULES = [
   { key: "openingBalance", label: "Opening balance must match", enabled: true, tolerance: 0.01 },
   { key: "closingBalance", label: "Closing balance must match", enabled: true, tolerance: 0.01 },
+  { key: "openingBalanceContinuity", label: "Opening balance continuity", enabled: true, tolerance: 0.01 },
   { key: "debitsReconcile", label: "Debit total equals bank inflows", enabled: true },
   { key: "creditsReconcile", label: "Credit total equals bank outflows", enabled: true },
   { key: "duplicates", label: "Duplicate Transactions", enabled: false },

@@ -9,12 +9,14 @@
  */
 
 import type * as auth from "../auth.js";
+import type * as crons from "../crons.js";
 import type * as dashboard from "../dashboard.js";
 import type * as departments from "../departments.js";
 import type * as http from "../http.js";
 import type * as lib_parsers_csv from "../lib/parsers/csv.js";
 import type * as lib_parsers_excel from "../lib/parsers/excel.js";
 import type * as lib_parsers_pdf from "../lib/parsers/pdf.js";
+import type * as lib_periodSlice from "../lib/periodSlice.js";
 import type * as lib_periods from "../lib/periods.js";
 import type * as lib_roles from "../lib/roles.js";
 import type * as lib_scoring from "../lib/scoring.js";
@@ -38,12 +40,14 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   auth: typeof auth;
+  crons: typeof crons;
   dashboard: typeof dashboard;
   departments: typeof departments;
   http: typeof http;
   "lib/parsers/csv": typeof lib_parsers_csv;
   "lib/parsers/excel": typeof lib_parsers_excel;
   "lib/parsers/pdf": typeof lib_parsers_pdf;
+  "lib/periodSlice": typeof lib_periodSlice;
   "lib/periods": typeof lib_periods;
   "lib/roles": typeof lib_roles;
   "lib/scoring": typeof lib_scoring;

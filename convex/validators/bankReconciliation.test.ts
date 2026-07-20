@@ -129,3 +129,37 @@ describe("runBankReconciliationChecks", () => {
     expect(result.checklist.find((c) => c.title === "Duplicate Transactions")).toBeUndefined();
   });
 });
+
+describe("opening balance continuity", () => {
+  const RULES_WITH_CONTINUITY: ValidationRule[] = [
+    ...ALL_RULES,
+    { key: "openingBalanceContinuity", label: "Opening balance continuity", enabled: true, tolerance: 0.01 },
+  ];
+  const ledger = { openingBalance: 1000, closingBalance: 1000, transactions: [] as Transaction[] };
+  const bank = { openingBalance: 1000, closingBalance: 1000, transactions: [] as Transaction[] };
+
+  it("passes gracefully when there's no prior period to compare against", () => {
+    const result = runBankReconciliationChecks(ledger, bank, RULES_WITH_CONTINUITY, null);
+    const continuity = result.checklist.find((c) => c.title === "Opening Balance Continuity");
+    expect(continuity?.status).toBe("pass");
+    expect(continuity?.explanation).toMatch(/no prior period/i);
+  });
+
+  it("passes when this period's opening balance matches last period's closing balance", () => {
+    const result = runBankReconciliationChecks(ledger, bank, RULES_WITH_CONTINUITY, 1000);
+    const continuity = result.checklist.find((c) => c.title === "Opening Balance Continuity");
+    expect(continuity?.status).toBe("pass");
+  });
+
+  it("fails and reports the difference when the opening balance doesn't roll forward", () => {
+    const result = runBankReconciliationChecks(ledger, bank, RULES_WITH_CONTINUITY, 950);
+    const continuity = result.checklist.find((c) => c.title === "Opening Balance Continuity");
+    expect(continuity?.status).toBe("fail");
+    expect(continuity?.explanation).toContain("+50.00");
+  });
+
+  it("is not run when the rule is disabled", () => {
+    const result = runBankReconciliationChecks(ledger, bank, ALL_RULES, 950);
+    expect(result.checklist.find((c) => c.title === "Opening Balance Continuity")).toBeUndefined();
+  });
+});

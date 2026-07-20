@@ -46,6 +46,9 @@ function pickValue(row: Record<string, unknown>, keys: string[]): unknown {
   return undefined;
 }
 
+// Matches d/m/yyyy or d-m-yyyy (also dd/mm/yy) — the common non-ISO export format.
+const SLASH_DATE = /^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/;
+
 function toDateString(value: unknown): string {
   if (value instanceof Date) return value.toISOString().slice(0, 10);
   if (typeof value === "number") {
@@ -54,9 +57,26 @@ function toDateString(value: unknown): string {
     epoch.setUTCDate(epoch.getUTCDate() + value);
     return epoch.toISOString().slice(0, 10);
   }
-  const parsed = new Date(String(value ?? ""));
+
+  const raw = String(value ?? "").trim();
+
+  // JS's `new Date(string)` assumes US MM/DD/YYYY for slash-separated dates,
+  // silently misparsing (or failing on) the DD/MM/YYYY exports common
+  // outside the US — parse those explicitly as day/month/year first.
+  const slashMatch = raw.match(SLASH_DATE);
+  if (slashMatch) {
+    const [, d, m, y] = slashMatch;
+    const year = y.length === 2 ? `20${y}` : y;
+    const day = d.padStart(2, "0");
+    const month = m.padStart(2, "0");
+    if (Number(month) <= 12 && Number(day) <= 31) {
+      return `${year}-${month}-${day}`;
+    }
+  }
+
+  const parsed = new Date(raw);
   if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
-  return String(value ?? "").slice(0, 10);
+  return raw.slice(0, 10);
 }
 
 function toNumber(value: unknown): number {
@@ -96,17 +116,18 @@ export function parseSpreadsheet(buffer: ArrayBuffer, role: SpreadsheetRole): Pa
       continue;
     }
 
-    if (balanceValue !== undefined && balanceValue !== null) {
-      balances.push(toNumber(balanceValue));
+    const rowBalance = balanceValue !== undefined && balanceValue !== null ? toNumber(balanceValue) : undefined;
+    if (rowBalance !== undefined) {
+      balances.push(rowBalance);
     }
 
     const date = toDateString(pickValue(row, DATE_KEYS));
 
     if (moneyIn > 0) {
-      transactions.push({ date, description, amount: moneyIn, type: IN_TYPE[role] });
+      transactions.push({ date, description, amount: moneyIn, type: IN_TYPE[role], balanceAfter: rowBalance });
     }
     if (moneyOut > 0) {
-      transactions.push({ date, description, amount: moneyOut, type: OUT_TYPE[role] });
+      transactions.push({ date, description, amount: moneyOut, type: OUT_TYPE[role], balanceAfter: rowBalance });
     }
   }
 

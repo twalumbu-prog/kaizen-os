@@ -22,8 +22,8 @@ describe("parseSpreadsheet", () => {
     const statement = parseSpreadsheet(buffer, "ledger");
 
     expect(statement.transactions).toEqual([
-      { date: "2026-05-01", description: "Client A", amount: 500, type: "debit" },
-      { date: "2026-05-02", description: "Landlord", amount: 200, type: "credit" },
+      { date: "2026-05-01", description: "Client A", amount: 500, type: "debit", balanceAfter: 1500 },
+      { date: "2026-05-02", description: "Landlord", amount: 200, type: "credit", balanceAfter: 1300 },
     ]);
     expect(statement.openingBalance).toBe(1000);
     expect(statement.closingBalance).toBe(1300);
@@ -43,8 +43,8 @@ describe("parseSpreadsheet", () => {
     const statement = parseSpreadsheet(buffer, "bank");
 
     expect(statement.transactions).toEqual([
-      { date: "2026-05-01", description: "Client A deposit", amount: 500, type: "credit" },
-      { date: "2026-05-02", description: "Landlord payment", amount: 200, type: "debit" },
+      { date: "2026-05-01", description: "Client A deposit", amount: 500, type: "credit", balanceAfter: 1500 },
+      { date: "2026-05-02", description: "Landlord payment", amount: 200, type: "debit", balanceAfter: 1300 },
     ]);
     expect(statement.openingBalance).toBe(1000);
     expect(statement.closingBalance).toBe(1300);
@@ -71,5 +71,29 @@ describe("parseSpreadsheet", () => {
     expect(ledger.transactions[0].type).toBe("debit");
     expect(bank.transactions[0].type).toBe("credit");
     expect(ledger.transactions[0].amount).toBe(bank.transactions[0].amount);
+  });
+
+  it("parses DD/MM/YYYY dates as day/month/year, not JS's default US MM/DD/YYYY", () => {
+    // 15/05/2026 is unambiguous (no 15th month) — native `new Date()` parsing
+    // would fail on it entirely, which is exactly the bug this guards against.
+    const buffer = buildWorkbookBuffer(
+      ["Date", "Description", "Debit", "Credit", "Balance"],
+      [["15/05/2026", "Payment", 100, null, 900]],
+    );
+
+    const statement = parseSpreadsheet(buffer, "bank");
+    expect(statement.transactions[0].date).toBe("2026-05-15");
+  });
+
+  it("parses an ambiguous D/M/YYYY date (day <= 12) as day/month, not month/day", () => {
+    // 01/05/2026 could be Jan 5 (US) or May 1 (day/month) — exports from
+    // outside the US use day/month, which is what our parsers assume.
+    const buffer = buildWorkbookBuffer(
+      ["Date", "Description", "Debit", "Credit", "Balance"],
+      [["01/05/2026", "Payment", 100, null, 900]],
+    );
+
+    const statement = parseSpreadsheet(buffer, "bank");
+    expect(statement.transactions[0].date).toBe("2026-05-01");
   });
 });

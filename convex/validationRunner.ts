@@ -7,7 +7,7 @@ import { parseBankCsv } from "./lib/parsers/csv";
 import { parseSpreadsheet, type SpreadsheetRole } from "./lib/parsers/excel";
 import { parseBankPdf } from "./lib/parsers/pdf";
 import { getValidator } from "./validators/registry";
-import type { ParsedFile } from "./validators/types";
+import type { ParsedFile, ValidationContext } from "./validators/types";
 
 async function parseFile(
   fileType: "xlsx" | "pdf" | "csv",
@@ -26,7 +26,7 @@ export const runValidation = internalAction({
       submissionId,
     });
     if (!detail) return;
-    const { template, files } = detail;
+    const { submission, template, files, expectedOpeningBalance } = detail;
 
     const parsedFiles: ParsedFile[] = [];
     for (const file of files) {
@@ -39,14 +39,21 @@ export const runValidation = internalAction({
       parsedFiles.push({ label: file.label, fileType: file.fileType, statement });
     }
 
+    const context: ValidationContext = {
+      periodStart: submission.periodStart,
+      periodEnd: submission.periodEnd,
+      expectedOpeningBalance,
+    };
+
     const validator = getValidator(template.validatorKey);
-    const result = await validator(parsedFiles, template.validationRules);
+    const result = await validator(parsedFiles, template.validationRules, context);
 
     await ctx.runMutation(internal.submissions.saveValidationResult, {
       submissionId,
       score: result.score,
       summary: result.summary,
       checklist: result.checklist,
+      bankClosingBalance: result.carryForward?.closingBalance,
     });
   },
 });

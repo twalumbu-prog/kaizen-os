@@ -1,10 +1,70 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import type { MutationCtx } from "./_generated/server";
+import type { Doc, Id } from "./_generated/dataModel";
 import { CHECKLIST_STATUS, FILE_TYPE } from "./schema";
 import { requireProfile } from "./lib/roles";
-import { currentPeriod } from "./lib/periods";
+import { currentPeriod, nextPeriod, periodContaining } from "./lib/periods";
 import { finalReportScore, submissionScore as computeSubmissionScore } from "./lib/scoring";
+
+/**
+ * Walks forward from the caller's most recent submission (or, if they have
+ * none yet, from when they were assigned the report) inserting `"missing"`
+ * rows for any period whose due date has already passed with nothing
+ * submitted. Called both lazily (when an employee opens the upload page) and
+ * proactively (daily cron in convex/crons.ts) so gaps surface either way.
+ */
+async function backfillMissingPeriods(
+  ctx: MutationCtx,
+  template: Doc<"reportTemplates">,
+  userId: Id<"users">,
+): Promise<boolean> {
+  const existing = await ctx.db
+    .query("submissions")
+    .withIndex("by_templateId", (q) => q.eq("templateId", template._id))
+    .order("desc")
+    .take(400);
+  const mine = existing.filter((s) => s.userId === userId);
+
+  let anchorEnd: number;
+  if (mine.length > 0) {
+    anchorEnd = Math.max(...mine.map((s) => s.periodEnd));
+  } else {
+    const assignment = await ctx.db
+      .query("reportAssignments")
+      .withIndex("by_templateId", (q) => q.eq("templateId", template._id))
+      .filter((q) => q.eq(q.field("userId"), userId))
+      .unique();
+    if (!assignment) return false; // not assigned, nothing to backfill
+    anchorEnd = periodContaining(template.cadence, assignment._creationTime).periodEnd;
+  }
+
+  const existingLabels = new Set(mine.map((s) => s.periodLabel));
+  let cursor = nextPeriod(template.cadence, periodContaining(template.cadence, anchorEnd));
+  const now = Date.now();
+  let inserted = false;
+  let guard = 0;
+
+  while (cursor.dueAt < now && guard < 366) {
+    if (!existingLabels.has(cursor.periodLabel)) {
+      await ctx.db.insert("submissions", {
+        templateId: template._id,
+        userId,
+        periodLabel: cursor.periodLabel,
+        periodStart: cursor.periodStart,
+        periodEnd: cursor.periodEnd,
+        dueAt: cursor.dueAt,
+        status: "missing",
+      });
+      inserted = true;
+    }
+    cursor = nextPeriod(template.cadence, cursor);
+    guard++;
+  }
+
+  return inserted;
+}
 
 /** Loads everything the Node-runtime validation action needs in one query. */
 export const loadForValidation = internalQuery({
@@ -18,7 +78,28 @@ export const loadForValidation = internalQuery({
       .query("submissionFiles")
       .withIndex("by_submissionId", (q) => q.eq("submissionId", submissionId))
       .collect();
-    return { submission, template, files };
+
+    // Expected opening balance rolls forward from the most recent prior
+    // period (for this report, any employee) that has a validated closing
+    // balance recorded — this naturally skips over "missing" gap periods,
+    // which never have one. Falls back to the admin-seeded starting balance
+    // for the very first period.
+    const priorSubmissions = await ctx.db
+      .query("submissions")
+      .withIndex("by_templateId", (q) => q.eq("templateId", submission.templateId))
+      .order("desc")
+      .take(400);
+    const prior = priorSubmissions
+      .filter(
+        (s) =>
+          s._id !== submissionId &&
+          s.periodEnd < submission.periodStart &&
+          s.bankClosingBalance !== undefined,
+      )
+      .sort((a, b) => b.periodEnd - a.periodEnd)[0];
+    const expectedOpeningBalance = prior?.bankClosingBalance ?? template.startingBalance ?? null;
+
+    return { submission, template, files, expectedOpeningBalance };
   },
 });
 
@@ -37,12 +118,20 @@ export const getOrCreateCurrentSubmission = mutation({
     const profile = await requireProfile(ctx);
     const template = await ctx.db.get(templateId);
     if (!template) throw new Error("Report template not found");
-    const { periodLabel, dueAt } = currentPeriod(template.cadence);
+
+    const inserted = await backfillMissingPeriods(ctx, template, profile.userId);
+    if (inserted) {
+      await ctx.scheduler.runAfter(0, internal.scores.recomputeDepartmentScore, {
+        departmentId: template.departmentId,
+      });
+    }
+
+    const bounds = currentPeriod(template.cadence);
 
     const existing = await ctx.db
       .query("submissions")
       .withIndex("by_templateId_periodLabel", (q) =>
-        q.eq("templateId", templateId).eq("periodLabel", periodLabel),
+        q.eq("templateId", templateId).eq("periodLabel", bounds.periodLabel),
       )
       .filter((q) => q.eq(q.field("userId"), profile.userId))
       .unique();
@@ -51,10 +140,36 @@ export const getOrCreateCurrentSubmission = mutation({
     return await ctx.db.insert("submissions", {
       templateId,
       userId: profile.userId,
-      periodLabel,
-      dueAt,
+      periodLabel: bounds.periodLabel,
+      periodStart: bounds.periodStart,
+      periodEnd: bounds.periodEnd,
+      dueAt: bounds.dueAt,
       status: "pending",
     });
+  },
+});
+
+/** Proactive gap detection: runs daily via convex/crons.ts across every assignment. */
+export const backfillAllMissingSubmissions = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const templates = await ctx.db.query("reportTemplates").collect();
+    for (const template of templates) {
+      const assignments = await ctx.db
+        .query("reportAssignments")
+        .withIndex("by_templateId", (q) => q.eq("templateId", template._id))
+        .collect();
+      let anyInserted = false;
+      for (const assignment of assignments) {
+        const inserted = await backfillMissingPeriods(ctx, template, assignment.userId);
+        anyInserted = anyInserted || inserted;
+      }
+      if (anyInserted) {
+        await ctx.scheduler.runAfter(0, internal.scores.recomputeDepartmentScore, {
+          departmentId: template.departmentId,
+        });
+      }
+    }
   },
 });
 
@@ -108,8 +223,9 @@ export const saveValidationResult = internalMutation({
         maxPoints: v.number(),
       }),
     ),
+    bankClosingBalance: v.optional(v.number()),
   },
-  handler: async (ctx, { submissionId, score, summary, checklist }) => {
+  handler: async (ctx, { submissionId, score, summary, checklist, bankClosingBalance }) => {
     const submission = await ctx.db.get(submissionId);
     if (!submission) throw new Error("Submission not found");
 
@@ -125,7 +241,7 @@ export const saveValidationResult = internalMutation({
     }
 
     const finalScore = finalReportScore(submission.submissionScore ?? 0, score);
-    await ctx.db.patch(submissionId, { finalScore });
+    await ctx.db.patch(submissionId, { finalScore, bankClosingBalance });
 
     const template = await ctx.db.get(submission.templateId);
     if (template) {

@@ -1,7 +1,9 @@
+import { sliceStatementToPeriod } from "../lib/periodSlice";
 import type {
   ChecklistItem,
   ParsedFile,
   Transaction,
+  ValidationContext,
   ValidationResult,
   ValidationRule,
 } from "./types";
@@ -13,6 +15,7 @@ const OUTSTANDING_WINDOW_DAYS = 7;
 const CHECK_POINTS: Record<string, number> = {
   openingBalance: 15,
   closingBalance: 15,
+  openingBalanceContinuity: 15,
   debitsReconcile: 10,
   creditsReconcile: 10,
   duplicates: 10,
@@ -99,6 +102,7 @@ export function runBankReconciliationChecks(
   ledger: { openingBalance: number | null; closingBalance: number | null; transactions: Transaction[] },
   bank: { openingBalance: number | null; closingBalance: number | null; transactions: Transaction[] },
   rules: ValidationRule[],
+  expectedOpeningBalance: number | null = null,
 ): ValidationResult {
   const checklist: ChecklistItem[] = [];
   const recommendations: string[] = [];
@@ -160,6 +164,47 @@ export function runBankReconciliationChecks(
       maxPoints: CHECK_POINTS.closingBalance,
     });
     if (!ok) recommendations.push("Investigate the closing balance discrepancy.");
+  }
+
+  // 2b. Opening balance continuity: this period's bank opening should roll forward from last period's
+  // validated closing balance (or the admin-seeded starting balance for the very first period).
+  const continuityRule = ruleEnabled(rules, "openingBalanceContinuity");
+  if (continuityRule) {
+    if (expectedOpeningBalance === null) {
+      checklist.push({
+        title: "Opening Balance Continuity",
+        status: "pass",
+        explanation: "No prior period to compare against — treated as the first reconciled period.",
+        severity: "low",
+        points: CHECK_POINTS.openingBalanceContinuity,
+        maxPoints: CHECK_POINTS.openingBalanceContinuity,
+      });
+    } else {
+      const tolerance = continuityRule.tolerance ?? defaultTolerance;
+      const ok =
+        bank.openingBalance !== null &&
+        withinTolerance(bank.openingBalance, expectedOpeningBalance, tolerance);
+      const continuityDiff = bank.openingBalance !== null ? bank.openingBalance - expectedOpeningBalance : null;
+      checklist.push({
+        title: "Opening Balance Continuity",
+        status: ok ? "pass" : "fail",
+        explanation: ok
+          ? `This period's opening balance (${bank.openingBalance}) matches the prior period's closing balance.`
+          : `This period's opening balance (${bank.openingBalance ?? "n/a"}) does not match the prior period's closing balance (${expectedOpeningBalance})${
+              continuityDiff !== null
+                ? ` — a difference of ${continuityDiff > 0 ? "+" : ""}${continuityDiff.toFixed(2)}.`
+                : "."
+            }`,
+        severity: ok ? "low" : "high",
+        points: ok ? CHECK_POINTS.openingBalanceContinuity : 0,
+        maxPoints: CHECK_POINTS.openingBalanceContinuity,
+      });
+      if (!ok) {
+        recommendations.push(
+          "Investigate why this period's opening balance doesn't roll forward from last period's closing balance.",
+        );
+      }
+    }
   }
 
   const ledgerDebitTotal = sumByType(ledger.transactions, "debit");
@@ -367,6 +412,7 @@ export function runBankReconciliationChecks(
 export async function bankReconciliationValidator(
   files: ParsedFile[],
   rules: ValidationRule[],
+  context: ValidationContext,
 ): Promise<ValidationResult> {
   const ledgerFile = files.find((f) => f.label.toLowerCase().includes("ledger"));
   const bankFile = files.find((f) => f.label.toLowerCase().includes("bank"));
@@ -389,5 +435,12 @@ export async function bankReconciliationValidator(
     };
   }
 
-  return runBankReconciliationChecks(ledgerFile.statement, bankFile.statement, rules);
+  const ledgerStatement = sliceStatementToPeriod(ledgerFile.statement, context.periodStart, context.periodEnd);
+  const bankStatement = sliceStatementToPeriod(bankFile.statement, context.periodStart, context.periodEnd);
+
+  const result = runBankReconciliationChecks(ledgerStatement, bankStatement, rules, context.expectedOpeningBalance);
+  return {
+    ...result,
+    carryForward: bankStatement.closingBalance !== null ? { closingBalance: bankStatement.closingBalance } : undefined,
+  };
 }

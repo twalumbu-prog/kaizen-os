@@ -1,9 +1,10 @@
 import { bankReconciliationValidator } from "./bankReconciliation";
-import type { ParsedFile, ValidationResult, ValidationRule } from "./types";
+import type { ParsedFile, ValidationContext, ValidationResult, ValidationRule } from "./types";
 
 type AsyncValidator = (
   files: ParsedFile[],
   rules: ValidationRule[],
+  context: ValidationContext,
 ) => Promise<ValidationResult>;
 
 /**

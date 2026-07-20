@@ -35,6 +35,7 @@ export default function ReportConfigPage({
   const unassignUser = useMutation(api.reportAssignments.unassign);
 
   const [weight, setWeight] = useState<number | null>(null);
+  const [startingBalance, setStartingBalance] = useState<number | null>(null);
   const [selectedUserId, setSelectedUserId] = useState<string>("");
 
   if (template === undefined || assignments === undefined || users === undefined) {
@@ -105,6 +106,27 @@ export default function ReportConfigPage({
                 }}
               />
             </div>
+            <div className="flex items-center gap-4">
+              <Label className="w-32">Starting balance</Label>
+              <Input
+                type="number"
+                step="0.01"
+                className="w-40"
+                placeholder="e.g. 70424.52"
+                defaultValue={template.startingBalance}
+                onChange={(e) => setStartingBalance(parseFloat(e.target.value))}
+                onBlur={() => {
+                  if (startingBalance !== null && !Number.isNaN(startingBalance)) {
+                    updateTemplate({ templateId, startingBalance });
+                    toast.success("Starting balance updated");
+                  }
+                }}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Used as the expected opening balance for the very first period only. Every period after
+              that rolls forward from the prior period&apos;s validated closing balance automatically.
+            </p>
           </CardContent>
         </Card>
 

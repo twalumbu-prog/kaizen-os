@@ -15,6 +15,8 @@ export interface ValidationResult {
   checklist: ChecklistItem[];
   summary: string;
   recommendations: string[];
+  /** Values this validator wants persisted and handed to the next period's validation run of the same report. */
+  carryForward?: { closingBalance?: number };
 }
 
 export interface ValidationRule {
@@ -32,6 +34,8 @@ export interface Transaction {
   description: string;
   amount: number;
   type: TransactionType;
+  /** Running balance immediately after this row, when the source file has a balance column. */
+  balanceAfter?: number;
 }
 
 export interface ParsedStatement {
@@ -46,8 +50,16 @@ export interface ParsedFile {
   statement: ParsedStatement;
 }
 
+/** The report period being validated, and what its opening balance should roll forward from. */
+export interface ValidationContext {
+  periodStart: number;
+  periodEnd: number;
+  expectedOpeningBalance: number | null;
+}
+
 /** A validator turns the parsed uploaded files + configured rules into a result. */
 export type Validator = (
   files: ParsedFile[],
   rules: ValidationRule[],
-) => ValidationResult;
+  context: ValidationContext,
+) => ValidationResult | Promise<ValidationResult>;

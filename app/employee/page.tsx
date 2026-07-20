@@ -76,7 +76,11 @@ export default function EmployeePortalPage() {
                           {template.cadence}
                         </Badge>
                       </div>
-                      <Button size="sm" render={<Link href={`/employee/reports/${template._id}`} />}>
+                      <Button
+                        size="sm"
+                        nativeButton={false}
+                        render={<Link href={`/employee/reports/${template._id}`} />}
+                      >
                         Upload
                       </Button>
                     </div>

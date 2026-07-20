@@ -70,6 +70,8 @@ export default defineSchema({
     cadence: CADENCE,
     validatorKey: v.string(),
     weight: v.number(),
+    /** Admin-entered opening balance for the first-ever period, when there's no prior period to roll forward from. */
+    startingBalance: v.optional(v.number()),
     requiredFiles: v.array(
       v.object({
         label: v.string(),
@@ -98,11 +100,16 @@ export default defineSchema({
     templateId: v.id("reportTemplates"),
     userId: v.id("users"),
     periodLabel: v.string(),
+    /** Period window in ms, inclusive — see convex/lib/periods.ts. */
+    periodStart: v.number(),
+    periodEnd: v.number(),
     dueAt: v.number(),
     submittedAt: v.optional(v.number()),
     status: SUBMISSION_STATUS,
     submissionScore: v.optional(v.number()),
     finalScore: v.optional(v.number()),
+    /** Validated bank closing balance, carried forward as next period's expected opening balance. */
+    bankClosingBalance: v.optional(v.number()),
   })
     .index("by_templateId", ["templateId"])
     .index("by_userId", ["userId"])
