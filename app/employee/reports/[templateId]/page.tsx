@@ -21,13 +21,17 @@ const ACCEPT: Record<string, string> = {
 
 export default function UploadReportPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ templateId: Id<"reportTemplates"> }>;
+  searchParams: Promise<{ due?: string }>;
 }) {
   const { templateId } = use(params);
+  const { due } = use(searchParams);
   const router = useRouter();
   const template = useQuery(api.reportTemplates.get, { templateId });
-  const getOrCreateSubmission = useMutation(api.submissions.getOrCreateCurrentSubmission);
+  const getOrCreateCurrentSubmission = useMutation(api.submissions.getOrCreateCurrentSubmission);
+  const getOrCreateSubmissionForDueDate = useMutation(api.submissions.getOrCreateSubmissionForDueDate);
   const generateUploadUrl = useMutation(api.submissions.generateUploadUrl);
   const submitReport = useMutation(api.submissions.submitReport);
 
@@ -36,8 +40,13 @@ export default function UploadReportPage({
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    getOrCreateSubmission({ templateId }).then(setSubmissionId);
-  }, [templateId, getOrCreateSubmission]);
+    const dueAt = due ? Number(due) : undefined;
+    const promise =
+      dueAt !== undefined
+        ? getOrCreateSubmissionForDueDate({ templateId, dueAt })
+        : getOrCreateCurrentSubmission({ templateId });
+    promise.then(setSubmissionId);
+  }, [templateId, due, getOrCreateSubmissionForDueDate, getOrCreateCurrentSubmission]);
 
   if (template === undefined) {
     return (

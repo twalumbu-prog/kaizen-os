@@ -6,6 +6,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { CHECKLIST_STATUS, FILE_TYPE } from "./schema";
 import { requireProfile } from "./lib/roles";
 import { currentPeriod, nextPeriod, periodContaining } from "./lib/periods";
+import type { Cadence, PeriodBounds } from "./lib/periods";
 import { finalReportScore, submissionScore as computeSubmissionScore } from "./lib/scoring";
 
 /**
@@ -111,6 +112,46 @@ export const generateUploadUrl = mutation({
   },
 });
 
+/** Finds this user's existing submission for `bounds`' period, or creates a pending one. */
+async function getOrCreateSubmissionForBounds(
+  ctx: MutationCtx,
+  template: Doc<"reportTemplates">,
+  userId: Id<"users">,
+  bounds: PeriodBounds,
+): Promise<Id<"submissions">> {
+  const existing = await ctx.db
+    .query("submissions")
+    .withIndex("by_templateId_periodLabel", (q) =>
+      q.eq("templateId", template._id).eq("periodLabel", bounds.periodLabel),
+    )
+    .filter((q) => q.eq(q.field("userId"), userId))
+    .unique();
+  if (existing) return existing._id;
+
+  return await ctx.db.insert("submissions", {
+    templateId: template._id,
+    userId,
+    periodLabel: bounds.periodLabel,
+    periodStart: bounds.periodStart,
+    periodEnd: bounds.periodEnd,
+    dueAt: bounds.dueAt,
+    status: "pending",
+  });
+}
+
+/**
+ * Recovers the exact period bounds that produced a given `dueAt`. Since
+ * `dueAt` is always `periodEnd + 1 day` (see convex/lib/periods.ts), probing
+ * the day before `dueAt` lands back in the same period every time — this is
+ * what lets a calendar hand back a due timestamp and get the right period.
+ */
+function boundsForDueAt(cadence: Cadence, dueAt: number): PeriodBounds {
+  const probe = new Date(dueAt);
+  probe.setUTCDate(probe.getUTCDate() - 1);
+  probe.setUTCHours(12, 0, 0, 0);
+  return periodContaining(cadence, probe.getTime());
+}
+
 /** Ensures a submission row exists for the current period, for the calling user. */
 export const getOrCreateCurrentSubmission = mutation({
   args: { templateId: v.id("reportTemplates") },
@@ -126,26 +167,27 @@ export const getOrCreateCurrentSubmission = mutation({
       });
     }
 
-    const bounds = currentPeriod(template.cadence);
+    return getOrCreateSubmissionForBounds(ctx, template, profile.userId, currentPeriod(template.cadence));
+  },
+});
 
-    const existing = await ctx.db
-      .query("submissions")
-      .withIndex("by_templateId_periodLabel", (q) =>
-        q.eq("templateId", templateId).eq("periodLabel", bounds.periodLabel),
-      )
-      .filter((q) => q.eq(q.field("userId"), profile.userId))
-      .unique();
-    if (existing) return existing._id;
+/** Same as getOrCreateCurrentSubmission, but for an arbitrary (past or future) due date — used by the calendar. */
+export const getOrCreateSubmissionForDueDate = mutation({
+  args: { templateId: v.id("reportTemplates"), dueAt: v.number() },
+  handler: async (ctx, { templateId, dueAt }) => {
+    const profile = await requireProfile(ctx);
+    const template = await ctx.db.get(templateId);
+    if (!template) throw new Error("Report template not found");
 
-    return await ctx.db.insert("submissions", {
-      templateId,
-      userId: profile.userId,
-      periodLabel: bounds.periodLabel,
-      periodStart: bounds.periodStart,
-      periodEnd: bounds.periodEnd,
-      dueAt: bounds.dueAt,
-      status: "pending",
-    });
+    const inserted = await backfillMissingPeriods(ctx, template, profile.userId);
+    if (inserted) {
+      await ctx.scheduler.runAfter(0, internal.scores.recomputeDepartmentScore, {
+        departmentId: template.departmentId,
+      });
+    }
+
+    const bounds = boundsForDueAt(template.cadence, dueAt);
+    return getOrCreateSubmissionForBounds(ctx, template, profile.userId, bounds);
   },
 });
 
@@ -398,5 +440,63 @@ export const myAssignedTemplates = query({
         template: await ctx.db.get(a.templateId),
       })),
     );
+  },
+});
+
+const CALENDAR_DAYS_BEFORE = 10;
+const CALENDAR_DAYS_AFTER = 10;
+
+/** A ~3-week window of what's due each day, for the Reports tab's calendar strip. */
+export const myCalendar = query({
+  args: {},
+  handler: async (ctx) => {
+    const profile = await requireProfile(ctx);
+    const assignments = await ctx.db
+      .query("reportAssignments")
+      .withIndex("by_userId", (q) => q.eq("userId", profile.userId))
+      .collect();
+    const templates = (await Promise.all(assignments.map((a) => ctx.db.get(a.templateId)))).filter(
+      (t): t is Doc<"reportTemplates"> => t !== null,
+    );
+
+    const mySubmissions = await ctx.db
+      .query("submissions")
+      .withIndex("by_userId", (q) => q.eq("userId", profile.userId))
+      .order("desc")
+      .take(400);
+
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+
+    const days = [];
+    for (let offset = -CALENDAR_DAYS_BEFORE; offset <= CALENDAR_DAYS_AFTER; offset++) {
+      const day = new Date(today);
+      day.setUTCDate(day.getUTCDate() + offset);
+      const dayKey = day.toISOString().slice(0, 10);
+
+      const items = [];
+      for (const template of templates) {
+        // `day` (UTC midnight) is itself a valid candidate `dueAt` timestamp to probe with.
+        const bounds = boundsForDueAt(template.cadence, day.getTime());
+        if (new Date(bounds.dueAt).toISOString().slice(0, 10) !== dayKey) continue;
+
+        const submission = mySubmissions.find(
+          (s) => s.templateId === template._id && s.periodLabel === bounds.periodLabel,
+        );
+        items.push({
+          templateId: template._id,
+          templateName: template.name,
+          periodLabel: bounds.periodLabel,
+          dueAt: bounds.dueAt,
+          submissionId: submission?._id ?? null,
+          status: submission?.status ?? "pending",
+          completed: submission?.status === "submitted" || submission?.status === "late",
+        });
+      }
+
+      days.push({ date: day.getTime(), items });
+    }
+
+    return days;
   },
 });
