@@ -2,7 +2,7 @@
 
 import { useQuery } from "convex/react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { CalendarDays, CheckCircle2, Circle } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { AppShell } from "@/components/layout/app-shell";
@@ -49,22 +49,47 @@ function DashboardTab() {
   );
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+const INITIAL_DAYS_BEFORE = 10;
+const INITIAL_DAYS_AFTER = 10;
+const GROW_CHUNK_DAYS = 14;
+// Keep comfortably under the backend's MAX_CALENDAR_RANGE_DAYS (370) so
+// scrolling never hits the query's own error.
+const MAX_WINDOW_DAYS_EACH_SIDE = 175;
+
 function ReportsTab() {
   const router = useRouter();
   const [selectedDate, setSelectedDate] = useState(todayMidnightUTC);
   const [showFullCalendar, setShowFullCalendar] = useState(false);
+  const today = todayMidnightUTC();
+  const [windowFrom, setWindowFrom] = useState(today - INITIAL_DAYS_BEFORE * DAY_MS);
+  const [windowTo, setWindowTo] = useState(today + INITIAL_DAYS_AFTER * DAY_MS);
 
-  // Strip shows a fixed recent window and scrolls natively; the full calendar
-  // dialog is how you jump further away. The selected day is fetched on its
-  // own so To Do/Done stay correct even for a date outside the strip's window.
-  const strip = useQuery(api.submissions.myCalendar, {});
+  // The strip's window only ever grows (never shrinks) as the employee
+  // scrolls near either edge — see CalendarStrip's onNeedEarlier/onNeedLater.
+  // The full calendar dialog remains the fast path for jumping far away.
+  const strip = useQuery(api.submissions.myCalendar, { from: windowFrom, to: windowTo });
   const selectedDayCalendar = useQuery(api.submissions.myCalendar, {
     from: selectedDate,
     to: selectedDate,
   });
 
-  if (strip === undefined || selectedDayCalendar === undefined) {
+  // Keep showing the last-known strip while a wider range loads, so growing
+  // the window doesn't flash the whole tab back to a loading skeleton.
+  const lastStripRef = useRef<typeof strip>(undefined);
+  if (strip !== undefined) lastStripRef.current = strip;
+  const displayStrip = strip ?? lastStripRef.current;
+
+  if (displayStrip === undefined || selectedDayCalendar === undefined) {
     return <Skeleton className="h-64 w-full rounded-xl" />;
+  }
+
+  function needEarlier() {
+    setWindowFrom((prev) => Math.max(prev - GROW_CHUNK_DAYS * DAY_MS, today - MAX_WINDOW_DAYS_EACH_SIDE * DAY_MS));
+  }
+
+  function needLater() {
+    setWindowTo((prev) => Math.min(prev + GROW_CHUNK_DAYS * DAY_MS, today + MAX_WINDOW_DAYS_EACH_SIDE * DAY_MS));
   }
 
   const items = selectedDayCalendar[0]?.items ?? [];
@@ -90,7 +115,13 @@ function ReportsTab() {
           </Button>
         </CardHeader>
         <CardContent>
-          <CalendarStrip days={strip} selectedDate={selectedDate} onSelectDate={setSelectedDate} />
+          <CalendarStrip
+            days={displayStrip}
+            selectedDate={selectedDate}
+            onSelectDate={setSelectedDate}
+            onNeedEarlier={needEarlier}
+            onNeedLater={needLater}
+          />
           <FullCalendarDialog
             open={showFullCalendar}
             onOpenChange={setShowFullCalendar}

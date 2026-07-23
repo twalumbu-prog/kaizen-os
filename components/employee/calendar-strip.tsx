@@ -1,5 +1,6 @@
 "use client";
 
+import { useLayoutEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 
 export interface CalendarDay {
@@ -7,21 +8,65 @@ export interface CalendarDay {
   items: { completed: boolean }[];
 }
 
+const EDGE_THRESHOLD_PX = 150;
+
 export function CalendarStrip({
   days,
   selectedDate,
   onSelectDate,
+  onNeedEarlier,
+  onNeedLater,
 }: {
   days: CalendarDay[];
   selectedDate: number;
   onSelectDate: (date: number) => void;
+  /** Called while scrolled near the left edge — extend the window backward. */
+  onNeedEarlier?: () => void;
+  /** Called while scrolled near the right edge — extend the window forward. */
+  onNeedLater?: () => void;
 }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const prevFirstDateRef = useRef<number | undefined>(days[0]?.date);
+  const prevScrollWidthRef = useRef(0);
+
+  // When more (earlier) days are prepended, the browser keeps scrollLeft
+  // fixed relative to the content start — which visually yanks the view to
+  // the right. Compensate by adding back exactly the width that was
+  // inserted, so the day the user was looking at stays in place.
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const firstDate = days[0]?.date;
+    if (
+      prevFirstDateRef.current !== undefined &&
+      firstDate !== undefined &&
+      firstDate < prevFirstDateRef.current
+    ) {
+      const widthAdded = container.scrollWidth - prevScrollWidthRef.current;
+      if (widthAdded > 0) container.scrollLeft += widthAdded;
+    }
+    prevFirstDateRef.current = firstDate;
+    prevScrollWidthRef.current = container.scrollWidth;
+  }, [days]);
+
+  function handleScroll() {
+    const container = containerRef.current;
+    if (!container) return;
+    if (container.scrollLeft < EDGE_THRESHOLD_PX) {
+      onNeedEarlier?.();
+    }
+    const distanceFromEnd = container.scrollWidth - container.clientWidth - container.scrollLeft;
+    if (distanceFromEnd < EDGE_THRESHOLD_PX) {
+      onNeedLater?.();
+    }
+  }
+
   const todayStart = new Date();
   todayStart.setUTCHours(0, 0, 0, 0);
   const todayMs = todayStart.getTime();
 
   return (
-    <div className="flex gap-2 overflow-x-auto pb-2">
+    <div ref={containerRef} onScroll={handleScroll} className="flex gap-2 overflow-x-auto pb-2">
       {days.map((day) => {
         const d = new Date(day.date);
         const isSelected = day.date === selectedDate;

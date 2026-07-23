@@ -445,8 +445,12 @@ export const myAssignedTemplates = query({
 
 const CALENDAR_DAYS_BEFORE = 10;
 const CALENDAR_DAYS_AFTER = 10;
-/** Widest range a single call may request — enough for a padded month grid (max 6 weeks = 42 days). */
-const MAX_CALENDAR_RANGE_DAYS = 62;
+/**
+ * Widest range a single call may request. Covers the full-month dialog grid
+ * (max 6 weeks = 42 days) and the Reports tab strip, which grows this range
+ * as the employee scrolls — capped well short of this so it never errors.
+ */
+const MAX_CALENDAR_RANGE_DAYS = 370;
 
 /**
  * What's due each day across an arbitrary date range, for the Reports tab's
