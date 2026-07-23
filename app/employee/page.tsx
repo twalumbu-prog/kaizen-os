@@ -4,13 +4,15 @@ import { useQuery } from "convex/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { CheckCircle2, Circle } from "lucide-react";
+import { CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Circle } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { AppShell } from "@/components/layout/app-shell";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/dashboard/status-badge";
 import { CalendarStrip } from "@/components/employee/calendar-strip";
+import { FullCalendarDialog } from "@/components/employee/full-calendar-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table,
@@ -57,11 +59,20 @@ function DashboardTab() {
   );
 }
 
+const STRIP_DAYS_BEFORE = 10;
+const STRIP_DAYS_AFTER = 10;
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
 function ReportsTab() {
   const router = useRouter();
-  const calendar = useQuery(api.submissions.myCalendar);
   const portal = useQuery(api.submissions.myPortal);
   const [selectedDate, setSelectedDate] = useState(todayMidnightUTC);
+  const [stripCenter, setStripCenter] = useState(todayMidnightUTC);
+  const [showFullCalendar, setShowFullCalendar] = useState(false);
+
+  const stripFrom = stripCenter - STRIP_DAYS_BEFORE * 24 * 60 * 60 * 1000;
+  const stripTo = stripCenter + STRIP_DAYS_AFTER * 24 * 60 * 60 * 1000;
+  const calendar = useQuery(api.submissions.myCalendar, { from: stripFrom, to: stripTo });
 
   if (calendar === undefined || portal === undefined) {
     return <Skeleton className="h-64 w-full rounded-xl" />;
@@ -77,14 +88,50 @@ function ReportsTab() {
     }
   }
 
+  function selectDateAndRecenter(date: number) {
+    setSelectedDate(date);
+    setStripCenter(date);
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-base">Calendar</CardTitle>
+          <Button variant="outline" size="sm" onClick={() => setShowFullCalendar(true)}>
+            <CalendarDays className="size-4" />
+            Show full calendar
+          </Button>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
-          <CalendarStrip days={calendar} selectedDate={selectedDate} onSelectDate={setSelectedDate} />
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Previous week"
+              onClick={() => setStripCenter((d) => d - WEEK_MS)}
+            >
+              <ChevronLeft className="size-4" />
+            </Button>
+            <div className="flex-1">
+              <CalendarStrip days={calendar} selectedDate={selectedDate} onSelectDate={setSelectedDate} />
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Next week"
+              onClick={() => setStripCenter((d) => d + WEEK_MS)}
+            >
+              <ChevronRight className="size-4" />
+            </Button>
+          </div>
+
+          <FullCalendarDialog
+            open={showFullCalendar}
+            onOpenChange={setShowFullCalendar}
+            onSelectDate={selectDateAndRecenter}
+            initialDate={selectedDate}
+          />
 
           <div className="flex flex-col divide-y">
             {!selectedDay || selectedDay.items.length === 0 ? (

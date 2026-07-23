@@ -445,11 +445,17 @@ export const myAssignedTemplates = query({
 
 const CALENDAR_DAYS_BEFORE = 10;
 const CALENDAR_DAYS_AFTER = 10;
+/** Widest range a single call may request — enough for a padded month grid (max 6 weeks = 42 days). */
+const MAX_CALENDAR_RANGE_DAYS = 62;
 
-/** A ~3-week window of what's due each day, for the Reports tab's calendar strip. */
+/**
+ * What's due each day across an arbitrary date range, for the Reports tab's
+ * calendar strip (defaults to a ~3-week window around today) and the full
+ * calendar dialog (a month at a time, freely navigable).
+ */
 export const myCalendar = query({
-  args: {},
-  handler: async (ctx) => {
+  args: { from: v.optional(v.number()), to: v.optional(v.number()) },
+  handler: async (ctx, args) => {
     const profile = await requireProfile(ctx);
     const assignments = await ctx.db
       .query("reportAssignments")
@@ -468,9 +474,24 @@ export const myCalendar = query({
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
 
+    const defaultFrom = new Date(today);
+    defaultFrom.setUTCDate(defaultFrom.getUTCDate() - CALENDAR_DAYS_BEFORE);
+    const defaultTo = new Date(today);
+    defaultTo.setUTCDate(defaultTo.getUTCDate() + CALENDAR_DAYS_AFTER);
+
+    const from = new Date(args.from ?? defaultFrom.getTime());
+    from.setUTCHours(0, 0, 0, 0);
+    const to = new Date(args.to ?? defaultTo.getTime());
+    to.setUTCHours(0, 0, 0, 0);
+
+    const totalDays = Math.round((to.getTime() - from.getTime()) / 86400000) + 1;
+    if (totalDays < 1 || totalDays > MAX_CALENDAR_RANGE_DAYS) {
+      throw new Error(`Calendar range must be between 1 and ${MAX_CALENDAR_RANGE_DAYS} days`);
+    }
+
     const days = [];
-    for (let offset = -CALENDAR_DAYS_BEFORE; offset <= CALENDAR_DAYS_AFTER; offset++) {
-      const day = new Date(today);
+    for (let offset = 0; offset < totalDays; offset++) {
+      const day = new Date(from);
       day.setUTCDate(day.getUTCDate() + offset);
       const dayKey = day.toISOString().slice(0, 10);
 
