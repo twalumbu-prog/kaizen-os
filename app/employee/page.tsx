@@ -1,27 +1,17 @@
 "use client";
 
 import { useQuery } from "convex/react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Circle } from "lucide-react";
+import { CalendarDays, CheckCircle2, Circle } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { AppShell } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { StatusBadge } from "@/components/dashboard/status-badge";
 import { CalendarStrip } from "@/components/employee/calendar-strip";
 import { FullCalendarDialog } from "@/components/employee/full-calendar-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 
 function todayMidnightUTC(): number {
   const d = new Date();
@@ -59,38 +49,34 @@ function DashboardTab() {
   );
 }
 
-const STRIP_DAYS_BEFORE = 10;
-const STRIP_DAYS_AFTER = 10;
-const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
-
 function ReportsTab() {
   const router = useRouter();
-  const portal = useQuery(api.submissions.myPortal);
   const [selectedDate, setSelectedDate] = useState(todayMidnightUTC);
-  const [stripCenter, setStripCenter] = useState(todayMidnightUTC);
   const [showFullCalendar, setShowFullCalendar] = useState(false);
 
-  const stripFrom = stripCenter - STRIP_DAYS_BEFORE * 24 * 60 * 60 * 1000;
-  const stripTo = stripCenter + STRIP_DAYS_AFTER * 24 * 60 * 60 * 1000;
-  const calendar = useQuery(api.submissions.myCalendar, { from: stripFrom, to: stripTo });
+  // Strip shows a fixed recent window and scrolls natively; the full calendar
+  // dialog is how you jump further away. The selected day is fetched on its
+  // own so To Do/Done stay correct even for a date outside the strip's window.
+  const strip = useQuery(api.submissions.myCalendar, {});
+  const selectedDayCalendar = useQuery(api.submissions.myCalendar, {
+    from: selectedDate,
+    to: selectedDate,
+  });
 
-  if (calendar === undefined || portal === undefined) {
+  if (strip === undefined || selectedDayCalendar === undefined) {
     return <Skeleton className="h-64 w-full rounded-xl" />;
   }
 
-  const selectedDay = calendar.find((d) => d.date === selectedDate);
+  const items = selectedDayCalendar[0]?.items ?? [];
+  const todoItems = items.filter((item) => !item.completed);
+  const doneItems = items.filter((item) => item.completed);
 
-  function goToItem(item: NonNullable<typeof selectedDay>["items"][number]) {
-    if (item.completed && item.submissionId) {
-      router.push(`/submissions/${item.submissionId}`);
-    } else {
-      router.push(`/employee/reports/${item.templateId}?due=${item.dueAt}`);
-    }
+  function goToUpload(item: (typeof items)[number]) {
+    router.push(`/employee/reports/${item.templateId}?due=${item.dueAt}`);
   }
 
-  function selectDateAndRecenter(date: number) {
-    setSelectedDate(date);
-    setStripCenter(date);
+  function goToSubmission(item: (typeof items)[number]) {
+    if (item.submissionId) router.push(`/submissions/${item.submissionId}`);
   }
 
   return (
@@ -103,112 +89,64 @@ function ReportsTab() {
             Show full calendar
           </Button>
         </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label="Previous week"
-              onClick={() => setStripCenter((d) => d - WEEK_MS)}
-            >
-              <ChevronLeft className="size-4" />
-            </Button>
-            <div className="flex-1">
-              <CalendarStrip days={calendar} selectedDate={selectedDate} onSelectDate={setSelectedDate} />
-            </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label="Next week"
-              onClick={() => setStripCenter((d) => d + WEEK_MS)}
-            >
-              <ChevronRight className="size-4" />
-            </Button>
-          </div>
-
+        <CardContent>
+          <CalendarStrip days={strip} selectedDate={selectedDate} onSelectDate={setSelectedDate} />
           <FullCalendarDialog
             open={showFullCalendar}
             onOpenChange={setShowFullCalendar}
-            onSelectDate={selectDateAndRecenter}
+            onSelectDate={setSelectedDate}
             initialDate={selectedDate}
           />
-
-          <div className="flex flex-col divide-y">
-            {!selectedDay || selectedDay.items.length === 0 ? (
-              <p className="py-2 text-sm text-muted-foreground">Nothing due on this date.</p>
-            ) : (
-              selectedDay.items.map((item) => (
-                <button
-                  key={item.templateId}
-                  type="button"
-                  onClick={() => goToItem(item)}
-                  className="flex items-center gap-3 py-3 text-left hover:opacity-80"
-                >
-                  {item.completed ? (
-                    <CheckCircle2 className="size-5 shrink-0 text-emerald-500" />
-                  ) : (
-                    <Circle className="size-5 shrink-0 text-muted-foreground" />
-                  )}
-                  <div className="flex-1">
-                    <div className="font-medium">{item.templateName}</div>
-                    <div className="text-xs text-muted-foreground">{item.periodLabel}</div>
-                  </div>
-                  <span className="text-xs capitalize text-muted-foreground">{item.status}</span>
-                </button>
-              ))
-            )}
-          </div>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Submission History</CardTitle>
+          <CardTitle className="text-base">To Do</CardTitle>
         </CardHeader>
-        <CardContent>
-          {portal.history.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              You haven&apos;t submitted any reports yet.
-            </p>
+        <CardContent className="flex flex-col divide-y">
+          {todoItems.length === 0 ? (
+            <p className="py-2 text-sm text-muted-foreground">Nothing to do on this date.</p>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Report</TableHead>
-                  <TableHead>Period</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Files</TableHead>
-                  <TableHead>Submitted</TableHead>
-                  <TableHead>Score</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {portal.history.map(({ submission, templateName, fileCount }) => (
-                  <TableRow key={submission._id}>
-                    <TableCell>
-                      <Link href={`/submissions/${submission._id}`} className="hover:underline">
-                        {templateName}
-                      </Link>
-                    </TableCell>
-                    <TableCell>{submission.periodLabel}</TableCell>
-                    <TableCell className="capitalize">{submission.status}</TableCell>
-                    <TableCell>{fileCount}</TableCell>
-                    <TableCell>
-                      {submission.submittedAt
-                        ? new Date(submission.submittedAt).toLocaleString()
-                        : "—"}
-                    </TableCell>
-                    <TableCell>
-                      {submission.finalScore !== undefined ? (
-                        <StatusBadge score={submission.finalScore} />
-                      ) : (
-                        <span className="text-muted-foreground">Pending</span>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+            todoItems.map((item) => (
+              <div key={item.templateId} className="flex items-center gap-3 py-3">
+                <Circle className="size-5 shrink-0 text-muted-foreground" />
+                <div className="flex-1">
+                  <div className="font-medium">{item.templateName}</div>
+                  <div className="text-xs text-muted-foreground">{item.periodLabel}</div>
+                </div>
+                <Button size="sm" onClick={() => goToUpload(item)}>
+                  Submit
+                </Button>
+              </div>
+            ))
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Done</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col divide-y">
+          {doneItems.length === 0 ? (
+            <p className="py-2 text-sm text-muted-foreground">Nothing submitted on this date yet.</p>
+          ) : (
+            doneItems.map((item) => (
+              <button
+                key={item.templateId}
+                type="button"
+                onClick={() => goToSubmission(item)}
+                className="flex items-center gap-3 py-3 text-left hover:opacity-80"
+              >
+                <CheckCircle2 className="size-5 shrink-0 text-emerald-500" />
+                <div className="flex-1">
+                  <div className="font-medium">{item.templateName}</div>
+                  <div className="text-xs text-muted-foreground">{item.periodLabel}</div>
+                </div>
+                <span className="text-xs capitalize text-muted-foreground">{item.status}</span>
+              </button>
+            ))
           )}
         </CardContent>
       </Card>
