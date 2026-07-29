@@ -15,11 +15,29 @@ export function sliceStatementToPeriod(
   statement: ParsedStatement,
   periodStart: number,
   periodEnd: number,
+  role?: "ledger" | "bank"
 ): ParsedStatement {
   const dated = statement.transactions
     .map((t) => ({ t, ts: toTimestamp(t.date) }))
     .filter((x) => !Number.isNaN(x.ts))
     .sort((a, b) => a.ts - b.ts);
+
+  // If there's an opening balance but no balanceAfter on transactions, derive them.
+  if (statement.openingBalance !== null && role) {
+    let currentBalance = statement.openingBalance;
+    for (const x of dated) {
+      if (x.t.balanceAfter === undefined) {
+        if (role === "ledger") {
+          currentBalance += x.t.type === "debit" ? x.t.amount : -x.t.amount;
+        } else {
+          currentBalance += x.t.type === "credit" ? x.t.amount : -x.t.amount;
+        }
+        x.t.balanceAfter = currentBalance;
+      } else {
+        currentBalance = x.t.balanceAfter;
+      }
+    }
+  }
 
   const inWindow = dated.filter((x) => x.ts >= periodStart && x.ts <= periodEnd).map((x) => x.t);
 
@@ -28,10 +46,14 @@ export function sliceStatementToPeriod(
     before.length > 0 ? before[before.length - 1].t.balanceAfter! : statement.openingBalance;
 
   const throughPeriodEnd = dated.filter((x) => x.ts <= periodEnd && x.t.balanceAfter !== undefined);
-  const closingBalance =
-    throughPeriodEnd.length > 0
-      ? throughPeriodEnd[throughPeriodEnd.length - 1].t.balanceAfter!
-      : statement.closingBalance;
+  let closingBalance: number | null;
+  if (throughPeriodEnd.length > 0) {
+    closingBalance = throughPeriodEnd[throughPeriodEnd.length - 1].t.balanceAfter!;
+  } else if (statement.openingBalance !== null && role && dated.length > 0) {
+    closingBalance = statement.openingBalance;
+  } else {
+    closingBalance = statement.closingBalance;
+  }
 
   return { openingBalance, closingBalance, transactions: inWindow };
 }
