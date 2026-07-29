@@ -66,7 +66,7 @@ export function FullCalendarDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
-        <DialogHeader>
+        <DialogHeader className="pt-8">
           <div className="flex items-center justify-between">
             <Button
               variant="ghost"
