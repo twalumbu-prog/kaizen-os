@@ -32,6 +32,13 @@ function ruleEnabled(rules: ValidationRule[], key: string): ValidationRule | und
   return rule?.enabled ? rule : undefined;
 }
 
+/** Sum of CHECK_POINTS for currently-enabled rules — the max score a period could earn without running any files. */
+export function bankReconciliationMaxPoints(rules: ValidationRule[]): number {
+  return Object.keys(CHECK_POINTS).reduce((sum, key) => {
+    return ruleEnabled(rules, key) ? sum + CHECK_POINTS[key] : sum;
+  }, 0);
+}
+
 function withinTolerance(a: number, b: number, tolerance: number): boolean {
   return Math.abs(a - b) <= tolerance;
 }
@@ -435,8 +442,8 @@ export async function bankReconciliationValidator(
     };
   }
 
-  const ledgerStatement = sliceStatementToPeriod(ledgerFile.statement, context.periodStart, context.periodEnd);
-  const bankStatement = sliceStatementToPeriod(bankFile.statement, context.periodStart, context.periodEnd);
+  const ledgerStatement = sliceStatementToPeriod(ledgerFile.statement, context.periodStart, context.periodEnd, "ledger");
+  const bankStatement = sliceStatementToPeriod(bankFile.statement, context.periodStart, context.periodEnd, "bank");
 
   const result = runBankReconciliationChecks(ledgerStatement, bankStatement, rules, context.expectedOpeningBalance);
   return {

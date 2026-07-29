@@ -8,6 +8,7 @@ import { requireProfile } from "./lib/roles";
 import { currentPeriod, nextPeriod, periodContaining } from "./lib/periods";
 import type { Cadence, PeriodBounds } from "./lib/periods";
 import { finalReportScore, submissionScore as computeSubmissionScore } from "./lib/scoring";
+import { getMaxPossibleScore } from "./validators/registry";
 
 /**
  * Walks forward from the caller's most recent submission (or, if they have
@@ -249,6 +250,39 @@ export const submitReport = mutation({
   },
 });
 
+export const replaceSubmissionFile = mutation({
+  args: {
+    fileId: v.id("submissionFiles"),
+    storageId: v.id("_storage"),
+    fileName: v.string(),
+  },
+  handler: async (ctx, { fileId, storageId, fileName }) => {
+    const profile = await requireProfile(ctx);
+    const file = await ctx.db.get(fileId);
+    if (!file) throw new Error("File not found");
+
+    const submission = await ctx.db.get(file.submissionId);
+    if (!submission) throw new Error("Submission not found");
+    if (submission.userId !== profile.userId && profile.role === "employee") {
+      throw new Error("You can only replace your own reports");
+    }
+
+    // Optionally delete old storage ID here.
+    // await ctx.storage.delete(file.storageId);
+
+    await ctx.db.patch(fileId, { storageId, fileName });
+
+    // Mark as submitted/late and re-evaluate score
+    const now = Date.now();
+    const status = now <= submission.dueAt ? "submitted" : "late";
+    const subScore = computeSubmissionScore({ status, dueAt: submission.dueAt, submittedAt: now });
+    await ctx.db.patch(submission._id, { submittedAt: now, status, submissionScore: subScore });
+
+    await ctx.scheduler.runAfter(0, internal.validationRunner.runValidation, { submissionId: submission._id });
+    return null;
+  },
+});
+
 /** Persists a validation run's outcome. Called from the Node action after running a validator. */
 export const saveValidationResult = internalMutation({
   args: {
@@ -299,12 +333,17 @@ export const saveValidationResult = internalMutation({
 export const getSubmission = query({
   args: { submissionId: v.id("submissions") },
   handler: async (ctx, { submissionId }) => {
-    await requireProfile(ctx);
+    const profile = await requireProfile(ctx);
     const submission = await ctx.db.get(submissionId);
     if (!submission) return null;
+    
+    const template = await ctx.db.get(submission.templateId);
+    if (template) {
+      const dept = await ctx.db.get(template.departmentId);
+      if (!dept || dept.orgId !== profile.orgId) throw new Error("Unauthorized");
+    }
 
-    const [template, employee, files, validationResult] = await Promise.all([
-      ctx.db.get(submission.templateId),
+    const [employee, files, validationResult] = await Promise.all([
       ctx.db.get(submission.userId),
       ctx.db
         .query("submissionFiles")
@@ -342,7 +381,13 @@ export const getSubmission = query({
 export const listSubmissionsForTemplate = query({
   args: { templateId: v.id("reportTemplates") },
   handler: async (ctx, { templateId }) => {
-    await requireProfile(ctx);
+    const profile = await requireProfile(ctx);
+    const template = await ctx.db.get(templateId);
+    if (template) {
+      const dept = await ctx.db.get(template.departmentId);
+      if (!dept || dept.orgId !== profile.orgId) throw new Error("Unauthorized");
+    }
+    
     const submissions = await ctx.db
       .query("submissions")
       .withIndex("by_templateId", (q) => q.eq("templateId", templateId))
@@ -516,6 +561,7 @@ export const myCalendar = query({
           submissionId: submission?._id ?? null,
           status: submission?.status ?? "pending",
           completed: submission?.status === "submitted" || submission?.status === "late",
+          score: submission?.finalScore ?? null,
         });
       }
 
@@ -523,5 +569,104 @@ export const myCalendar = query({
     }
 
     return days;
+  },
+});
+
+const SCORE_PERIOD_GUARD = 400;
+
+/**
+ * YTD checklist score per assigned report template: every period due so far
+ * this calendar year, its individual earned/possible checklist points (from
+ * the persisted validation result when one exists, else the current rules'
+ * max), rolled up into a cumulative score for the Score tab.
+ */
+export const myReportScores = query({
+  args: {},
+  handler: async (ctx) => {
+    const profile = await requireProfile(ctx);
+    const assignments = await ctx.db
+      .query("reportAssignments")
+      .withIndex("by_userId", (q) => q.eq("userId", profile.userId))
+      .collect();
+    const templates = (await Promise.all(assignments.map((a) => ctx.db.get(a.templateId)))).filter(
+      (t): t is Doc<"reportTemplates"> => t !== null,
+    );
+
+    const now = Date.now();
+    const yearStart = Date.UTC(new Date().getUTCFullYear(), 0, 1);
+
+    return await Promise.all(
+      templates.map(async (template) => {
+        const ytdPeriods: PeriodBounds[] = [];
+        let cursor = periodContaining(template.cadence, yearStart);
+        let guard = 0;
+        while (cursor.dueAt <= now && guard < SCORE_PERIOD_GUARD) {
+          ytdPeriods.push(cursor);
+          cursor = nextPeriod(template.cadence, cursor);
+          guard++;
+        }
+
+        const periods = await Promise.all(
+          ytdPeriods.map(async (bounds) => {
+            // Uses .collect() + pick rather than .unique(): a handful of periods have
+            // duplicate rows for the same (template, period, user) from earlier backfill
+            // runs, which would otherwise throw here. Prefer a non-"missing" row when both exist.
+            const matches = await ctx.db
+              .query("submissions")
+              .withIndex("by_templateId_periodLabel", (q) =>
+                q.eq("templateId", template._id).eq("periodLabel", bounds.periodLabel),
+              )
+              .filter((q) => q.eq(q.field("userId"), profile.userId))
+              .collect();
+            const submission = matches.find((s) => s.status !== "missing") ?? matches[0];
+
+            let earned = 0;
+            let possible = getMaxPossibleScore(template.validatorKey, template.validationRules);
+            let checklist: Doc<"validationChecklistItems">[] = [];
+
+            if (submission) {
+              const validationResult = await ctx.db
+                .query("validationResults")
+                .withIndex("by_submissionId", (q) => q.eq("submissionId", submission._id))
+                .order("desc")
+                .first();
+              if (validationResult) {
+                checklist = await ctx.db
+                  .query("validationChecklistItems")
+                  .withIndex("by_validationResultId", (q) => q.eq("validationResultId", validationResult._id))
+                  .collect();
+                earned = checklist.reduce((sum, c) => sum + c.points, 0);
+                possible = checklist.reduce((sum, c) => sum + c.maxPoints, 0);
+              }
+            }
+
+            return {
+              periodLabel: bounds.periodLabel,
+              periodStart: bounds.periodStart,
+              periodEnd: bounds.periodEnd,
+              dueAt: bounds.dueAt,
+              status: submission?.status ?? "missing",
+              submissionId: submission?._id ?? null,
+              earned,
+              possible,
+              checklist,
+            };
+          }),
+        );
+
+        periods.sort((a, b) => b.dueAt - a.dueAt);
+
+        const earned = periods.reduce((sum, p) => sum + p.earned, 0);
+        const possible = periods.reduce((sum, p) => sum + p.possible, 0);
+
+        return {
+          templateId: template._id,
+          templateName: template.name,
+          earned,
+          possible,
+          periods,
+        };
+      }),
+    );
   },
 });

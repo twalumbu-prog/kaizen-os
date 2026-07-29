@@ -20,6 +20,7 @@ import type * as lib_periodSlice from "../lib/periodSlice.js";
 import type * as lib_periods from "../lib/periods.js";
 import type * as lib_roles from "../lib/roles.js";
 import type * as lib_scoring from "../lib/scoring.js";
+import type * as migrateMultiTenancy from "../migrateMultiTenancy.js";
 import type * as organizations from "../organizations.js";
 import type * as profiles from "../profiles.js";
 import type * as reportAssignments from "../reportAssignments.js";
@@ -51,6 +52,7 @@ declare const fullApi: ApiFromModules<{
   "lib/periods": typeof lib_periods;
   "lib/roles": typeof lib_roles;
   "lib/scoring": typeof lib_scoring;
+  migrateMultiTenancy: typeof migrateMultiTenancy;
   organizations: typeof organizations;
   profiles: typeof profiles;
   reportAssignments: typeof reportAssignments;

@@ -1,4 +1,4 @@
-import { bankReconciliationValidator } from "./bankReconciliation";
+import { bankReconciliationMaxPoints, bankReconciliationValidator } from "./bankReconciliation";
 import type { ParsedFile, ValidationContext, ValidationResult, ValidationRule } from "./types";
 
 type AsyncValidator = (
@@ -21,4 +21,22 @@ export function getValidator(validatorKey: string): AsyncValidator {
     throw new Error(`No validator registered for key "${validatorKey}"`);
   }
   return validator;
+}
+
+type MaxPointsFn = (rules: ValidationRule[]) => number;
+
+/**
+ * Maps `reportTemplates.validatorKey` to a function computing the max possible
+ * checklist score for a set of rules, without running the validator against files.
+ */
+export const MAX_POINTS_REGISTRY: Record<string, MaxPointsFn> = {
+  bankReconciliation: bankReconciliationMaxPoints,
+};
+
+export function getMaxPossibleScore(validatorKey: string, rules: ValidationRule[]): number {
+  const fn = MAX_POINTS_REGISTRY[validatorKey];
+  if (!fn) {
+    throw new Error(`No max-points function registered for key "${validatorKey}"`);
+  }
+  return fn(rules);
 }
