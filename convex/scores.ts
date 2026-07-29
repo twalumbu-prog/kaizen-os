@@ -121,7 +121,10 @@ async function recomputeOrganizationScoreInternal(
 export const departmentScoreHistory = query({
   args: { departmentId: v.id("departments") },
   handler: async (ctx, { departmentId }) => {
-    await requireProfile(ctx);
+    const profile = await requireProfile(ctx);
+    const department = await ctx.db.get(departmentId);
+    if (!department || department.orgId !== profile.orgId) throw new Error("Unauthorized");
+    
     const rows = await ctx.db
       .query("departmentScores")
       .withIndex("by_departmentId", (q) => q.eq("departmentId", departmentId))
@@ -134,7 +137,9 @@ export const departmentScoreHistory = query({
 export const organizationScoreHistory = query({
   args: { orgId: v.id("organizations") },
   handler: async (ctx, { orgId }) => {
-    await requireProfile(ctx);
+    const profile = await requireProfile(ctx);
+    if (profile.orgId !== orgId) throw new Error("Unauthorized");
+    
     const rows = await ctx.db
       .query("organizationScores")
       .withIndex("by_orgId", (q) => q.eq("orgId", orgId))

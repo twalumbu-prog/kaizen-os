@@ -9,6 +9,7 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
         return {
           email: params.email as string,
           name: (params.name as string) ?? undefined,
+          orgName: (params.orgName as string) ?? undefined,
         };
       },
     }),
@@ -18,7 +19,8 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
       const name =
         (typeof profile.name === "string" && profile.name) ||
         (typeof profile.email === "string" ? profile.email : "New user");
-      await ctx.runMutation(internal.profiles.ensureProfile, { userId, name });
+      const orgName = typeof profile.orgName === "string" ? profile.orgName : undefined;
+      await ctx.runMutation(internal.profiles.ensureProfile, { userId, name, orgName });
     },
   },
 });

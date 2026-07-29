@@ -22,11 +22,13 @@ export function AuthForm({ flow }: { flow: "signIn" | "signUp" }) {
     try {
       await signIn("password", formData);
       router.push("/");
-    } catch (err) {
+    } catch (err: any) {
+      console.error("Auth Error:", err);
+      const errorMessage = err?.message || (typeof err === "string" ? err : "Unknown error");
       toast.error(
         flow === "signIn"
-          ? "Could not sign in. Check your email and password."
-          : "Could not create account. Try a different email.",
+          ? `Sign in failed: ${errorMessage}`
+          : `Account creation failed: ${errorMessage}`,
       );
     } finally {
       setSubmitting(false);
@@ -48,10 +50,16 @@ export function AuthForm({ flow }: { flow: "signIn" | "signUp" }) {
       <CardContent>
         <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
           {isSignUp && (
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="name">Full name</Label>
-              <Input id="name" name="name" required autoComplete="name" />
-            </div>
+            <>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="name">Full name</Label>
+                <Input id="name" name="name" required autoComplete="name" />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="orgName">Organization Name (or Invite Code)</Label>
+                <Input id="orgName" name="orgName" required placeholder="e.g. Acme Corp" />
+              </div>
+            </>
           )}
           <div className="flex flex-col gap-2">
             <Label htmlFor="email">Email</Label>

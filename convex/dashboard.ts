@@ -8,7 +8,8 @@ const TREND_POINTS = 12;
 export const organizationDashboard = query({
   args: { orgId: v.id("organizations") },
   handler: async (ctx, { orgId }) => {
-    await requireProfile(ctx);
+    const profile = await requireProfile(ctx);
+    if (profile.orgId !== orgId) throw new Error("Unauthorized");
 
     const org = await ctx.db.get(orgId);
     const departments = await ctx.db
@@ -58,9 +59,10 @@ export const organizationDashboard = query({
 export const departmentDashboard = query({
   args: { departmentId: v.id("departments") },
   handler: async (ctx, { departmentId }) => {
-    await requireProfile(ctx);
+    const profile = await requireProfile(ctx);
 
     const department = await ctx.db.get(departmentId);
+    if (!department || department.orgId !== profile.orgId) throw new Error("Unauthorized");
     const templates = await ctx.db
       .query("reportTemplates")
       .withIndex("by_departmentId", (q) => q.eq("departmentId", departmentId))
@@ -137,10 +139,13 @@ export const departmentDashboard = query({
 export const reportDetail = query({
   args: { templateId: v.id("reportTemplates") },
   handler: async (ctx, { templateId }) => {
-    await requireProfile(ctx);
-    const template = await ctx.db.get(templateId);
-    if (!template) return null;
+    const profile = await requireProfile(ctx);
 
+    const template = await ctx.db.get(templateId);
+    if (!template) throw new Error("Template not found");
+    const dept = await ctx.db.get(template.departmentId);
+    if (!dept || dept.orgId !== profile.orgId) throw new Error("Unauthorized");
+    
     const submissions = await ctx.db
       .query("submissions")
       .withIndex("by_templateId", (q) => q.eq("templateId", templateId))

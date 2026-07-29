@@ -6,20 +6,46 @@ import { requireRole } from "./lib/roles";
 
 // Called from convex/auth.ts right after a user is created or signs in.
 export const ensureProfile = internalMutation({
-  args: { userId: v.id("users"), name: v.string() },
-  handler: async (ctx, { userId, name }) => {
+  args: { userId: v.id("users"), name: v.string(), orgName: v.optional(v.string()) },
+  handler: async (ctx, { userId, name, orgName }) => {
     const existing = await ctx.db
       .query("profiles")
       .withIndex("by_userId", (q) => q.eq("userId", userId))
       .unique();
     if (existing !== null) return;
 
-    // First user to ever sign up becomes an admin; everyone else starts as
-    // an employee and is promoted by an admin later.
-    const anyProfile = await ctx.db.query("profiles").first();
-    const role = anyProfile === null ? "admin" : "employee";
+    let orgId;
+    if (orgName) {
+      // Try to see if they provided a valid organization ID (acting as an invite code)
+      const existingOrg = await ctx.db.normalizeId("organizations", orgName);
+      if (existingOrg) {
+        const org = await ctx.db.get(existingOrg);
+        if (org) {
+          orgId = org._id;
+        }
+      }
+      
+      // If not a valid existing ID, create a new organization
+      if (!orgId) {
+        orgId = await ctx.db.insert("organizations", { name: orgName });
+      }
+    } else {
+      // Fallback for existing users / logic
+      const anyOrg = await ctx.db.query("organizations").first();
+      if (anyOrg) {
+        orgId = anyOrg._id;
+      } else {
+        orgId = await ctx.db.insert("organizations", { name: "Default Organization" });
+      }
+    }
 
-    await ctx.db.insert("profiles", { userId, role, name });
+    // First user in the org becomes admin
+    const firstInOrg = await ctx.db.query("profiles")
+      .withIndex("by_orgId", (q) => q.eq("orgId", orgId!))
+      .first();
+    const role = firstInOrg === null ? "admin" : "employee";
+
+    await ctx.db.insert("profiles", { userId, role, name, orgId: orgId! });
   },
 });
 

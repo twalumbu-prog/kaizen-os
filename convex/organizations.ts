@@ -5,7 +5,7 @@ import { requireProfile } from "./lib/roles";
 export const getPrimary = query({
   args: {},
   handler: async (ctx) => {
-    await requireProfile(ctx);
-    return await ctx.db.query("organizations").first();
+    const profile = await requireProfile(ctx);
+    return await ctx.db.get(profile.orgId);
   },
 });

@@ -39,10 +39,13 @@ export default defineSchema({
   // Extends Convex Auth's `users` table with app-specific fields.
   profiles: defineTable({
     userId: v.id("users"),
+    orgId: v.id("organizations"),
     role: ROLES,
     departmentId: v.optional(v.id("departments")),
     name: v.string(),
-  }).index("by_userId", ["userId"]),
+  })
+    .index("by_userId", ["userId"])
+    .index("by_orgId", ["orgId"]),
 
   organizations: defineTable({
     name: v.string(),
