@@ -2,7 +2,7 @@
 
 import { useQuery, useMutation } from "convex/react";
 import { use, useRef, useState } from "react";
-import { ArrowLeft, CheckCircle2, XCircle, AlertTriangle, FileText, Upload } from "lucide-react";
+import { ArrowLeft, CheckCircle2, XCircle, AlertTriangle, FileText, Upload, Loader2, Trash2 } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { AppShell } from "@/components/layout/app-shell";
@@ -24,7 +24,9 @@ function ReuploadFile({ fileId }: { fileId: Id<"submissionFiles"> }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const generateUploadUrl = useMutation(api.submissions.generateUploadUrl);
   const replaceSubmissionFile = useMutation(api.submissions.replaceSubmissionFile);
+  const deleteSubmissionFile = useMutation(api.submissions.deleteSubmissionFile);
   const [isUploading, setIsUploading] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -55,20 +57,45 @@ function ReuploadFile({ fileId }: { fileId: Id<"submissionFiles"> }) {
     }
   }
 
+  async function handleDelete(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!confirm("Are you sure you want to delete this file?")) return;
+    try {
+      setIsDeleting(true);
+      await deleteSubmissionFile({ fileId });
+    } catch (err) {
+      console.error(err);
+      alert("Failed to delete file.");
+    } finally {
+      setIsDeleting(false);
+    }
+  }
+
   return (
-    <>
+    <div className="flex items-center">
       <input type="file" className="hidden" ref={fileInputRef} onChange={handleFileChange} />
       <Button 
         variant="outline" 
         size="sm" 
         className="ml-2 h-8"
         onClick={(e) => { e.preventDefault(); e.stopPropagation(); fileInputRef.current?.click(); }}
-        disabled={isUploading}
+        disabled={isUploading || isDeleting}
       >
         <Upload className="size-4 mr-2" />
         {isUploading ? "..." : "Re-upload"}
       </Button>
-    </>
+      <Button
+        variant="outline"
+        size="icon"
+        className="ml-2 h-8 w-8 text-destructive border-destructive/20 hover:bg-destructive/10"
+        onClick={handleDelete}
+        disabled={isUploading || isDeleting}
+        title="Delete file"
+      >
+        <Trash2 className="size-4" />
+      </Button>
+    </div>
   );
 }
 
@@ -183,7 +210,17 @@ export default function SubmissionDetailPage({
           <CardContent className="flex flex-col gap-4">
             {validationResult && <Progress value={validationResult.score} />}
             {!validationResult ? (
-              <p className="text-sm text-muted-foreground">Validation has not run yet.</p>
+              (submission.status === "submitted" || submission.status === "late") ? (
+                <div className="flex flex-col items-center justify-center py-6 gap-4">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="size-4 animate-spin" />
+                    Running Validation...
+                  </div>
+                  <Progress value={null} className="h-2 w-full max-w-sm animate-pulse" />
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">Validation has not run yet.</p>
+              )
             ) : (
               <div className="flex flex-col divide-y">
                 {checklist.map((item) => (

@@ -98,7 +98,18 @@ export const loadForValidation = internalQuery({
           s.periodEnd < submission.periodStart &&
           s.bankClosingBalance !== undefined,
       )
-      .sort((a, b) => b.periodEnd - a.periodEnd)[0];
+      .sort((a, b) => {
+        // Sort by periodEnd descending
+        if (b.periodEnd !== a.periodEnd) {
+          return b.periodEnd - a.periodEnd;
+        }
+        // If there are multiple submissions for the same period (e.g. from different users or duplicates),
+        // prefer the current user's submission.
+        if (b.userId === submission.userId && a.userId !== submission.userId) return 1;
+        if (a.userId === submission.userId && b.userId !== submission.userId) return -1;
+        // Otherwise, prefer the submission with the highest score
+        return (b.finalScore ?? 0) - (a.finalScore ?? 0);
+      })[0];
     const expectedOpeningBalance = prior?.bankClosingBalance ?? template.startingBalance ?? null;
 
     return { submission, template, files, expectedOpeningBalance };
@@ -273,6 +284,38 @@ export const replaceSubmissionFile = mutation({
     await ctx.db.patch(fileId, { storageId, fileName });
 
     // Mark as submitted/late and re-evaluate score
+    const now = Date.now();
+    const status = now <= submission.dueAt ? "submitted" : "late";
+    const subScore = computeSubmissionScore({ status, dueAt: submission.dueAt, submittedAt: now });
+    await ctx.db.patch(submission._id, { submittedAt: now, status, submissionScore: subScore });
+
+    await ctx.scheduler.runAfter(0, internal.validationRunner.runValidation, { submissionId: submission._id });
+    return null;
+  },
+});
+
+export const deleteSubmissionFile = mutation({
+  args: {
+    fileId: v.id("submissionFiles"),
+  },
+  handler: async (ctx, { fileId }) => {
+    const profile = await requireProfile(ctx);
+    const file = await ctx.db.get(fileId);
+    if (!file) throw new Error("File not found");
+
+    const submission = await ctx.db.get(file.submissionId);
+    if (!submission) throw new Error("Submission not found");
+    if (submission.userId !== profile.userId && profile.role === "employee") {
+      throw new Error("You can only delete files from your own reports");
+    }
+
+    // Delete the file record
+    await ctx.db.delete(fileId);
+
+    // If no files remain, reset submission to pending? 
+    // Actually, we can just trigger validation, which will mark it as missing files.
+    // Or we reset to pending if we want them to start from scratch.
+    // Let's just trigger validation so it fails and they can see it's missing.
     const now = Date.now();
     const status = now <= submission.dueAt ? "submitted" : "late";
     const subScore = computeSubmissionScore({ status, dueAt: submission.dueAt, submittedAt: now });
@@ -658,10 +701,13 @@ export const myReportScores = query({
 
         const earned = periods.reduce((sum, p) => sum + p.earned, 0);
         const possible = periods.reduce((sum, p) => sum + p.possible, 0);
+        const dept = await ctx.db.get(template.departmentId);
 
         return {
           templateId: template._id,
           templateName: template.name,
+          departmentId: template.departmentId,
+          departmentName: dept?.name ?? "Unknown",
           earned,
           possible,
           periods,

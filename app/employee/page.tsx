@@ -224,6 +224,7 @@ function EmployeePortalContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const tab = searchParams.get("tab") ?? "dashboard";
+  const [showChart, setShowChart] = useState(false);
 
   return (
     <AppShell>
@@ -231,11 +232,18 @@ function EmployeePortalContent() {
         <h1 className="text-2xl font-semibold tracking-tight">Employee Portal</h1>
 
         <Tabs value={tab} onValueChange={(v) => router.push(`/employee?tab=${v}`)}>
-          <TabsList>
-            <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
-            <TabsTrigger value="reports">Reports</TabsTrigger>
-            <TabsTrigger value="score">Score</TabsTrigger>
-          </TabsList>
+          <div className="flex items-center justify-between">
+            <TabsList>
+              <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
+              <TabsTrigger value="reports">Reports</TabsTrigger>
+              <TabsTrigger value="score">Score</TabsTrigger>
+            </TabsList>
+            {tab === "score" && (
+              <Button variant="outline" size="sm" onClick={() => setShowChart(!showChart)}>
+                {showChart ? "Hide Chart" : "Show Chart"}
+              </Button>
+            )}
+          </div>
           <TabsContent value="dashboard">
             <DashboardTab />
           </TabsContent>
@@ -243,7 +251,7 @@ function EmployeePortalContent() {
             <ReportsTab />
           </TabsContent>
           <TabsContent value="score">
-            <ScoreTab />
+            <ScoreTab showChart={showChart} />
           </TabsContent>
         </Tabs>
       </div>

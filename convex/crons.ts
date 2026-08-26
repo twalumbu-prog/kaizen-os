@@ -11,4 +11,10 @@ crons.daily(
   internal.submissions.backfillAllMissingSubmissions,
 );
 
+crons.daily(
+  "send-report-reminders",
+  { hourUTC: 8, minuteUTC: 0 },
+  internal.reminders.processReminders
+);
+
 export default crons;

@@ -90,6 +90,7 @@ export default defineSchema({
         tolerance: v.optional(v.number()),
       }),
     ),
+    quickbooksAccountId: v.optional(v.string()),
   }).index("by_departmentId", ["departmentId"]),
 
   reportAssignments: defineTable({
@@ -183,4 +184,29 @@ export default defineSchema({
     entityId: v.string(),
     createdAt: v.number(),
   }).index("by_userId", ["userId"]),
+
+  integrations: defineTable({
+    orgId: v.id("organizations"),
+    provider: v.union(
+      v.literal("quickbooks"),
+      v.literal("resend"),
+      v.literal("google_drive"),
+      v.literal("google_ai")
+    ),
+    status: v.union(v.literal("active"), v.literal("disconnected")),
+    config: v.optional(v.string()), // JSON string of integration-specific configuration
+  })
+    .index("by_orgId", ["orgId"])
+    .index("by_orgId_provider", ["orgId", "provider"]),
+
+  // One-time, short-lived tokens binding an OAuth `state` param to the org/admin
+  // that initiated the connect flow — prevents a caller from completing an OAuth
+  // flow with a hand-crafted `state` to link their own third-party account to a
+  // different org's integration.
+  oauthStates: defineTable({
+    token: v.string(),
+    orgId: v.id("organizations"),
+    provider: v.union(v.literal("quickbooks"), v.literal("google_drive")),
+    expiresAt: v.number(),
+  }).index("by_token", ["token"]),
 });

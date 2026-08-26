@@ -10,6 +10,7 @@ import { Progress } from "@/components/ui/progress";
 import { StatusBadge } from "@/components/dashboard/status-badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { HeatmapChart } from "@/components/employee/heatmap-chart";
 import { useRouter } from "next/navigation";
 
 const CHECKLIST_ICON = {
@@ -97,7 +98,12 @@ function ScoreCard({ report }: { report: ReportScore }) {
     <Card>
       <button type="button" onClick={() => setExpanded((e) => !e)} className="w-full text-left">
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-base">{report.templateName}</CardTitle>
+          <div className="flex items-center gap-3">
+            <CardTitle className="text-base">{report.templateName}</CardTitle>
+            <span className="inline-flex items-center rounded-md bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground">
+              {report.departmentName}
+            </span>
+          </div>
           {expanded ? (
             <ChevronDown className="size-4 text-muted-foreground" />
           ) : (
@@ -130,8 +136,9 @@ function ScoreCard({ report }: { report: ReportScore }) {
   );
 }
 
-export function ScoreTab() {
+export function ScoreTab({ showChart }: { showChart?: boolean }) {
   const scores = useQuery(api.submissions.myReportScores);
+  const [selectedDept, setSelectedDept] = useState<string>("All");
 
   if (scores === undefined) {
     return <Skeleton className="h-48 w-full rounded-xl" />;
@@ -141,11 +148,60 @@ export function ScoreTab() {
     return <p className="text-sm text-muted-foreground">No reports assigned yet.</p>;
   }
 
+  const grouped = scores.reduce((acc, score) => {
+    const dept = score.departmentName || "Unknown";
+    if (!acc[dept]) acc[dept] = [];
+    acc[dept].push(score);
+    return acc;
+  }, {} as Record<string, typeof scores>);
+
+  const departments = Object.keys(grouped).sort();
+  const visibleDepartments = selectedDept === "All" ? departments : [selectedDept];
+
   return (
-    <div className="flex flex-col gap-4">
-      {scores.map((report) => (
-        <ScoreCard key={report.templateId} report={report} />
-      ))}
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-wrap gap-2">
+        <button
+          onClick={() => setSelectedDept("All")}
+          className={cn(
+            "rounded-md px-3 py-1.5 text-sm font-medium transition-colors hover:bg-muted",
+            selectedDept === "All" ? "bg-muted text-foreground" : "text-muted-foreground"
+          )}
+        >
+          All
+        </button>
+        {departments.map((dept) => (
+          <button
+            key={dept}
+            onClick={() => setSelectedDept(dept)}
+            className={cn(
+              "rounded-md px-3 py-1.5 text-sm font-medium transition-colors hover:bg-muted",
+              selectedDept === dept ? "bg-muted text-foreground" : "text-muted-foreground"
+            )}
+          >
+            {dept}
+          </button>
+        ))}
+      </div>
+
+      {showChart && (
+        <Card className="p-4">
+          <HeatmapChart scores={scores} />
+        </Card>
+      )}
+
+      <div className="flex flex-col gap-8">
+        {visibleDepartments.map((dept) => (
+          <div key={dept} className="flex flex-col gap-4">
+            <h3 className="text-lg font-semibold tracking-tight">{dept}</h3>
+            <div className="flex flex-col gap-4">
+              {grouped[dept].map((report) => (
+                <ScoreCard key={report.templateId} report={report} />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

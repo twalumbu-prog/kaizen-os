@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQuery } from "convex/react";
+import { useMutation, useQuery, useAction } from "convex/react";
 import { useRouter } from "next/navigation";
 import { use, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { CheckCircle2, RefreshCw } from "lucide-react";
 
 const ACCEPT: Record<string, string> = {
   xlsx: ".xlsx,.xls",
@@ -34,10 +35,21 @@ export default function UploadReportPage({
   const getOrCreateSubmissionForDueDate = useMutation(api.submissions.getOrCreateSubmissionForDueDate);
   const generateUploadUrl = useMutation(api.submissions.generateUploadUrl);
   const submitReport = useMutation(api.submissions.submitReport);
+  const fetchLedgerForPeriod = useAction(api.quickbooks.fetchLedgerForPeriod);
+  const fetchPayrollJournalEntries = useAction(api.quickbooks.fetchPayrollJournalEntries);
+
+  const org = useQuery(api.organizations.getPrimary);
+  const qbIntegration = useQuery(
+    api.integrations.getIntegration,
+    org ? { orgId: org._id, provider: "quickbooks" } : "skip",
+  );
 
   const [submissionId, setSubmissionId] = useState<Id<"submissions"> | null>(null);
   const [selectedFiles, setSelectedFiles] = useState<Record<string, File | null>>({});
   const [submitting, setSubmitting] = useState(false);
+  const [qbPayrollSynced, setQbPayrollSynced] = useState(false);
+  const [qbPayrollStorageId, setQbPayrollStorageId] = useState<Id<"_storage"> | null>(null);
+  const [syncingPayrollQb, setSyncingPayrollQb] = useState(false);
 
   useEffect(() => {
     const dueAt = due ? Number(due) : undefined;
@@ -64,16 +76,72 @@ export default function UploadReportPage({
     );
   }
 
-  const missingRequired = template.requiredFiles.some(
+  const isQuickbooksMapped = !!template.quickbooksAccountId;
+  const isPayroll = template.validatorKey === "payroll";
+  const isQbActive = qbIntegration?.status === "active";
+
+  // For payroll: hide the QB CSV upload slot — it's filled by the sync button.
+  const visibleRequirements = template.requiredFiles.filter((f) => {
+    if (isQuickbooksMapped && f.label.toLowerCase() === "internal ledger") return false;
+    if (isPayroll && f.label.toLowerCase() === "quickbooks payroll data") return false;
+    return true;
+  });
+
+  const missingRequired = visibleRequirements.some(
     (f) => f.required && !selectedFiles[f.label],
   );
+
+  async function handleSyncPayrollQb() {
+    if (!submissionId) return;
+    setSyncingPayrollQb(true);
+    toast.loading("Fetching payroll entries from QuickBooks…", { id: "qb-payroll" });
+    try {
+      const storageId = await fetchPayrollJournalEntries({ submissionId });
+      setQbPayrollStorageId(storageId as Id<"_storage">);
+      setQbPayrollSynced(true);
+      toast.success("QuickBooks payroll data synced.", { id: "qb-payroll" });
+    } catch (err) {
+      toast.error("Failed to sync QuickBooks payroll data.", { id: "qb-payroll" });
+    } finally {
+      setSyncingPayrollQb(false);
+    }
+  }
 
   async function handleSubmit() {
     if (!submissionId) return;
     setSubmitting(true);
     try {
       const uploaded = [];
-      for (const requirement of template!.requiredFiles) {
+
+      if (isQuickbooksMapped) {
+        toast.loading("Syncing Quickbooks Ledger...", { id: "qb-sync" });
+        try {
+          const qbStorageId = await fetchLedgerForPeriod({ templateId, submissionId });
+          uploaded.push({
+            storageId: qbStorageId as Id<"_storage">,
+            label: "Internal Ledger",
+            fileType: "csv" as const,
+            fileName: "quickbooks_ledger.csv",
+          });
+          toast.success("Ledger synced", { id: "qb-sync" });
+        } catch (err) {
+          toast.error("Failed to sync QuickBooks ledger.", { id: "qb-sync" });
+          setSubmitting(false);
+          return;
+        }
+      }
+
+      // Attach the QB payroll data if it was synced.
+      if (isPayroll && qbPayrollStorageId) {
+        uploaded.push({
+          storageId: qbPayrollStorageId,
+          label: "QuickBooks Payroll Data",
+          fileType: "csv" as const,
+          fileName: "quickbooks_payroll.csv",
+        });
+      }
+
+      for (const requirement of visibleRequirements) {
         const file = selectedFiles[requirement.label];
         if (!file) continue;
         const uploadUrl = await generateUploadUrl();
@@ -115,7 +183,50 @@ export default function UploadReportPage({
             <CardDescription>Upload each file, then submit to start validation.</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
-            {template.requiredFiles.map((requirement) => (
+            {isQuickbooksMapped && (
+              <div className="rounded-md border border-emerald-200 bg-emerald-50/50 p-4 dark:border-emerald-900/50 dark:bg-emerald-950/20">
+                <div className="flex items-center gap-2 text-sm font-medium text-emerald-800 dark:text-emerald-300">
+                  <Badge variant="default" className="bg-emerald-500 hover:bg-emerald-600">QuickBooks Synced</Badge>
+                  <span>Internal Ledger is automatically fetched.</span>
+                </div>
+              </div>
+            )}
+
+            {/* Payroll: QuickBooks verification sync button */}
+            {isPayroll && isQbActive && (
+              <div className="rounded-md border border-sky-200 bg-sky-50/50 p-4 dark:border-sky-900/50 dark:bg-sky-950/20">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium text-sky-800 dark:text-sky-300">
+                      QuickBooks Payroll Verification
+                    </p>
+                    <p className="text-xs text-sky-700/70 dark:text-sky-400/70 mt-0.5">
+                      {qbPayrollSynced
+                        ? "Journal entries fetched — QB checks will run on submission."
+                        : "Fetch journal entries to verify QB postings (optional but recommended)."}
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleSyncPayrollQb}
+                    disabled={!submissionId || syncingPayrollQb}
+                    className="shrink-0 border-sky-300 text-sky-800 hover:bg-sky-100 dark:border-sky-700 dark:text-sky-300 dark:hover:bg-sky-900/40"
+                  >
+                    {syncingPayrollQb ? (
+                      <RefreshCw className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                    ) : qbPayrollSynced ? (
+                      <CheckCircle2 className="mr-1.5 h-3.5 w-3.5 text-emerald-500" />
+                    ) : (
+                      <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                    )}
+                    {qbPayrollSynced ? "Re-sync" : "Sync from QB"}
+                  </Button>
+                </div>
+              </div>
+            )}
+            
+            {visibleRequirements.map((requirement) => (
               <div key={requirement.label} className="flex flex-col gap-2">
                 <Label htmlFor={requirement.label} className="flex items-center gap-2">
                   {requirement.label}

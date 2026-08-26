@@ -42,6 +42,12 @@ export interface ParsedStatement {
   openingBalance: number | null;
   closingBalance: number | null;
   transactions: Transaction[];
+  /**
+   * Arbitrary key-value metadata attached by specialised parsers (e.g. statutory
+   * receipt fields like paymentDate, period, receiptNumber).  Generic validators
+   * that don't know about this field can safely ignore it.
+   */
+  metadata?: Record<string, string | number | null>;
 }
 
 export interface ParsedFile {

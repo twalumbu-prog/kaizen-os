@@ -224,10 +224,13 @@ export function runBankReconciliationChecks(
   if (debitsRule) {
     const tolerance = debitsRule.tolerance ?? defaultTolerance;
     const ok = withinTolerance(ledgerDebitTotal, bankCreditTotal, tolerance);
+    const debitDiff = ledgerDebitTotal - bankCreditTotal;
     checklist.push({
       title: "Total Debit equals Bank Credits",
       status: ok ? "pass" : "fail",
-      explanation: `Ledger debit total ${ledgerDebitTotal.toFixed(2)} vs bank credit total ${bankCreditTotal.toFixed(2)}.`,
+      explanation: ok
+        ? `Ledger debit total ${ledgerDebitTotal.toFixed(2)} matches bank credit total ${bankCreditTotal.toFixed(2)}.`
+        : `Ledger debit total (${ledgerDebitTotal.toFixed(2)}) does not match bank credit total (${bankCreditTotal.toFixed(2)}) — a difference of ${debitDiff > 0 ? "+" : ""}${debitDiff.toFixed(2)} (ledger ${debitDiff > 0 ? "higher" : "lower"}).`,
       severity: ok ? "low" : "high",
       points: ok ? CHECK_POINTS.debitsReconcile : 0,
       maxPoints: CHECK_POINTS.debitsReconcile,
@@ -239,10 +242,13 @@ export function runBankReconciliationChecks(
   if (creditsRule) {
     const tolerance = creditsRule.tolerance ?? defaultTolerance;
     const ok = withinTolerance(ledgerCreditTotal, bankDebitTotal, tolerance);
+    const creditDiff = ledgerCreditTotal - bankDebitTotal;
     checklist.push({
       title: "Total Credit equals Bank Debits",
       status: ok ? "pass" : "fail",
-      explanation: `Ledger credit total ${ledgerCreditTotal.toFixed(2)} vs bank debit total ${bankDebitTotal.toFixed(2)}.`,
+      explanation: ok
+        ? `Ledger credit total ${ledgerCreditTotal.toFixed(2)} matches bank debit total ${bankDebitTotal.toFixed(2)}.`
+        : `Ledger credit total (${ledgerCreditTotal.toFixed(2)}) does not match bank debit total (${bankDebitTotal.toFixed(2)}) — a difference of ${creditDiff > 0 ? "+" : ""}${creditDiff.toFixed(2)} (ledger ${creditDiff > 0 ? "higher" : "lower"}).`,
       severity: ok ? "low" : "high",
       points: ok ? CHECK_POINTS.creditsReconcile : 0,
       maxPoints: CHECK_POINTS.creditsReconcile,

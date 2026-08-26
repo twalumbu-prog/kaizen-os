@@ -8,6 +8,7 @@ import { ReactNode } from "react";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
+import { OrgSwitcher } from "@/components/layout/org-switcher";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const me = useQuery(api.profiles.getMe);
@@ -22,19 +23,22 @@ export function AppShell({ children }: { children: ReactNode }) {
             <Link href="/" className="font-semibold tracking-tight">
               Business OS
             </Link>
+            <OrgSwitcher />
             <nav className="hidden items-center gap-4 text-sm text-muted-foreground sm:flex">
               {(me?.role === "admin" || me?.role === "manager") && (
                 <Link href="/" className="hover:text-foreground">
                   Dashboard
                 </Link>
               )}
-              <Link href="/employee" className="hover:text-foreground">
-                Employee Portal
-              </Link>
               {me?.role === "admin" && (
-                <Link href="/admin/reports" className="hover:text-foreground">
-                  Report Configuration
-                </Link>
+                <>
+                  <Link href="/admin/reports" className="hover:text-foreground">
+                    Report Configuration
+                  </Link>
+                  <Link href="/admin/integrations" className="hover:text-foreground">
+                    Integrations
+                  </Link>
+                </>
               )}
             </nav>
           </div>

@@ -1,7 +1,7 @@
 "use client";
 
-import { useMutation, useQuery } from "convex/react";
-import { use, useState } from "react";
+import { useMutation, useQuery, useAction } from "convex/react";
+import { use, useState, useEffect } from "react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import {
   Select,
@@ -37,6 +38,26 @@ export default function ReportConfigPage({
   const [weight, setWeight] = useState<number | null>(null);
   const [startingBalance, setStartingBalance] = useState<number | null>(null);
   const [selectedUserId, setSelectedUserId] = useState<string>("");
+
+  const org = useQuery(api.organizations.getPrimary);
+  const qbIntegration = useQuery(
+    api.integrations.getIntegration,
+    org ? { orgId: org._id, provider: "quickbooks" } : "skip"
+  );
+  const getAccounts = useAction(api.quickbooks.getAccounts);
+  const [qbAccounts, setQbAccounts] = useState<{id: string, name: string, type: string}[] | null>(null);
+  const [loadingAccounts, setLoadingAccounts] = useState(false);
+  const isQbActive = qbIntegration?.status === "active";
+
+  useEffect(() => {
+    if (isQbActive) {
+      setLoadingAccounts(true);
+      getAccounts()
+        .then((data) => setQbAccounts(data))
+        .catch((e) => console.error("Failed to load QuickBooks accounts", e))
+        .finally(() => setLoadingAccounts(false));
+    }
+  }, [isQbActive, getAccounts]);
 
   if (template === undefined || assignments === undefined || users === undefined) {
     return (
@@ -135,28 +156,124 @@ export default function ReportConfigPage({
             <CardTitle className="text-base">Required Files</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-2">
-            {template.requiredFiles.map((f, idx) => (
-              <div key={f.label} className="flex items-center justify-between rounded-md border p-3 text-sm">
-                <div className="flex items-center gap-2">
-                  <span>{f.label}</span>
-                  <Badge variant="outline" className="uppercase">
-                    {f.fileType}
-                  </Badge>
+            {template.requiredFiles.map((f, idx) => {
+              const isInternalLedger = f.label.toLowerCase() === "internal ledger";
+              
+              return (
+                <div key={f.label} className="flex flex-col gap-2 rounded-md border p-3 text-sm">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span>{f.label}</span>
+                      <Badge variant="outline" className="uppercase">
+                        {f.fileType}
+                      </Badge>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Label className="text-xs text-muted-foreground">Required</Label>
+                      <Switch
+                        checked={f.required}
+                        onCheckedChange={(checked) => {
+                          const requiredFiles = template.requiredFiles.map((rf, i) =>
+                            i === idx ? { ...rf, required: checked } : rf,
+                          );
+                          
+                          let newQbAccountId = template.quickbooksAccountId;
+                          if (isInternalLedger && checked) {
+                            newQbAccountId = undefined;
+                          }
+
+                          updateTemplate({ 
+                            templateId, 
+                            requiredFiles,
+                            ...(isInternalLedger ? { quickbooksAccountId: newQbAccountId } : {})
+                          });
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  {isInternalLedger && isQbActive && (
+                    <div 
+                      className={cn(
+                        "mt-2 flex items-center justify-between rounded-md p-3 text-sm border shadow-sm transition-colors",
+                        f.required 
+                          ? "bg-muted/10 border-muted opacity-60 grayscale-[0.5]" 
+                          : "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-100 dark:border-emerald-900"
+                      )}
+                    >
+                      <div className="flex flex-col gap-1">
+                        <span className={cn(
+                          "flex items-center gap-2 font-medium",
+                          f.required ? "text-muted-foreground" : "text-emerald-800 dark:text-emerald-300"
+                        )}>
+                          <Badge 
+                            className={cn(
+                              "transition-colors",
+                              f.required 
+                                ? "bg-muted text-muted-foreground hover:bg-muted" 
+                                : "bg-[#2CA01C] text-white hover:bg-[#2CA01C]"
+                            )}
+                          >
+                            QuickBooks
+                          </Badge>
+                          Ledger Sync
+                        </span>
+                        <span className={cn(
+                          "text-xs",
+                          f.required ? "text-muted-foreground/80" : "text-emerald-700 dark:text-emerald-400"
+                        )}>
+                          Map this report to an account. Makes manual upload optional.
+                        </span>
+                      </div>
+                      
+                      <div className="flex items-center gap-4">
+                        {loadingAccounts ? (
+                          <span className="text-xs text-muted-foreground">Loading accounts...</span>
+                        ) : qbAccounts ? (
+                          <Select
+                            value={template.quickbooksAccountId ?? "none"}
+                            disabled={f.required}
+                            onValueChange={(accountId) => {
+                              const newAccountId = accountId === "none" ? undefined : accountId;
+                              
+                              const requiredFiles = template.requiredFiles.map((rf) =>
+                                rf.label.toLowerCase() === "internal ledger" 
+                                  ? { ...rf, required: newAccountId ? false : rf.required } 
+                                  : rf
+                              );
+                              
+                              updateTemplate({ 
+                                templateId, 
+                                quickbooksAccountId: newAccountId || undefined,
+                                requiredFiles
+                              });
+                              toast.success("QuickBooks mapping updated");
+                            }}
+                          >
+                            <SelectTrigger className={cn(
+                              "w-56 h-9 transition-colors",
+                              f.required ? "border-muted text-muted-foreground" : "border-emerald-200 dark:border-emerald-800"
+                            )}>
+                              <SelectValue placeholder="Select an account" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none">Not mapped</SelectItem>
+                              {qbAccounts.map((acc) => (
+                                <SelectItem key={acc.id} value={acc.id}>
+                                  {acc.name} ({acc.type})
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">Could not load accounts.</span>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
-                <div className="flex items-center gap-2">
-                  <Label className="text-xs text-muted-foreground">Required</Label>
-                  <Switch
-                    checked={f.required}
-                    onCheckedChange={(checked) => {
-                      const requiredFiles = template.requiredFiles.map((rf, i) =>
-                        i === idx ? { ...rf, required: checked } : rf,
-                      );
-                      updateTemplate({ templateId, requiredFiles });
-                    }}
-                  />
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </CardContent>
         </Card>
 
@@ -200,6 +317,8 @@ export default function ReportConfigPage({
             ))}
           </CardContent>
         </Card>
+
+
 
         <Card>
           <CardHeader>

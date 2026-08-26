@@ -35,35 +35,46 @@ export function parseBankCsv(text: string): ParsedStatement {
   const transactions: Transaction[] = [];
   const balances: number[] = [];
 
+  let openingBalance: number | null = null;
+
   for (const row of data) {
     const date = pickValue(row, DATE_KEYS) ?? "";
     const description = pickValue(row, DESCRIPTION_KEYS) ?? "";
-    const balanceValue = pickValue(row, BALANCE_KEYS);
-    if (balanceValue !== undefined) balances.push(toNumber(balanceValue));
+    const balanceRaw = pickValue(row, BALANCE_KEYS);
+    const balance = balanceRaw !== undefined ? toNumber(balanceRaw) : undefined;
+    if (balance !== undefined) balances.push(balance);
 
     const debit = toNumber(pickValue(row, DEBIT_KEYS));
     const credit = toNumber(pickValue(row, CREDIT_KEYS));
     const signedAmount = pickValue(row, AMOUNT_KEYS);
 
+    // A balance-only row (no debit, no credit, no signed amount) is treated as
+    // an explicit opening-balance marker — don't add it as a transaction.
+    if (debit === 0 && credit === 0 && (signedAmount === undefined || toNumber(signedAmount) === 0)) {
+      if (balance !== undefined && openingBalance === null) openingBalance = balance;
+      continue;
+    }
+
+    let tx: (typeof transactions)[number] | null = null;
     if (debit > 0) {
-      transactions.push({ date, description, amount: debit, type: "debit" });
+      tx = { date, description, amount: debit, type: "debit" as const };
     } else if (credit > 0) {
-      transactions.push({ date, description, amount: credit, type: "credit" });
+      tx = { date, description, amount: credit, type: "credit" as const };
     } else if (signedAmount !== undefined) {
       const amount = toNumber(signedAmount);
       if (amount !== 0) {
-        transactions.push({
-          date,
-          description,
-          amount: Math.abs(amount),
-          type: amount < 0 ? "debit" : "credit",
-        });
+        tx = { date, description, amount: Math.abs(amount), type: amount < 0 ? "debit" as const : "credit" as const };
       }
+    }
+
+    if (tx) {
+      if (balance !== undefined) (tx as any).balanceAfter = balance;
+      transactions.push(tx);
     }
   }
 
   return {
-    openingBalance: null,
+    openingBalance,
     closingBalance: balances.length > 0 ? balances[balances.length - 1] : null,
     transactions,
   };
