@@ -1,3 +1,5 @@
+export type FileType = "xlsx" | "pdf" | "csv" | "jpg" | "png";
+
 export type ChecklistStatus = "pass" | "fail" | "warning";
 export type Severity = "low" | "medium" | "high" | "critical";
 
@@ -52,8 +54,28 @@ export interface ParsedStatement {
 
 export interface ParsedFile {
   label: string;
-  fileType: "xlsx" | "pdf" | "csv";
+  fileType: FileType;
   statement: ParsedStatement;
+  /**
+   * The file exactly as uploaded, attached only for validators that review the
+   * document itself rather than figures extracted from it (see
+   * documentSubmission). Omitted for the extraction-based validators.
+   */
+  raw?: RawFile;
+}
+
+export interface RawFile {
+  /** Base64 of the original bytes. */
+  data: string;
+  mimeType: string;
+  fileName: string;
+  byteLength: number;
+}
+
+/** Credentials for validators that call out to a model. */
+export interface AiConfig {
+  apiKey: string;
+  model: string;
 }
 
 /** The report period being validated, and what its opening balance should roll forward from. */
@@ -61,6 +83,14 @@ export interface ValidationContext {
   periodStart: number;
   periodEnd: number;
   expectedOpeningBalance: number | null;
+  /** The report's name, for validators that judge a document against what was asked for. */
+  templateName?: string;
+  /** Human-readable period, e.g. "Week of 2026-07-10". */
+  periodLabel?: string;
+  /** What the template asked to be uploaded. */
+  requiredFiles?: { label: string; required: boolean }[];
+  /** Present when the org has an active AI integration; absent when it does not. */
+  ai?: AiConfig;
 }
 
 /** A validator turns the parsed uploaded files + configured rules into a result. */

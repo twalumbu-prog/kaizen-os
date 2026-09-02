@@ -10,9 +10,30 @@ export const ROLES = v.union(
 
 export const CADENCE = v.union(
   v.literal("daily"),
+  /** Every working day — Monday to Friday, no weekend periods. */
+  v.literal("weekday"),
   v.literal("weekly"),
   v.literal("monthly"),
+  /** A repeating run of active weeks separated by a break — see CYCLE_CONFIG. */
+  v.literal("cycle"),
 );
+
+/**
+ * Settings for the `cycle` cadence. Kept generic on purpose: a school reads
+ * these as terms, another business as production runs or seasons.
+ */
+export const CYCLE_CONFIG = v.object({
+  /** UTC ms, midnight — the first cycle's opening day. */
+  anchor: v.number(),
+  /** Active weeks per cycle. */
+  lengthWeeks: v.number(),
+  /** Break between cycles, in days. */
+  gapDays: v.number(),
+  /** 1-based week within the cycle at whose end the report falls due. */
+  dueWeek: v.number(),
+  /** Word used in period labels — "Term", "Sprint". Defaults to "Cycle". */
+  label: v.optional(v.string()),
+});
 
 export const SUBMISSION_STATUS = v.union(
   v.literal("pending"),
@@ -31,6 +52,9 @@ export const FILE_TYPE = v.union(
   v.literal("xlsx"),
   v.literal("pdf"),
   v.literal("csv"),
+  /** Photos of paperwork — nothing is extracted from these, they are reviewed as images. */
+  v.literal("jpg"),
+  v.literal("png"),
 );
 
 export default defineSchema({
@@ -46,6 +70,7 @@ export default defineSchema({
     phoneVerificationTime: v.optional(v.float64()),
     isAnonymous: v.optional(v.boolean()),
     orgName: v.optional(v.string()),
+    selectedOrgId: v.optional(v.id("organizations")),
   })
     .index("email", ["email"])
     .index("phone", ["phone"]),
@@ -85,6 +110,8 @@ export default defineSchema({
     departmentId: v.id("departments"),
     name: v.string(),
     cadence: CADENCE,
+    /** Required when `cadence` is "cycle"; ignored otherwise. */
+    cycle: v.optional(CYCLE_CONFIG),
     validatorKey: v.string(),
     weight: v.number(),
     /** Admin-entered opening balance for the first-ever period, when there's no prior period to roll forward from. */

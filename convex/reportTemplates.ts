@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { CADENCE, FILE_TYPE } from "./schema";
+import { CADENCE, CYCLE_CONFIG, FILE_TYPE } from "./schema";
 import { requireProfile, requireRole } from "./lib/roles";
 
 export const listByDepartment = query({
@@ -63,6 +63,7 @@ export const create = mutation({
     departmentId: v.id("departments"),
     name: v.string(),
     cadence: CADENCE,
+    cycle: v.optional(CYCLE_CONFIG),
     validatorKey: v.string(),
     weight: v.number(),
     startingBalance: v.optional(v.number()),
@@ -81,6 +82,7 @@ export const update = mutation({
     templateId: v.id("reportTemplates"),
     name: v.optional(v.string()),
     cadence: v.optional(CADENCE),
+    cycle: v.optional(CYCLE_CONFIG),
     weight: v.optional(v.number()),
     startingBalance: v.optional(v.number()),
     requiredFiles: v.optional(REQUIRED_FILES),

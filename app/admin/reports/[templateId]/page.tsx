@@ -14,6 +14,16 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
+import { FILE_TYPE_OPTIONS, fileTypeLabel, type FileType } from "@/lib/file-types";
+import {
+  CADENCE_OPTIONS,
+  cadenceLabel,
+  defaultCycleConfig,
+  fromDateInput,
+  toDateInput,
+  type Cadence,
+  type CycleConfig,
+} from "@/lib/cadence";
 import {
   Select,
   SelectContent,
@@ -21,6 +31,125 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+
+/**
+ * Settings for the `cycle` cadence. Kept deliberately generic — a school reads
+ * these as terms, another business as production runs — so the wording is
+ * driven by the label the admin types rather than baked in.
+ */
+function CycleSettingsCard({
+  templateId,
+  cycle,
+}: {
+  templateId: Id<"reportTemplates">;
+  cycle: CycleConfig;
+}) {
+  const updateTemplate = useMutation(api.reportTemplates.update);
+  const [draft, setDraft] = useState<CycleConfig>(cycle);
+
+  const dirty =
+    draft.anchor !== cycle.anchor ||
+    draft.lengthWeeks !== cycle.lengthWeeks ||
+    draft.gapDays !== cycle.gapDays ||
+    draft.dueWeek !== cycle.dueWeek ||
+    (draft.label ?? "") !== (cycle.label ?? "");
+
+  const invalid =
+    !Number.isFinite(draft.anchor) ||
+    draft.lengthWeeks < 1 ||
+    draft.gapDays < 0 ||
+    draft.dueWeek < 1 ||
+    draft.dueWeek > draft.lengthWeeks;
+
+  function save() {
+    if (invalid) {
+      toast.error("Due week must fall inside the cycle.");
+      return;
+    }
+    updateTemplate({ templateId, cycle: draft });
+    toast.success("Cycle settings updated");
+  }
+
+  const name = draft.label?.trim() || "Cycle";
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Cycle Settings</CardTitle>
+        <CardDescription>
+          Each cycle runs for a fixed number of weeks, then pauses before the next one starts.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        <div className="flex items-center gap-4">
+          <Label className="w-40">Name for a cycle</Label>
+          <Input
+            className="w-40"
+            placeholder="Term"
+            value={draft.label ?? ""}
+            onChange={(e) => setDraft({ ...draft, label: e.target.value })}
+          />
+        </div>
+        <div className="flex items-center gap-4">
+          <Label className="w-40">First cycle starts</Label>
+          <Input
+            type="date"
+            className="w-44"
+            value={toDateInput(draft.anchor)}
+            onChange={(e) => {
+              const ms = fromDateInput(e.target.value);
+              if (!Number.isNaN(ms)) setDraft({ ...draft, anchor: ms });
+            }}
+          />
+        </div>
+        <div className="flex items-center gap-4">
+          <Label className="w-40">Length</Label>
+          <Input
+            type="number"
+            min="1"
+            className="w-24"
+            value={draft.lengthWeeks}
+            onChange={(e) => setDraft({ ...draft, lengthWeeks: parseInt(e.target.value, 10) || 0 })}
+          />
+          <span className="text-sm text-muted-foreground">weeks</span>
+        </div>
+        <div className="flex items-center gap-4">
+          <Label className="w-40">Break between cycles</Label>
+          <Input
+            type="number"
+            min="0"
+            className="w-24"
+            value={draft.gapDays}
+            onChange={(e) => setDraft({ ...draft, gapDays: parseInt(e.target.value, 10) || 0 })}
+          />
+          <span className="text-sm text-muted-foreground">days</span>
+        </div>
+        <div className="flex items-center gap-4">
+          <Label className="w-40">Due at end of week</Label>
+          <Input
+            type="number"
+            min="1"
+            max={draft.lengthWeeks}
+            className="w-24"
+            value={draft.dueWeek}
+            onChange={(e) => setDraft({ ...draft, dueWeek: parseInt(e.target.value, 10) || 0 })}
+          />
+          <span className="text-sm text-muted-foreground">of {draft.lengthWeeks}</span>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Unlike other reports, this one falls due inside its own period — at the end of week{" "}
+          {draft.dueWeek} of each {draft.lengthWeeks}-week {name.toLowerCase()} — rather than after
+          the period closes. Periods are labelled {name} 1, {name} 2, and so on within each year.
+        </p>
+        <div>
+          <Button size="sm" onClick={save} disabled={!dirty || invalid}>
+            Save cycle settings
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 export default function ReportConfigPage({
   params,
@@ -97,17 +226,28 @@ export default function ReportConfigPage({
               <Label className="w-32">Cadence</Label>
               <Select
                 value={template.cadence}
-                onValueChange={(cadence) =>
-                  updateTemplate({ templateId, cadence: cadence as "daily" | "weekly" | "monthly" })
-                }
+                onValueChange={(value) => {
+                  if (!value) return;
+                  const cadence = value as Cadence;
+                  updateTemplate({
+                    templateId,
+                    cadence,
+                    // Switching to "cycle" seeds settings if there are none, so
+                    // the report can always compute its periods.
+                    cycle:
+                      cadence === "cycle" && !template.cycle ? defaultCycleConfig() : undefined,
+                  });
+                }}
               >
-                <SelectTrigger className="w-40">
-                  <SelectValue />
+                <SelectTrigger className="w-52">
+                  <SelectValue>{(value: string) => cadenceLabel(value)}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="daily">Daily</SelectItem>
-                  <SelectItem value="weekly">Weekly</SelectItem>
-                  <SelectItem value="monthly">Monthly</SelectItem>
+                  {CADENCE_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -151,6 +291,10 @@ export default function ReportConfigPage({
           </CardContent>
         </Card>
 
+        {template.cadence === "cycle" && template.cycle && (
+          <CycleSettingsCard templateId={templateId} cycle={template.cycle} />
+        )}
+
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Required Files</CardTitle>
@@ -164,9 +308,30 @@ export default function ReportConfigPage({
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <span>{f.label}</span>
-                      <Badge variant="outline" className="uppercase">
-                        {f.fileType}
-                      </Badge>
+                      <Select
+                        value={f.fileType}
+                        onValueChange={(value) => {
+                          if (!value) return;
+                          updateTemplate({
+                            templateId,
+                            requiredFiles: template.requiredFiles.map((rf, i) =>
+                              i === idx ? { ...rf, fileType: value as FileType } : rf,
+                            ),
+                          });
+                          toast.success(`${f.label} now accepts ${fileTypeLabel(value)}`);
+                        }}
+                      >
+                        <SelectTrigger size="sm" className="w-36">
+                          <SelectValue>{(value: string) => fileTypeLabel(value)}</SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          {FILE_TYPE_OPTIONS.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                     <div className="flex items-center gap-2">
                       <Label className="text-xs text-muted-foreground">Required</Label>

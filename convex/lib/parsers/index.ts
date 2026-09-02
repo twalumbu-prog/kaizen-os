@@ -4,7 +4,10 @@ import { parseBankPdf } from "./pdf";
 import { parseReceiptPdf } from "./receipt";
 import { parsePayrollRegister } from "./payrollRegister";
 import { parsePayrollExtract } from "./payrollExtract";
-import type { ParsedStatement } from "../../validators/types";
+import { parseCanteenRecon } from "./canteenRecon";
+import { parseCanteenInventory } from "./canteenInventory";
+import { parseCanteenReceiptPdf } from "./canteenReceipt";
+import type { FileType, ParsedStatement } from "../../validators/types";
 
 /**
  * Dispatches to the right parser for a stored submission file.
@@ -15,12 +18,22 @@ import type { ParsedStatement } from "../../validators/types";
  *   multiple files of the same type within a single validator (e.g. Register vs Extract).
  */
 export async function parseUploadedFile(
-  fileType: "xlsx" | "pdf" | "csv",
+  fileType: FileType,
   buffer: ArrayBuffer,
   role: SpreadsheetRole,
   validatorKey?: string,
   label?: string,
 ): Promise<ParsedStatement> {
+  // ── Canteen Sales Recon specialist parsers ───────────────────────────────
+  if (validatorKey === "canteenSalesRecon") {
+    if (fileType === "pdf") return parseCanteenReceiptPdf(buffer);
+    if (fileType === "xlsx") {
+      const lbl = (label ?? "").toLowerCase();
+      if (/inventor/i.test(lbl)) return parseCanteenInventory(buffer);
+      return parseCanteenRecon(buffer); // sales recon, or any other xlsx
+    }
+  }
+
   // ── Payroll specialist parsers ────────────────────────────────────────────
   if (validatorKey === "payroll" && fileType === "xlsx") {
     const lbl = (label ?? "").toLowerCase();
@@ -35,6 +48,13 @@ export async function parseUploadedFile(
 
   // ── Statutory receipt PDFs ────────────────────────────────────────────────
   if (validatorKey === "statutoryReceipts" && fileType === "pdf") return parseReceiptPdf(buffer);
+
+  // ── Images ────────────────────────────────────────────────────────────────
+  // Photos carry no machine-readable figures; only the document-review
+  // validators handle them, and those read the raw bytes rather than this.
+  if (fileType === "jpg" || fileType === "png") {
+    return { openingBalance: null, closingBalance: null, transactions: [] };
+  }
 
   // ── Generic parsers ───────────────────────────────────────────────────────
   if (fileType === "xlsx") return parseSpreadsheet(buffer, role);

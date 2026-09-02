@@ -9,12 +9,25 @@ export async function requireProfile(
 ): Promise<Doc<"profiles">> {
   const userId = await getAuthUserId(ctx);
   if (userId === null) throw new Error("Not authenticated");
-  const profile = await ctx.db
+
+  const user = await ctx.db.get(userId);
+  if (user === null) throw new Error("User record not found");
+
+  const profiles = await ctx.db
     .query("profiles")
     .withIndex("by_userId", (q) => q.eq("userId", userId))
-    .unique();
-  if (profile === null) throw new Error("No profile for authenticated user");
-  return profile;
+    .collect();
+
+  if (profiles.length === 0) throw new Error("No profile for authenticated user");
+
+  // If user has a selected org and a profile for it, return that one.
+  if (user.selectedOrgId) {
+    const selected = profiles.find((p) => p.orgId === user.selectedOrgId);
+    if (selected) return selected;
+  }
+
+  // Fall back to the first profile (oldest by creation time).
+  return profiles[0];
 }
 
 export async function requireRole(

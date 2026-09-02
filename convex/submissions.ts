@@ -6,7 +6,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { CHECKLIST_STATUS, FILE_TYPE } from "./schema";
 import { requireProfile } from "./lib/roles";
 import { currentPeriod, nextPeriod, periodContaining } from "./lib/periods";
-import type { Cadence, PeriodBounds } from "./lib/periods";
+import type { PeriodBounds, Schedule } from "./lib/periods";
 import { finalReportScore, submissionScore as computeSubmissionScore } from "./lib/scoring";
 import { getMaxPossibleScore } from "./validators/registry";
 
@@ -39,11 +39,11 @@ async function backfillMissingPeriods(
       .filter((q) => q.eq(q.field("userId"), userId))
       .unique();
     if (!assignment) return false; // not assigned, nothing to backfill
-    anchorEnd = periodContaining(template.cadence, assignment._creationTime).periodEnd;
+    anchorEnd = periodContaining(template, assignment._creationTime).periodEnd;
   }
 
   const existingLabels = new Set(mine.map((s) => s.periodLabel));
-  let cursor = nextPeriod(template.cadence, periodContaining(template.cadence, anchorEnd));
+  let cursor = nextPeriod(template, periodContaining(template, anchorEnd));
   const now = Date.now();
   let inserted = false;
   let guard = 0;
@@ -61,7 +61,7 @@ async function backfillMissingPeriods(
       });
       inserted = true;
     }
-    cursor = nextPeriod(template.cadence, cursor);
+    cursor = nextPeriod(template, cursor);
     guard++;
   }
 
@@ -112,7 +112,17 @@ export const loadForValidation = internalQuery({
       })[0];
     const expectedOpeningBalance = prior?.bankClosingBalance ?? template.startingBalance ?? null;
 
-    return { submission, template, files, expectedOpeningBalance };
+    // The org owns the AI integration the validator may need, and is reached
+    // through the template's department.
+    const department = await ctx.db.get(template.departmentId);
+
+    return {
+      submission,
+      template,
+      files,
+      expectedOpeningBalance,
+      orgId: department?.orgId ?? null,
+    };
   },
 });
 
@@ -157,11 +167,11 @@ async function getOrCreateSubmissionForBounds(
  * the day before `dueAt` lands back in the same period every time — this is
  * what lets a calendar hand back a due timestamp and get the right period.
  */
-function boundsForDueAt(cadence: Cadence, dueAt: number): PeriodBounds {
+function boundsForDueAt(schedule: Schedule, dueAt: number): PeriodBounds {
   const probe = new Date(dueAt);
   probe.setUTCDate(probe.getUTCDate() - 1);
   probe.setUTCHours(12, 0, 0, 0);
-  return periodContaining(cadence, probe.getTime());
+  return periodContaining(schedule, probe.getTime());
 }
 
 /** Ensures a submission row exists for the current period, for the calling user. */
@@ -179,7 +189,7 @@ export const getOrCreateCurrentSubmission = mutation({
       });
     }
 
-    return getOrCreateSubmissionForBounds(ctx, template, profile.userId, currentPeriod(template.cadence));
+    return getOrCreateSubmissionForBounds(ctx, template, profile.userId, currentPeriod(template));
   },
 });
 
@@ -198,7 +208,7 @@ export const getOrCreateSubmissionForDueDate = mutation({
       });
     }
 
-    const bounds = boundsForDueAt(template.cadence, dueAt);
+    const bounds = boundsForDueAt(template, dueAt);
     return getOrCreateSubmissionForBounds(ctx, template, profile.userId, bounds);
   },
 });
@@ -215,8 +225,17 @@ export const backfillAllMissingSubmissions = internalMutation({
         .collect();
       let anyInserted = false;
       for (const assignment of assignments) {
-        const inserted = await backfillMissingPeriods(ctx, template, assignment.userId);
-        anyInserted = anyInserted || inserted;
+        try {
+          const inserted = await backfillMissingPeriods(ctx, template, assignment.userId);
+          anyInserted = anyInserted || inserted;
+        } catch (err) {
+          // A misconfigured report (e.g. "cycle" cadence with no cycle settings)
+          // must not stop the nightly sweep for every other report.
+          console.error(
+            `[backfill] Skipped "${template.name}" (${template._id}):`,
+            err instanceof Error ? err.message : err,
+          );
+        }
       }
       if (anyInserted) {
         await ctx.scheduler.runAfter(0, internal.scores.recomputeDepartmentScore, {
@@ -545,23 +564,94 @@ const MAX_CALENDAR_RANGE_DAYS = 370;
  * calendar strip (defaults to a ~3-week window around today) and the full
  * calendar dialog (a month at a time, freely navigable).
  */
+/**
+ * The day-by-day calendar behind the Work Calendar's list view.
+ *
+ * Scope follows the caller's role. An employee sees only the reports assigned
+ * to them; a manager sees every report in their department and a admin sees
+ * the whole organization, with one entry per person responsible so they can
+ * see who still owes what. Entries for other people carry `assigneeName`,
+ * which is what the UI keys off to show status rather than a submit button.
+ */
 export const myCalendar = query({
   args: { from: v.optional(v.number()), to: v.optional(v.number()) },
   handler: async (ctx, args) => {
     const profile = await requireProfile(ctx);
-    const assignments = await ctx.db
-      .query("reportAssignments")
-      .withIndex("by_userId", (q) => q.eq("userId", profile.userId))
-      .collect();
-    const templates = (await Promise.all(assignments.map((a) => ctx.db.get(a.templateId)))).filter(
-      (t): t is Doc<"reportTemplates"> => t !== null,
-    );
+    const overseeing = profile.role === "admin" || profile.role === "manager";
 
-    const mySubmissions = await ctx.db
-      .query("submissions")
-      .withIndex("by_userId", (q) => q.eq("userId", profile.userId))
-      .order("desc")
-      .take(400);
+    // ── Reports in scope, with everyone responsible for them ───────────────
+    const orgProfiles = await ctx.db
+      .query("profiles")
+      .withIndex("by_orgId", (q) => q.eq("orgId", profile.orgId))
+      .collect();
+    const nameByUserId = new Map(orgProfiles.map((p) => [p.userId, p.name]));
+
+    let templates: Doc<"reportTemplates">[];
+    if (overseeing) {
+      const departments = await ctx.db
+        .query("departments")
+        .withIndex("by_orgId", (q) => q.eq("orgId", profile.orgId))
+        .collect();
+      const inScope =
+        profile.role === "manager"
+          ? departments.filter((d) => d._id === profile.departmentId)
+          : departments;
+      templates = (
+        await Promise.all(
+          inScope.map((d) =>
+            ctx.db
+              .query("reportTemplates")
+              .withIndex("by_departmentId", (q) => q.eq("departmentId", d._id))
+              .collect(),
+          ),
+        )
+      ).flat();
+    } else {
+      const assignments = await ctx.db
+        .query("reportAssignments")
+        .withIndex("by_userId", (q) => q.eq("userId", profile.userId))
+        .collect();
+      templates = (await Promise.all(assignments.map((a) => ctx.db.get(a.templateId)))).filter(
+        (t): t is Doc<"reportTemplates"> => t !== null,
+      );
+    }
+
+    // Who owes each report, and everything already submitted against it.
+    const owners = new Map<Id<"reportTemplates">, Id<"users">[]>();
+    const submissionsByTemplate = new Map<Id<"reportTemplates">, Doc<"submissions">[]>();
+    for (const template of templates) {
+      if (overseeing) {
+        const assignments = await ctx.db
+          .query("reportAssignments")
+          .withIndex("by_templateId", (q) => q.eq("templateId", template._id))
+          .collect();
+        owners.set(template._id, assignments.map((a) => a.userId));
+        submissionsByTemplate.set(
+          template._id,
+          await ctx.db
+            .query("submissions")
+            .withIndex("by_templateId", (q) => q.eq("templateId", template._id))
+            .order("desc")
+            .take(600),
+        );
+      } else {
+        owners.set(template._id, [profile.userId]);
+      }
+    }
+
+    if (!overseeing) {
+      const mine = await ctx.db
+        .query("submissions")
+        .withIndex("by_userId", (q) => q.eq("userId", profile.userId))
+        .order("desc")
+        .take(400);
+      for (const template of templates) {
+        submissionsByTemplate.set(
+          template._id,
+          mine.filter((s) => s.templateId === template._id),
+        );
+      }
+    }
 
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
@@ -590,22 +680,44 @@ export const myCalendar = query({
       const items = [];
       for (const template of templates) {
         // `day` (UTC midnight) is itself a valid candidate `dueAt` timestamp to probe with.
-        const bounds = boundsForDueAt(template.cadence, day.getTime());
+        // A misconfigured report is skipped rather than blanking the calendar.
+        let bounds: PeriodBounds;
+        try {
+          bounds = boundsForDueAt(template, day.getTime());
+        } catch {
+          continue;
+        }
         if (new Date(bounds.dueAt).toISOString().slice(0, 10) !== dayKey) continue;
 
-        const submission = mySubmissions.find(
-          (s) => s.templateId === template._id && s.periodLabel === bounds.periodLabel,
+        const periodSubmissions = (submissionsByTemplate.get(template._id) ?? []).filter(
+          (s) => s.periodLabel === bounds.periodLabel,
         );
-        items.push({
-          templateId: template._id,
-          templateName: template.name,
-          periodLabel: bounds.periodLabel,
-          dueAt: bounds.dueAt,
-          submissionId: submission?._id ?? null,
-          status: submission?.status ?? "pending",
-          completed: submission?.status === "submitted" || submission?.status === "late",
-          score: submission?.finalScore ?? null,
-        });
+        const responsible = owners.get(template._id) ?? [];
+
+        // One row per person who owes the report, so nobody's gap is hidden
+        // behind a colleague who did submit.
+        const rows: { userId: Id<"users"> | null }[] =
+          responsible.length > 0 ? responsible.map((userId) => ({ userId })) : [{ userId: null }];
+
+        for (const row of rows) {
+          const submission = row.userId
+            ? periodSubmissions.find((s) => s.userId === row.userId)
+            : undefined;
+          items.push({
+            templateId: template._id,
+            templateName: template.name,
+            periodLabel: bounds.periodLabel,
+            dueAt: bounds.dueAt,
+            submissionId: submission?._id ?? null,
+            status: submission?.status ?? (row.userId ? "pending" : "unassigned"),
+            completed: submission?.status === "submitted" || submission?.status === "late",
+            score: submission?.finalScore ?? null,
+            /** Set only when overseeing someone else's report — drives read-only UI. */
+            assigneeName:
+              overseeing && row.userId ? (nameByUserId.get(row.userId) ?? "Unknown") : null,
+            unassigned: row.userId === null,
+          });
+        }
       }
 
       days.push({ date: day.getTime(), items });
@@ -641,11 +753,11 @@ export const myReportScores = query({
     return await Promise.all(
       templates.map(async (template) => {
         const ytdPeriods: PeriodBounds[] = [];
-        let cursor = periodContaining(template.cadence, yearStart);
+        let cursor = periodContaining(template, yearStart);
         let guard = 0;
         while (cursor.dueAt <= now && guard < SCORE_PERIOD_GUARD) {
           ytdPeriods.push(cursor);
-          cursor = nextPeriod(template.cadence, cursor);
+          cursor = nextPeriod(template, cursor);
           guard++;
         }
 
@@ -714,5 +826,161 @@ export const myReportScores = query({
         };
       }),
     );
+  },
+});
+
+// ─── Timeline ─────────────────────────────────────────────────────────────────
+
+/** How each report's due date looks once every assignee is accounted for. */
+type DueState = "complete" | "partial" | "overdue" | "upcoming" | "unassigned";
+
+/**
+ * Every report due inside a date window, grouped by department — the data
+ * behind the Work Calendar's Timeline view.
+ *
+ * Scope follows the caller's role: an admin oversees the whole organization, a
+ * manager their own department, and an employee only what they are assigned.
+ * Due dates come from the same cadence engine the rest of the app uses, so a
+ * report that has never been submitted still appears on the days it is owed.
+ */
+export const reportTimeline = query({
+  args: { from: v.number(), to: v.number() },
+  handler: async (ctx, { from: rawFrom, to: rawTo }) => {
+    const profile = await requireProfile(ctx);
+
+    const from = new Date(rawFrom);
+    from.setUTCHours(0, 0, 0, 0);
+    const to = new Date(rawTo);
+    to.setUTCHours(23, 59, 59, 999);
+
+    const totalDays = Math.round((to.getTime() - from.getTime()) / 86400000);
+    if (totalDays < 1 || totalDays > MAX_CALENDAR_RANGE_DAYS) {
+      throw new Error(`Timeline range must be between 1 and ${MAX_CALENDAR_RANGE_DAYS} days`);
+    }
+
+    // ── Which departments and reports the caller may see ────────────────────
+    const allDepartments = await ctx.db
+      .query("departments")
+      .withIndex("by_orgId", (q) => q.eq("orgId", profile.orgId))
+      .collect();
+
+    let departments = allDepartments;
+    if (profile.role === "manager") {
+      departments = allDepartments.filter((d) => d._id === profile.departmentId);
+    } else if (profile.role === "employee") {
+      const myAssignments = await ctx.db
+        .query("reportAssignments")
+        .withIndex("by_userId", (q) => q.eq("userId", profile.userId))
+        .collect();
+      const myTemplates = (
+        await Promise.all(myAssignments.map((a) => ctx.db.get(a.templateId)))
+      ).filter((t): t is Doc<"reportTemplates"> => t !== null);
+      const myDepartmentIds = new Set(myTemplates.map((t) => t.departmentId));
+      departments = allDepartments.filter((d) => myDepartmentIds.has(d._id));
+    }
+
+    const visibleToEmployee =
+      profile.role === "employee"
+        ? new Set(
+            (
+              await ctx.db
+                .query("reportAssignments")
+                .withIndex("by_userId", (q) => q.eq("userId", profile.userId))
+                .collect()
+            ).map((a) => a.templateId),
+          )
+        : null;
+
+    const now = Date.now();
+    const groups = [];
+
+    for (const department of departments) {
+      const templates = await ctx.db
+        .query("reportTemplates")
+        .withIndex("by_departmentId", (q) => q.eq("departmentId", department._id))
+        .collect();
+
+      const reports = [];
+      for (const template of templates) {
+        if (visibleToEmployee && !visibleToEmployee.has(template._id)) continue;
+
+        const assignments = await ctx.db
+          .query("reportAssignments")
+          .withIndex("by_templateId", (q) => q.eq("templateId", template._id))
+          .collect();
+        const assigneeIds = assignments.map((a) => a.userId);
+
+        const submissions = await ctx.db
+          .query("submissions")
+          .withIndex("by_templateId", (q) => q.eq("templateId", template._id))
+          .order("desc")
+          .take(600);
+
+        // Walk the report's own periods across the window. A misconfigured
+        // report (e.g. "cycle" with no settings) is skipped, not fatal.
+        const due = [];
+        try {
+          let cursor = periodContaining(template, from.getTime());
+          let guard = 0;
+          while (cursor.dueAt <= to.getTime() && guard < MAX_CALENDAR_RANGE_DAYS + 10) {
+            if (cursor.dueAt >= from.getTime()) {
+              const forPeriod = submissions.filter((s) => s.periodLabel === cursor.periodLabel);
+              const done = forPeriod.filter(
+                (s) => s.status === "submitted" || s.status === "late",
+              );
+
+              let state: DueState;
+              if (assigneeIds.length === 0) {
+                state = "unassigned";
+              } else if (done.length >= assigneeIds.length) {
+                state = "complete";
+              } else if (done.length > 0) {
+                state = "partial";
+              } else if (cursor.dueAt < now) {
+                state = "overdue";
+              } else {
+                state = "upcoming";
+              }
+
+              due.push({
+                dueAt: cursor.dueAt,
+                /** UTC midnight of the due day — the timeline's column key. */
+                day: Date.parse(`${new Date(cursor.dueAt).toISOString().slice(0, 10)}T00:00:00Z`),
+                periodLabel: cursor.periodLabel,
+                state,
+                submitted: done.length,
+                expected: assigneeIds.length,
+              });
+            }
+            cursor = nextPeriod(template, cursor);
+            guard++;
+          }
+        } catch {
+          // Leave `due` empty for a report whose schedule cannot be computed.
+        }
+
+        reports.push({
+          templateId: template._id,
+          name: template.name,
+          cadence: template.cadence,
+          assigneeCount: assigneeIds.length,
+          due,
+        });
+      }
+
+      if (reports.length === 0) continue;
+      groups.push({
+        departmentId: department._id,
+        departmentName: department.name,
+        reports: reports.sort((a, b) => a.name.localeCompare(b.name)),
+      });
+    }
+
+    return {
+      role: profile.role,
+      from: from.getTime(),
+      to: to.getTime(),
+      departments: groups.sort((a, b) => a.departmentName.localeCompare(b.departmentName)),
+    };
   },
 });

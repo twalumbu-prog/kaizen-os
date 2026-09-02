@@ -1,16 +1,18 @@
 "use client";
 
-import { useMutation, useQuery } from "convex/react";
-import Link from "next/link";
+import { useMutation } from "convex/react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { AppShell } from "@/components/layout/app-shell";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Badge } from "@/components/ui/badge";
+import type { FileType } from "@/convex/validators/types";
 import { Button } from "@/components/ui/button";
+import {
+  CADENCE_OPTIONS,
+  cadenceLabel,
+  defaultCycleConfig,
+  type Cadence,
+} from "@/lib/cadence";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -37,7 +39,7 @@ const VALIDATOR_PRESETS: Record<
   {
     label: string;
     defaultWeight: number;
-    requiredFiles: { label: string; fileType: "xlsx" | "pdf" | "csv"; required: boolean }[];
+    requiredFiles: { label: string; fileType: FileType; required: boolean }[];
     validationRules: { key: string; label: string; enabled: boolean }[];
   }
 > = {
@@ -77,6 +79,33 @@ const VALIDATOR_PRESETS: Record<
       { key: "napsaPaidOnTime", label: "NAPSA paid on or before the 5th deadline", enabled: true },
     ],
   },
+  documentSubmission: {
+    label: "Document Submission (AI review)",
+    defaultWeight: 1,
+    requiredFiles: [{ label: "Document", fileType: "pdf", required: true }],
+    validationRules: [
+      { key: "filesPresent", label: "Required documents attached", enabled: true },
+      { key: "documentRelevant", label: "Document matches the report requested", enabled: true },
+    ],
+  },
+  canteenSalesRecon: {
+    label: "Canteen Sales Reconciliation",
+    defaultWeight: 1,
+    requiredFiles: [
+      { label: "Sales Collection Recon", fileType: "xlsx", required: true },
+      { label: "Inventory", fileType: "xlsx", required: true },
+      { label: "Proof of Payment", fileType: "pdf", required: true },
+    ],
+    validationRules: [
+      { key: "datesMatch", label: "Recon and inventory cover the same day", enabled: true },
+      { key: "timeliness", label: "Documents generated on the report date", enabled: true },
+      { key: "childrenCountMatch", label: "Children fed matches the student rows", enabled: true },
+      { key: "cashTotalCorrect", label: "Cash total adds up", enabled: true },
+      { key: "airtelTotalCorrect", label: "Airtel total adds up", enabled: true },
+      { key: "grandTotalCorrect", label: "Grand total equals cash plus airtel", enabled: true },
+      { key: "depositMatchesRecon", label: "Deposit slip matches the amount banked", enabled: true },
+    ],
+  },
   payroll: {
     label: "Payroll",
     defaultWeight: 1,
@@ -111,7 +140,7 @@ const VALIDATOR_PRESETS: Record<
 
 // ─── Create Report Dialog ─────────────────────────────────────────────────────
 
-function CreateReportDialog({
+export function CreateReportDialog({
   open,
   onClose,
   departments,
@@ -125,7 +154,7 @@ function CreateReportDialog({
   const [name, setName] = useState("");
   const [departmentId, setDepartmentId] = useState<string>("");
   const [validatorKey, setValidatorKey] = useState<string>("");
-  const [cadence, setCadence] = useState<"monthly" | "weekly" | "daily">("monthly");
+  const [cadence, setCadence] = useState<Cadence>("monthly");
   const [weight, setWeight] = useState("1");
   const [saving, setSaving] = useState(false);
 
@@ -159,6 +188,10 @@ function CreateReportDialog({
         departmentId: departmentId as Id<"departments">,
         name,
         cadence,
+        // A "cycle" report is meaningless without cycle settings, so it is
+        // never created without them — the defaults are edited afterwards on
+        // the report's own page.
+        cycle: cadence === "cycle" ? defaultCycleConfig() : undefined,
         validatorKey,
         weight: parseFloat(weight) || 1,
         requiredFiles: preset.requiredFiles,
@@ -188,7 +221,11 @@ function CreateReportDialog({
             <Label>Report Type</Label>
             <Select value={validatorKey} onValueChange={(v) => v && handleValidatorChange(v)}>
               <SelectTrigger>
-                <SelectValue placeholder="Select a report type…" />
+                <SelectValue placeholder="Select a report type…">
+                  {(value: string) =>
+                    VALIDATOR_PRESETS[value]?.label ?? "Select a report type…"
+                  }
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {Object.entries(VALIDATOR_PRESETS).map(([key, p]) => (
@@ -213,7 +250,12 @@ function CreateReportDialog({
             <Label>Department</Label>
             <Select value={departmentId} onValueChange={(v) => v && setDepartmentId(v)}>
               <SelectTrigger>
-                <SelectValue placeholder="Select a department…" />
+                <SelectValue placeholder="Select a department…">
+                  {(value: string) =>
+                    departments.find((d) => d._id === value)?.name ??
+                    "Select a department…"
+                  }
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {departments.map((d) => (
@@ -228,14 +270,16 @@ function CreateReportDialog({
           <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-1.5">
               <Label>Cadence</Label>
-              <Select value={cadence} onValueChange={(v) => setCadence(v as typeof cadence)}>
+              <Select value={cadence} onValueChange={(v) => v && setCadence(v as Cadence)}>
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue>{(value: string) => cadenceLabel(value)}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="monthly">Monthly</SelectItem>
-                  <SelectItem value="weekly">Weekly</SelectItem>
-                  <SelectItem value="daily">Daily</SelectItem>
+                  {CADENCE_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -281,152 +325,5 @@ function CreateReportDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
-}
-
-// ─── Department card ──────────────────────────────────────────────────────────
-
-function DepartmentTemplates({ departmentId, departmentName }: { departmentId: Id<"departments">; departmentName: string }) {
-  const templates = useQuery(api.reportTemplates.listByDepartment, { departmentId });
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">{departmentName}</CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-2">
-        {templates === undefined ? (
-          <Skeleton className="h-10 w-full" />
-        ) : templates.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No reports configured.</p>
-        ) : (
-          templates.map((t) => (
-            <Link
-              key={t._id}
-              href={`/admin/reports/${t._id}`}
-              className="flex items-center justify-between rounded-md border p-3 text-sm hover:bg-accent"
-            >
-              <span>{t.name}</span>
-              <Badge variant="outline" className="capitalize">
-                {t.cadence}
-              </Badge>
-            </Link>
-          ))
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-// ─── User management card ─────────────────────────────────────────────────────
-
-function UserManagement() {
-  const users = useQuery(api.profiles.listUsers);
-  const org = useQuery(api.organizations.getPrimary);
-  const departments = useQuery(api.departments.listForOrg, org ? { orgId: org._id } : "skip");
-  const setRoleAndDepartment = useMutation(api.profiles.setRoleAndDepartment);
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Users</CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-2">
-        {users === undefined ? (
-          <Skeleton className="h-10 w-full" />
-        ) : (
-          users.map((u) => (
-            <div key={u._id} className="flex items-center justify-between gap-3 rounded-md border p-3 text-sm">
-              <div>
-                <div className="font-medium">{u.name}</div>
-                <div className="text-xs text-muted-foreground">{u.email}</div>
-              </div>
-              <div className="flex items-center gap-2">
-                <Select
-                  value={u.role}
-                  onValueChange={(role) =>
-                    setRoleAndDepartment({
-                      profileId: u._id,
-                      role: role as "admin" | "manager" | "employee",
-                      departmentId: u.departmentId,
-                    })
-                  }
-                >
-                  <SelectTrigger className="w-28">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="admin">Admin</SelectItem>
-                    <SelectItem value="manager">Manager</SelectItem>
-                    <SelectItem value="employee">Employee</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select
-                  value={u.departmentId ?? "none"}
-                  onValueChange={(departmentId) =>
-                    setRoleAndDepartment({
-                      profileId: u._id,
-                      role: u.role,
-                      departmentId:
-                        departmentId === "none" ? undefined : (departmentId as Id<"departments">),
-                    })
-                  }
-                >
-                  <SelectTrigger className="w-36">
-                    <SelectValue placeholder="Department" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">No department</SelectItem>
-                    {departments?.map((d) => (
-                      <SelectItem key={d._id} value={d._id}>
-                        {d.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          ))
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-// ─── Page ─────────────────────────────────────────────────────────────────────
-
-export default function AdminReportsPage() {
-  const org = useQuery(api.organizations.getPrimary);
-  const departments = useQuery(api.departments.listForOrg, org ? { orgId: org._id } : "skip");
-  const [dialogOpen, setDialogOpen] = useState(false);
-
-  return (
-    <AppShell>
-      <div className="flex flex-col gap-6">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-semibold tracking-tight">Report Configuration</h1>
-          <Button onClick={() => setDialogOpen(true)}>+ Add Report</Button>
-        </div>
-
-        {departments === undefined ? (
-          <Skeleton className="h-32 w-full rounded-xl" />
-        ) : (
-          <>
-            <div className="grid gap-4 sm:grid-cols-2">
-              {departments.map((d) => (
-                <DepartmentTemplates key={d._id} departmentId={d._id} departmentName={d.name} />
-              ))}
-            </div>
-
-            <CreateReportDialog
-              open={dialogOpen}
-              onClose={() => setDialogOpen(false)}
-              departments={departments}
-            />
-          </>
-        )}
-
-        <UserManagement />
-      </div>
-    </AppShell>
   );
 }

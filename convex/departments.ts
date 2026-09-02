@@ -33,3 +33,53 @@ export const create = mutation({
     return await ctx.db.insert("departments", args);
   },
 });
+
+export const update = mutation({
+  args: {
+    departmentId: v.id("departments"),
+    name: v.string(),
+    slug: v.string(),
+  },
+  handler: async (ctx, { departmentId, name, slug }) => {
+    const profile = await requireRole(ctx, ["admin"]);
+    const dept = await ctx.db.get(departmentId);
+    if (!dept) throw new Error("Department not found");
+    if (dept.orgId !== profile.orgId) throw new Error("Unauthorized");
+    await ctx.db.patch(departmentId, { name, slug });
+  },
+});
+
+export const remove = mutation({
+  args: { departmentId: v.id("departments") },
+  handler: async (ctx, { departmentId }) => {
+    const profile = await requireRole(ctx, ["admin"]);
+    const dept = await ctx.db.get(departmentId);
+    if (!dept) throw new Error("Department not found");
+    if (dept.orgId !== profile.orgId) throw new Error("Unauthorized");
+
+    // Refuse to orphan report templates or the people assigned to the
+    // department — the admin has to move those first.
+    const templates = await ctx.db
+      .query("reportTemplates")
+      .withIndex("by_departmentId", (q) => q.eq("departmentId", departmentId))
+      .collect();
+    if (templates.length > 0) {
+      throw new Error(
+        `Department still has ${templates.length} report template(s). Delete or move them first.`,
+      );
+    }
+
+    const orgProfiles = await ctx.db
+      .query("profiles")
+      .withIndex("by_orgId", (q) => q.eq("orgId", profile.orgId))
+      .collect();
+    const members = orgProfiles.filter((p) => p.departmentId === departmentId);
+    if (members.length > 0) {
+      throw new Error(
+        `Department still has ${members.length} member(s). Reassign them first.`,
+      );
+    }
+
+    await ctx.db.delete(departmentId);
+  },
+});

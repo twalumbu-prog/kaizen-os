@@ -18,6 +18,10 @@ const ACCEPT: Record<string, string> = {
   xlsx: ".xlsx,.xls",
   pdf: ".pdf",
   csv: ".csv",
+  // `capture` is deliberately not set: staff should be able to pick an existing
+  // photo as well as take a new one.
+  jpg: ".jpg,.jpeg,image/jpeg",
+  png: ".png,image/png",
 };
 
 export default function UploadReportPage({
