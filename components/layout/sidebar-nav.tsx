@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   Puzzle,
   Settings,
+  Trophy,
   Users,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -31,6 +32,7 @@ const NAV_ITEMS: NavItem[] = [
     match: ["/employee", "/departments", "/submissions"],
   },
   { label: "Work Calendar", href: "/calendar", icon: CalendarDays },
+  { label: "Leaderboard", href: "/leaderboard", icon: Trophy },
   {
     label: "Integrations",
     href: "/admin/integrations",

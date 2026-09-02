@@ -16,6 +16,7 @@ import type * as departments from "../departments.js";
 import type * as drive from "../drive.js";
 import type * as http from "../http.js";
 import type * as integrations from "../integrations.js";
+import type * as leaderboard from "../leaderboard.js";
 import type * as lib_oauthState from "../lib/oauthState.js";
 import type * as lib_parsers_canteenInventory from "../lib/parsers/canteenInventory.js";
 import type * as lib_parsers_canteenReceipt from "../lib/parsers/canteenReceipt.js";
@@ -70,6 +71,7 @@ declare const fullApi: ApiFromModules<{
   drive: typeof drive;
   http: typeof http;
   integrations: typeof integrations;
+  leaderboard: typeof leaderboard;
   "lib/oauthState": typeof lib_oauthState;
   "lib/parsers/canteenInventory": typeof lib_parsers_canteenInventory;
   "lib/parsers/canteenReceipt": typeof lib_parsers_canteenReceipt;
