@@ -35,6 +35,20 @@ export const FILE_TYPE = v.union(
 
 export default defineSchema({
   ...authTables,
+  // Extends the auth `users` table with orgName so the signup profile()
+  // function can pass it through without being rejected by the schema.
+  users: defineTable({
+    name: v.optional(v.string()),
+    image: v.optional(v.string()),
+    email: v.optional(v.string()),
+    emailVerificationTime: v.optional(v.float64()),
+    phone: v.optional(v.string()),
+    phoneVerificationTime: v.optional(v.float64()),
+    isAnonymous: v.optional(v.boolean()),
+    orgName: v.optional(v.string()),
+  })
+    .index("email", ["email"])
+    .index("phone", ["phone"]),
 
   // Extends Convex Auth's `users` table with app-specific fields.
   profiles: defineTable({

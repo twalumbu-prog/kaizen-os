@@ -10,7 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { toast } from "sonner";
 import { Eye, EyeOff } from "lucide-react";
 
-export function AuthForm({ flow }: { flow: "signIn" | "signUp" }) {
+export function CreateOrganizationForm() {
   const { signIn } = useAuthActions();
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
@@ -20,49 +20,37 @@ export function AuthForm({ flow }: { flow: "signIn" | "signUp" }) {
     e.preventDefault();
     setSubmitting(true);
     const formData = new FormData(e.currentTarget);
-    formData.set("flow", flow);
+    formData.set("flow", "signUp");
     try {
       await signIn("password", formData);
       router.push("/");
     } catch (err: any) {
       console.error("Auth Error:", err);
       const errorMessage = err?.message || (typeof err === "string" ? err : "Unknown error");
-      toast.error(
-        flow === "signIn"
-          ? `Sign in failed: ${errorMessage}`
-          : `Failed to join organization: ${errorMessage}`,
-      );
+      toast.error(`Failed to create organization: ${errorMessage}`);
     } finally {
       setSubmitting(false);
     }
   }
 
-  const isSignUp = flow === "signUp";
-
   return (
     <Card className="w-full max-w-sm">
       <CardHeader>
-        <CardTitle>{isSignUp ? "Join your organization" : "Sign in"}</CardTitle>
+        <CardTitle>Create organization</CardTitle>
         <CardDescription>
-          {isSignUp
-            ? "Enter the invite code shared by your admin to join their workspace."
-            : "Sign in to view your organization's performance dashboard."}
+          Set up a new workspace. You will be the admin.
         </CardDescription>
       </CardHeader>
       <CardContent>
         <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
-          {isSignUp && (
-            <>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="name">Full name</Label>
-                <Input id="name" name="name" required autoComplete="name" />
-              </div>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="orgName">Invite Code</Label>
-                <Input id="orgName" name="orgName" required placeholder="Paste your invite code here" />
-              </div>
-            </>
-          )}
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="orgName">Organization name</Label>
+            <Input id="orgName" name="orgName" required placeholder="e.g. Acme Corp" />
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="name">Your full name</Label>
+            <Input id="name" name="name" required autoComplete="name" />
+          </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="email">Email</Label>
             <Input id="email" name="email" type="email" required autoComplete="email" />
@@ -75,7 +63,7 @@ export function AuthForm({ flow }: { flow: "signIn" | "signUp" }) {
                 name="password"
                 type={showPassword ? "text" : "password"}
                 required
-                autoComplete={isSignUp ? "new-password" : "current-password"}
+                autoComplete="new-password"
                 minLength={8}
                 className="pr-10"
               />
@@ -85,16 +73,12 @@ export function AuthForm({ flow }: { flow: "signIn" | "signUp" }) {
                 onClick={() => setShowPassword(!showPassword)}
                 tabIndex={-1}
               >
-                {showPassword ? (
-                  <EyeOff className="size-4" />
-                ) : (
-                  <Eye className="size-4" />
-                )}
+                {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
               </button>
             </div>
           </div>
           <Button type="submit" disabled={submitting} className="mt-2">
-            {submitting ? "Please wait…" : isSignUp ? "Join organization" : "Sign in"}
+            {submitting ? "Creating…" : "Create organization"}
           </Button>
         </form>
       </CardContent>

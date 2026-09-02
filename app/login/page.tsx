@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { AuthForm } from "@/components/auth/auth-form";
+import { buttonVariants } from "@/components/ui/button";
 
 export default function LoginPage() {
   return (
@@ -11,6 +12,16 @@ export default function LoginPage() {
           Create one
         </Link>
       </p>
+      
+      <div className="mt-8 flex flex-col items-center gap-2">
+        <p className="text-sm text-muted-foreground">Want to create a new workspace?</p>
+        <Link 
+          href="/create-organization" 
+          className={buttonVariants({ variant: "outline" })}
+        >
+          Create Organization
+        </Link>
+      </div>
     </div>
   );
 }

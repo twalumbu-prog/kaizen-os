@@ -1,10 +1,10 @@
 import Link from "next/link";
-import { AuthForm } from "@/components/auth/auth-form";
+import { CreateOrganizationForm } from "@/components/auth/create-organization-form";
 
-export default function SignupPage() {
+export default function CreateOrganizationPage() {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-4 p-4">
-      <AuthForm flow="signUp" />
+      <CreateOrganizationForm />
       <p className="text-sm text-muted-foreground">
         Already have an account?{" "}
         <Link href="/login" className="underline underline-offset-4">
@@ -12,9 +12,9 @@ export default function SignupPage() {
         </Link>
       </p>
       <p className="text-sm text-muted-foreground">
-        Starting fresh?{" "}
-        <Link href="/create-organization" className="underline underline-offset-4">
-          Create a new organization
+        Joining an existing org?{" "}
+        <Link href="/signup" className="underline underline-offset-4">
+          Use an invite code
         </Link>
       </p>
     </div>
