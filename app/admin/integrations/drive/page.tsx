@@ -4,12 +4,12 @@ import { useQuery, useAction } from "convex/react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
-import { ArrowLeft, HardDrive, CheckCircle2, ShieldCheck, FolderSync, KeySquare } from "lucide-react";
-import Link from "next/link";
+import { CheckCircle2, ShieldCheck, FolderSync, KeySquare } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AppShell } from "@/components/layout/app-shell";
+import { IntegrationHeader } from "@/components/integrations/integration-header";
 
 export default function GoogleDriveIntegrationPage() {
   const org = useQuery(api.organizations.getPrimary);
@@ -52,28 +52,13 @@ export default function GoogleDriveIntegrationPage() {
   return (
     <AppShell>
       <div className="space-y-8 pb-10">
-        {/* Navigation */}
-        <Link 
-          href="/admin/integrations"
-          className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "text-muted-foreground hover:text-foreground -ml-2 mb-2")}
-        >
-          <ArrowLeft className="mr-2 size-4" />
-          Back to Integrations
-        </Link>
-
         <div className="grid lg:grid-cols-3 gap-10 items-start">
-          {/* Left Side: Info */}
-          <div className="lg:col-span-1 space-y-6">
-            <div className="flex items-center justify-center size-16 rounded-2xl bg-gradient-to-br from-blue-100 to-blue-200 dark:from-blue-900/50 dark:to-blue-900 border border-border shadow-sm">
-              <HardDrive className="size-8 text-blue-600 dark:text-blue-400" />
-            </div>
-            <div>
-              <h1 className="text-3xl font-extrabold tracking-tight mb-3">Google Drive</h1>
-              <p className="text-muted-foreground leading-relaxed">
-                Connect your organization's Google Drive account to automatically store, organize, and archive finalized reports.
-              </p>
-            </div>
-            
+          <IntegrationHeader
+            name="Google Drive"
+            description="Connect your organization's Google Drive account to automatically store, organize, and archive finalized reports."
+            initials="Dr"
+            iconClassName="bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400"
+          >
             <div className="space-y-4 pt-4 border-t border-border/50">
               <div className="flex items-start gap-3">
                 <FolderSync className="size-5 text-blue-500 mt-0.5" />
@@ -90,17 +75,12 @@ export default function GoogleDriveIntegrationPage() {
                 </div>
               </div>
             </div>
-          </div>
+          </IntegrationHeader>
 
           {/* Right Side: Config Card */}
           <div className="lg:col-span-2">
-            <Card className={cn(
-              "overflow-hidden transition-all duration-300",
-              isActive ? "border-blue-500/30 shadow-lg shadow-blue-500/5" : "border-border shadow-sm"
-            )}>
-              <div className={cn("h-1.5 w-full", isActive ? "bg-blue-500" : "bg-muted")} />
-              
-              <CardHeader className="bg-muted/10 pb-6 border-b border-border/50">
+            <Card className={cn(isActive ? "border-blue-500/30" : "border-border")}>
+              <CardHeader className="border-b border-border/50 pb-6">
                 <div className="flex items-center justify-between">
                   <div>
                     <CardTitle className="text-xl flex items-center gap-2">
@@ -118,7 +98,7 @@ export default function GoogleDriveIntegrationPage() {
                 </div>
               </CardHeader>
 
-              <CardContent className="space-y-6 pt-6 pb-8 px-6 sm:px-8">
+              <CardContent className="space-y-6 pt-6 pb-8">
                 {isActive ? (
                   <div className="space-y-4">
                     <div className="p-4 bg-blue-50 dark:bg-blue-500/10 text-blue-900 dark:text-blue-100 rounded-lg border border-blue-200 dark:border-blue-500/20">
@@ -135,7 +115,7 @@ export default function GoogleDriveIntegrationPage() {
                 )}
               </CardContent>
 
-              <CardFooter className="bg-muted/30 border-t border-border/50 px-6 sm:px-8 py-4">
+              <CardFooter className="bg-muted/30 border-t border-border/50 py-4">
                 {isActive ? (
                   <Button 
                     variant="outline" 

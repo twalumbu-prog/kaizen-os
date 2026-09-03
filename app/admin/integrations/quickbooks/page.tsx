@@ -4,12 +4,12 @@ import { useQuery, useAction, useMutation } from "convex/react";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
-import { ArrowLeft, DollarSign, CheckCircle2, ShieldCheck, Database, KeySquare, Loader2 } from "lucide-react";
-import Link from "next/link";
+import { CheckCircle2, ShieldCheck, Database, KeySquare, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AppShell } from "@/components/layout/app-shell";
+import { IntegrationHeader } from "@/components/integrations/integration-header";
 
 export default function QuickBooksIntegrationPage() {
   const org = useQuery(api.organizations.getPrimary);
@@ -84,28 +84,13 @@ export default function QuickBooksIntegrationPage() {
   return (
     <AppShell>
       <div className="space-y-8 pb-10">
-        {/* Navigation */}
-        <Link 
-          href="/admin/integrations"
-          className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "text-muted-foreground hover:text-foreground -ml-2 mb-2")}
-        >
-          <ArrowLeft className="mr-2 size-4" />
-          Back to Integrations
-        </Link>
-
         <div className="grid lg:grid-cols-3 gap-10 items-start">
-          {/* Left Side: Info */}
-          <div className="lg:col-span-1 space-y-6">
-            <div className="flex items-center justify-center size-16 rounded-2xl bg-gradient-to-br from-emerald-100 to-emerald-200 dark:from-emerald-900/50 dark:to-emerald-900 border border-border shadow-sm">
-              <DollarSign className="size-8 text-emerald-600 dark:text-emerald-400" />
-            </div>
-            <div>
-              <h1 className="text-3xl font-extrabold tracking-tight mb-3">QuickBooks</h1>
-              <p className="text-muted-foreground leading-relaxed">
-                Connect QuickBooks Online to automate your financial reporting, sync bank transactions, and perform one-click reconciliations.
-              </p>
-            </div>
-            
+          <IntegrationHeader
+            name="QuickBooks"
+            description="Connect QuickBooks Online to automate your financial reporting, sync bank transactions, and perform one-click reconciliations."
+            initials="QB"
+            iconClassName="bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400"
+          >
             <div className="space-y-4 pt-4 border-t border-border/50">
               <div className="flex items-start gap-3">
                 <Database className="size-5 text-emerald-500 mt-0.5" />
@@ -122,17 +107,12 @@ export default function QuickBooksIntegrationPage() {
                 </div>
               </div>
             </div>
-          </div>
+          </IntegrationHeader>
 
           {/* Right Side: Config Card */}
           <div className="lg:col-span-2 space-y-6">
-            <Card className={cn(
-              "overflow-hidden transition-all duration-300",
-              isActive ? "border-emerald-500/30 shadow-lg shadow-emerald-500/5" : "border-border shadow-sm"
-            )}>
-              <div className={cn("h-1.5 w-full", isActive ? "bg-emerald-500" : "bg-muted")} />
-              
-              <CardHeader className="bg-muted/10 pb-6 border-b border-border/50">
+            <Card className={cn(isActive ? "border-emerald-500/30" : "border-border")}>
+              <CardHeader className="border-b border-border/50 pb-6">
                 <div className="flex items-center justify-between">
                   <div>
                     <CardTitle className="text-xl flex items-center gap-2">
@@ -150,7 +130,7 @@ export default function QuickBooksIntegrationPage() {
                 </div>
               </CardHeader>
 
-              <CardContent className="space-y-6 pt-6 pb-8 px-6 sm:px-8">
+              <CardContent className="space-y-6 pt-6 pb-8">
                 {isActive ? (
                   <div className="space-y-4">
                     <div className="p-4 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-900 dark:text-emerald-100 rounded-lg border border-emerald-200 dark:border-emerald-500/20">
@@ -167,7 +147,7 @@ export default function QuickBooksIntegrationPage() {
                 )}
               </CardContent>
 
-              <CardFooter className="bg-muted/30 border-t border-border/50 px-6 sm:px-8 py-4">
+              <CardFooter className="bg-muted/30 border-t border-border/50 py-4">
                 {isActive ? (
                   <Button 
                     variant="outline" 
@@ -190,7 +170,7 @@ export default function QuickBooksIntegrationPage() {
             </Card>
 
             {isActive && (
-              <Card className="border-border shadow-sm">
+              <Card className="border-border">
                 <CardHeader className="border-b border-border/50">
                   <CardTitle className="text-lg">Ledger Mapping</CardTitle>
                   <CardDescription>Map your internal finance reports to specific QuickBooks accounts.</CardDescription>

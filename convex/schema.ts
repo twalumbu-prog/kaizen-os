@@ -232,7 +232,8 @@ export default defineSchema({
       v.literal("quickbooks"),
       v.literal("resend"),
       v.literal("google_drive"),
-      v.literal("google_ai")
+      v.literal("google_ai"),
+      v.literal("meta")
     ),
     status: v.union(v.literal("active"), v.literal("disconnected")),
     config: v.optional(v.string()), // JSON string of integration-specific configuration

@@ -3,15 +3,15 @@
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useState, useEffect } from "react";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { toast } from "sonner";
-import { ArrowLeft, Bot, CheckCircle2, ShieldCheck, Sparkles } from "lucide-react";
-import Link from "next/link";
+import { CheckCircle2, ShieldCheck, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AppShell } from "@/components/layout/app-shell";
+import { IntegrationHeader } from "@/components/integrations/integration-header";
 
 export default function AiIntegrationPage() {
   const org = useQuery(api.organizations.getPrimary);
@@ -62,28 +62,13 @@ export default function AiIntegrationPage() {
   return (
     <AppShell>
       <div className="space-y-8 pb-10">
-        {/* Navigation */}
-        <Link 
-          href="/admin/integrations"
-          className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "text-muted-foreground hover:text-foreground -ml-2 mb-2")}
-        >
-          <ArrowLeft className="mr-2 size-4" />
-          Back to Integrations
-        </Link>
-
         <div className="grid lg:grid-cols-3 gap-10 items-start">
-          {/* Left Side: Info */}
-          <div className="lg:col-span-1 space-y-6">
-            <div className="flex items-center justify-center size-16 rounded-2xl bg-gradient-to-br from-purple-100 to-purple-200 dark:from-purple-900/50 dark:to-purple-900 border border-border shadow-sm">
-              <Bot className="size-8 text-purple-600 dark:text-purple-400" />
-            </div>
-            <div>
-              <h1 className="text-3xl font-extrabold tracking-tight mb-3">Google AI</h1>
-              <p className="text-muted-foreground leading-relaxed">
-                Supercharge your organization with Gemini. Enable automated report reviews, anomaly detection, and intelligent agentic workflows.
-              </p>
-            </div>
-            
+          <IntegrationHeader
+            name="Google AI"
+            description="Supercharge your organization with Gemini. Enable automated report reviews, anomaly detection, and intelligent agentic workflows."
+            initials="Ai"
+            iconClassName="bg-purple-50 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400"
+          >
             <div className="space-y-4 pt-4 border-t border-border/50">
               <div className="flex items-start gap-3">
                 <Sparkles className="size-5 text-purple-500 mt-0.5" />
@@ -100,17 +85,12 @@ export default function AiIntegrationPage() {
                 </div>
               </div>
             </div>
-          </div>
+          </IntegrationHeader>
 
           {/* Right Side: Config Card */}
           <div className="lg:col-span-2">
-            <Card className={cn(
-              "overflow-hidden transition-all duration-300",
-              isActive ? "border-purple-500/30 shadow-lg shadow-purple-500/5" : "border-border shadow-sm"
-            )}>
-              <div className={cn("h-1.5 w-full", isActive ? "bg-purple-500" : "bg-muted")} />
-              
-              <CardHeader className="bg-muted/10 pb-6 border-b border-border/50">
+            <Card className={cn(isActive ? "border-purple-500/30" : "border-border")}>
+              <CardHeader className="border-b border-border/50 pb-6">
                 <div className="flex items-center justify-between">
                   <div>
                     <CardTitle className="text-xl flex items-center gap-2">
@@ -126,7 +106,7 @@ export default function AiIntegrationPage() {
                 </div>
               </CardHeader>
 
-              <CardContent className="space-y-6 pt-6 pb-8 px-6 sm:px-8">
+              <CardContent className="space-y-6 pt-6 pb-8">
                 <div className="space-y-3">
                   <Label htmlFor="apiKey" className="text-sm font-semibold">Gemini API Key</Label>
                   <Input 
@@ -143,7 +123,7 @@ export default function AiIntegrationPage() {
                 </div>
               </CardContent>
 
-              <CardFooter className="bg-muted/30 border-t border-border/50 px-6 sm:px-8 py-4">
+              <CardFooter className="bg-muted/30 border-t border-border/50 py-4">
                 <Button 
                   onClick={handleSave} 
                   disabled={isSaving} 

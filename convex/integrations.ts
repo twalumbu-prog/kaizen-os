@@ -23,9 +23,9 @@ export const listByOrg = query({
 });
 
 export const getIntegration = query({
-  args: { 
+  args: {
     orgId: v.id("organizations"),
-    provider: v.union(v.literal("quickbooks"), v.literal("resend"), v.literal("google_drive"), v.literal("google_ai"))
+    provider: v.union(v.literal("quickbooks"), v.literal("resend"), v.literal("google_drive"), v.literal("google_ai"), v.literal("meta"))
   },
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
@@ -54,9 +54,9 @@ export const getIntegration = query({
 });
 
 export const getInternalIntegration = internalQuery({
-  args: { 
+  args: {
     orgId: v.id("organizations"),
-    provider: v.union(v.literal("quickbooks"), v.literal("resend"), v.literal("google_drive"), v.literal("google_ai"))
+    provider: v.union(v.literal("quickbooks"), v.literal("resend"), v.literal("google_drive"), v.literal("google_ai"), v.literal("meta"))
   },
   handler: async (ctx, args) => {
     return await ctx.db.query("integrations")
@@ -68,7 +68,7 @@ export const getInternalIntegration = internalQuery({
 export const updateIntegrationStatus = mutation({
   args: {
     orgId: v.id("organizations"),
-    provider: v.union(v.literal("quickbooks"), v.literal("resend"), v.literal("google_drive"), v.literal("google_ai")),
+    provider: v.union(v.literal("quickbooks"), v.literal("resend"), v.literal("google_drive"), v.literal("google_ai"), v.literal("meta")),
     status: v.union(v.literal("active"), v.literal("disconnected")),
     config: v.optional(v.string())
   },
@@ -108,7 +108,7 @@ export const updateIntegrationStatus = mutation({
 export const updateIntegrationStatusInternal = internalMutation({
   args: {
     orgId: v.id("organizations"),
-    provider: v.union(v.literal("quickbooks"), v.literal("resend"), v.literal("google_drive"), v.literal("google_ai")),
+    provider: v.union(v.literal("quickbooks"), v.literal("resend"), v.literal("google_drive"), v.literal("google_ai"), v.literal("meta")),
     status: v.union(v.literal("active"), v.literal("disconnected")),
     config: v.optional(v.string())
   },

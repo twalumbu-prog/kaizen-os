@@ -4,15 +4,14 @@
     {
       "name": "next-dev",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
-      "port": 3000,
-      "autoPort": true
+      "runtimeArgs": ["run", "dev", "--", "-p", "3001"],
+      "port": 3001
     },
     {
       "name": "convex-dev",
       "runtimeExecutable": "npx",
       "runtimeArgs": ["convex", "dev"],
-      "port": 0
+      "port": 3210
     }
   ]
 }

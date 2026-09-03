@@ -10,6 +10,7 @@
 
 import type * as ai from "../ai.js";
 import type * as auth from "../auth.js";
+import type * as composio from "../composio.js";
 import type * as crons from "../crons.js";
 import type * as dashboard from "../dashboard.js";
 import type * as departments from "../departments.js";
@@ -33,6 +34,7 @@ import type * as lib_periods from "../lib/periods.js";
 import type * as lib_qbExtract from "../lib/qbExtract.js";
 import type * as lib_roles from "../lib/roles.js";
 import type * as lib_scoring from "../lib/scoring.js";
+import type * as meta from "../meta.js";
 import type * as migrateMultiTenancy from "../migrateMultiTenancy.js";
 import type * as migrateNHIMA from "../migrateNHIMA.js";
 import type * as organizations from "../organizations.js";
@@ -65,6 +67,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   ai: typeof ai;
   auth: typeof auth;
+  composio: typeof composio;
   crons: typeof crons;
   dashboard: typeof dashboard;
   departments: typeof departments;
@@ -88,6 +91,7 @@ declare const fullApi: ApiFromModules<{
   "lib/qbExtract": typeof lib_qbExtract;
   "lib/roles": typeof lib_roles;
   "lib/scoring": typeof lib_scoring;
+  meta: typeof meta;
   migrateMultiTenancy: typeof migrateMultiTenancy;
   migrateNHIMA: typeof migrateNHIMA;
   organizations: typeof organizations;
