@@ -1,6 +1,13 @@
 import { internalMutation } from "../_generated/server";
 import { v } from "convex/values";
 
+export const remove = internalMutation({
+  args: { templateId: v.id("reportTemplates") },
+  handler: async (ctx, { templateId }) => {
+    await ctx.db.delete(templateId);
+  },
+});
+
 export const create = internalMutation({
   args: {
     departmentId: v.id("departments"),
