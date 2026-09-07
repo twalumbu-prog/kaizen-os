@@ -769,9 +769,10 @@ export const myCalendar = query({
           responsible.length > 0 ? responsible.map((userId) => ({ userId })) : [{ userId: null }];
 
         for (const row of rows) {
+          // For unassigned rows, still surface any auto-submitted report for the period.
           const submission = row.userId
             ? periodSubmissions.find((s) => s.userId === row.userId)
-            : undefined;
+            : periodSubmissions.find((s) => s.isAutoSubmitted) ?? undefined;
           items.push({
             templateId: template._id,
             templateName: template.name,
@@ -784,7 +785,7 @@ export const myCalendar = query({
             /** Set only when overseeing someone else's report — drives read-only UI. */
             assigneeName:
               overseeing && row.userId ? (nameByUserId.get(row.userId) ?? "Unknown") : null,
-            unassigned: row.userId === null,
+            unassigned: row.userId === null && !submission,
           });
         }
       }
