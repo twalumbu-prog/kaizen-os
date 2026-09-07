@@ -8,6 +8,8 @@
  * @module
  */
 
+import type * as adReports from "../adReports.js";
+import type * as adReportsQueries from "../adReportsQueries.js";
 import type * as ai from "../ai.js";
 import type * as auth from "../auth.js";
 import type * as composio from "../composio.js";
@@ -19,6 +21,7 @@ import type * as http from "../http.js";
 import type * as integrations from "../integrations.js";
 import type * as leaderboard from "../leaderboard.js";
 import type * as lib_oauthState from "../lib/oauthState.js";
+import type * as lib_parsers_adPerformance from "../lib/parsers/adPerformance.js";
 import type * as lib_parsers_canteenInventory from "../lib/parsers/canteenInventory.js";
 import type * as lib_parsers_canteenReceipt from "../lib/parsers/canteenReceipt.js";
 import type * as lib_parsers_canteenRecon from "../lib/parsers/canteenRecon.js";
@@ -52,6 +55,7 @@ import type * as seedBlueOpus from "../seedBlueOpus.js";
 import type * as seedTwalumbu from "../seedTwalumbu.js";
 import type * as submissions from "../submissions.js";
 import type * as validationRunner from "../validationRunner.js";
+import type * as validators_adPerformance from "../validators/adPerformance.js";
 import type * as validators_bankReconciliation from "../validators/bankReconciliation.js";
 import type * as validators_canteenSalesRecon from "../validators/canteenSalesRecon.js";
 import type * as validators_documentSubmission from "../validators/documentSubmission.js";
@@ -67,6 +71,8 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  adReports: typeof adReports;
+  adReportsQueries: typeof adReportsQueries;
   ai: typeof ai;
   auth: typeof auth;
   composio: typeof composio;
@@ -78,6 +84,7 @@ declare const fullApi: ApiFromModules<{
   integrations: typeof integrations;
   leaderboard: typeof leaderboard;
   "lib/oauthState": typeof lib_oauthState;
+  "lib/parsers/adPerformance": typeof lib_parsers_adPerformance;
   "lib/parsers/canteenInventory": typeof lib_parsers_canteenInventory;
   "lib/parsers/canteenReceipt": typeof lib_parsers_canteenReceipt;
   "lib/parsers/canteenRecon": typeof lib_parsers_canteenRecon;
@@ -111,6 +118,7 @@ declare const fullApi: ApiFromModules<{
   seedTwalumbu: typeof seedTwalumbu;
   submissions: typeof submissions;
   validationRunner: typeof validationRunner;
+  "validators/adPerformance": typeof validators_adPerformance;
   "validators/bankReconciliation": typeof validators_bankReconciliation;
   "validators/canteenSalesRecon": typeof validators_canteenSalesRecon;
   "validators/documentSubmission": typeof validators_documentSubmission;

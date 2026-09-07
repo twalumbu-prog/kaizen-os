@@ -17,4 +17,10 @@ crons.daily(
   internal.reminders.processReminders
 );
 
+crons.daily(
+  "auto-submit-ad-performance",
+  { hourUTC: 7, minuteUTC: 0 },
+  internal.adReports.autoSubmitAll,
+);
+
 export default crons;

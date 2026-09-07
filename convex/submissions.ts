@@ -345,6 +345,74 @@ export const deleteSubmissionFile = mutation({
   },
 });
 
+/**
+ * Creates (or replaces) a daily submission and marks it submitted.
+ * Called by the ad-reports auto-submit cron — bypasses user-auth checks.
+ */
+export const autoSubmitInternal = internalMutation({
+  args: {
+    templateId:  v.id("reportTemplates"),
+    userId:      v.id("users"),
+    storageId:   v.id("_storage"),
+    fileName:    v.string(),
+    fileLabel:   v.string(),
+    periodLabel: v.string(),
+    periodStart: v.number(),
+    periodEnd:   v.number(),
+    dueAt:       v.number(),
+  },
+  handler: async (ctx, args) => {
+    // Find an existing submission for this user/template/period.
+    const existing = await ctx.db
+      .query("submissions")
+      .withIndex("by_templateId", (q) => q.eq("templateId", args.templateId))
+      .filter((q) =>
+        q.and(
+          q.eq(q.field("userId"), args.userId),
+          q.eq(q.field("periodLabel"), args.periodLabel),
+        ),
+      )
+      .unique();
+
+    let submissionId: Id<"submissions">;
+    if (existing) {
+      submissionId = existing._id;
+      // Replace all previously attached files for this submission.
+      const old = await ctx.db
+        .query("submissionFiles")
+        .withIndex("by_submissionId", (q) => q.eq("submissionId", submissionId))
+        .collect();
+      for (const f of old) await ctx.db.delete(f._id);
+    } else {
+      submissionId = await ctx.db.insert("submissions", {
+        templateId:  args.templateId,
+        userId:      args.userId,
+        periodLabel: args.periodLabel,
+        periodStart: args.periodStart,
+        periodEnd:   args.periodEnd,
+        dueAt:       args.dueAt,
+        status:      "pending",
+      });
+    }
+
+    await ctx.db.insert("submissionFiles", {
+      submissionId,
+      storageId: args.storageId,
+      label:     args.fileLabel,
+      fileType:  "xlsx",
+      fileName:  args.fileName,
+    });
+
+    const now = Date.now();
+    const status = now <= args.dueAt ? "submitted" : "late";
+    const subScore = computeSubmissionScore({ status, dueAt: args.dueAt, submittedAt: now });
+    await ctx.db.patch(submissionId, { submittedAt: now, status, submissionScore: subScore });
+
+    await ctx.scheduler.runAfter(0, internal.validationRunner.runValidation, { submissionId });
+    return submissionId;
+  },
+});
+
 /** Persists a validation run's outcome. Called from the Node action after running a validator. */
 export const saveValidationResult = internalMutation({
   args: {

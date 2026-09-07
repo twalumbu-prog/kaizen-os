@@ -3,6 +3,7 @@ import { statutoryReceiptsMaxPoints, statutoryReceiptsValidator } from "./statut
 import { payrollMaxPoints, payrollValidator } from "./payroll";
 import { canteenSalesReconMaxPoints, canteenSalesReconValidator } from "./canteenSalesRecon";
 import { documentSubmissionMaxPoints, documentSubmissionValidator } from "./documentSubmission";
+import { adPerformanceMaxPoints, adPerformanceValidator } from "./adPerformance";
 import type { ParsedFile, ValidationContext, ValidationResult, ValidationRule } from "./types";
 
 type AsyncValidator = (
@@ -21,6 +22,7 @@ export const VALIDATOR_REGISTRY: Record<string, AsyncValidator> = {
   payroll: payrollValidator,
   canteenSalesRecon: canteenSalesReconValidator,
   documentSubmission: documentSubmissionValidator,
+  adPerformance: adPerformanceValidator,
 };
 
 export function getValidator(validatorKey: string): AsyncValidator {
@@ -43,6 +45,7 @@ export const MAX_POINTS_REGISTRY: Record<string, MaxPointsFn> = {
   payroll: payrollMaxPoints,
   canteenSalesRecon: canteenSalesReconMaxPoints,
   documentSubmission: documentSubmissionMaxPoints,
+  adPerformance: adPerformanceMaxPoints,
 };
 
 export function getMaxPossibleScore(validatorKey: string, rules: ValidationRule[]): number {
