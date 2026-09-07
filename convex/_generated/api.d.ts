@@ -9,7 +9,7 @@
  */
 
 import type * as adReports from "../adReports.js";
-import type * as adReportsQueries from "../adReportsQueries.js";
+import type * as adReportsData from "../adReportsData.js";
 import type * as ai from "../ai.js";
 import type * as auth from "../auth.js";
 import type * as composio from "../composio.js";
@@ -72,7 +72,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   adReports: typeof adReports;
-  adReportsQueries: typeof adReportsQueries;
+  adReportsData: typeof adReportsData;
   ai: typeof ai;
   auth: typeof auth;
   composio: typeof composio;

@@ -14,7 +14,7 @@ const GRAPH = "https://graph.facebook.com/v21.0";
 export const autoSubmitAll = internalAction({
   args: {},
   handler: async (ctx) => {
-    const targets = await ctx.runQuery(internal.adReportsQueries.findTargets, {});
+    const targets = await ctx.runQuery(internal.adReportsData.findTargets, {});
     for (const target of targets) {
       try {
         await submitForTarget(ctx, target);
@@ -30,7 +30,7 @@ export const autoSubmitAll = internalAction({
 export const manualSubmit = internalAction({
   args: { orgId: v.id("organizations") },
   handler: async (ctx, { orgId }) => {
-    const targets = await ctx.runQuery(internal.adReportsQueries.findTargets, {});
+    const targets = await ctx.runQuery(internal.adReportsData.findTargets, {});
     const target = targets.find((t) => t.orgId === orgId);
     if (!target) throw new Error("No adPerformance template + active Meta integration found for this org.");
     await submitForTarget(ctx, target);
