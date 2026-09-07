@@ -155,6 +155,8 @@ export default defineSchema({
     finalScore: v.optional(v.number()),
     /** Validated bank closing balance, carried forward as next period's expected opening balance. */
     bankClosingBalance: v.optional(v.number()),
+    /** True when submitted automatically by the system (cron/integration), not by a human. */
+    isAutoSubmitted: v.optional(v.boolean()),
   })
     .index("by_templateId", ["templateId"])
     .index("by_userId", ["userId"])

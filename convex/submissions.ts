@@ -385,13 +385,14 @@ export const autoSubmitInternal = internalMutation({
       for (const f of old) await ctx.db.delete(f._id);
     } else {
       submissionId = await ctx.db.insert("submissions", {
-        templateId:  args.templateId,
-        userId:      args.userId,
-        periodLabel: args.periodLabel,
-        periodStart: args.periodStart,
-        periodEnd:   args.periodEnd,
-        dueAt:       args.dueAt,
-        status:      "pending",
+        templateId:    args.templateId,
+        userId:        args.userId,
+        periodLabel:   args.periodLabel,
+        periodStart:   args.periodStart,
+        periodEnd:     args.periodEnd,
+        dueAt:         args.dueAt,
+        status:        "pending",
+        isAutoSubmitted: true,
       });
     }
 
@@ -500,7 +501,7 @@ export const getSubmission = query({
     return {
       submission,
       template,
-      employeeName: employee ? "name" in employee ? employee.name : undefined : undefined,
+      employeeName: submission.isAutoSubmitted ? "System" : employee && "name" in employee ? employee.name : undefined,
       files: fileUrls,
       validationResult,
       checklist,
@@ -536,7 +537,7 @@ export const listSubmissionsForTemplate = query({
         ]);
         return {
           ...s,
-          employeeName: employee && "name" in employee ? employee.name : "Unknown",
+          employeeName: s.isAutoSubmitted ? "System" : employee && "name" in employee ? employee.name : "Unknown",
           qualityScore: validationResult?.score,
         };
       }),
