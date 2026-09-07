@@ -79,17 +79,23 @@ export const getMe = query({
 export const listUsers = query({
   args: {},
   handler: async (ctx) => {
-    const profile = await requireRole(ctx, ["admin"]);
-    const profiles = await ctx.db
-      .query("profiles")
-      .withIndex("by_orgId", (q) => q.eq("orgId", profile.orgId))
-      .collect();
-    return Promise.all(
-      profiles.map(async (p) => {
-        const user = await ctx.db.get(p.userId);
-        return { ...p, email: user?.email };
-      }),
-    );
+    const userId = await getAuthUserId(ctx);
+    if (userId === null) return [];
+    try {
+      const profile = await requireRole(ctx, ["admin"]);
+      const profiles = await ctx.db
+        .query("profiles")
+        .withIndex("by_orgId", (q) => q.eq("orgId", profile.orgId))
+        .collect();
+      return Promise.all(
+        profiles.map(async (p) => {
+          const user = await ctx.db.get(p.userId);
+          return { ...p, email: user?.email };
+        }),
+      );
+    } catch {
+      return [];
+    }
   },
 });
 

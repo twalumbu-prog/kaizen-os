@@ -97,9 +97,9 @@ export function AppShell({ children }: { children: ReactNode }) {
               >
                 <Menu className="size-4" />
               </Button>
+              <OrgSwitcher />
             </div>
             <div className="flex min-w-0 items-center gap-1 sm:gap-2">
-              <OrgSwitcher />
               <ThemeToggle />
               <Button
                 variant="ghost"

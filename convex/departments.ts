@@ -1,3 +1,4 @@
+import { getAuthUserId } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { requireProfile, requireRole } from "./lib/roles";
@@ -5,23 +6,35 @@ import { requireProfile, requireRole } from "./lib/roles";
 export const listForOrg = query({
   args: { orgId: v.id("organizations") },
   handler: async (ctx, { orgId }) => {
-    const profile = await requireProfile(ctx);
-    if (profile.orgId !== orgId) throw new Error("Unauthorized");
-    return await ctx.db
-      .query("departments")
-      .withIndex("by_orgId", (q) => q.eq("orgId", orgId))
-      .collect();
+    const userId = await getAuthUserId(ctx);
+    if (userId === null) return [];
+    try {
+      const profile = await requireProfile(ctx);
+      if (profile.orgId !== orgId) return [];
+      return await ctx.db
+        .query("departments")
+        .withIndex("by_orgId", (q) => q.eq("orgId", orgId))
+        .collect();
+    } catch {
+      return [];
+    }
   },
 });
 
 export const get = query({
   args: { departmentId: v.id("departments") },
   handler: async (ctx, { departmentId }) => {
-    const profile = await requireProfile(ctx);
-    const dept = await ctx.db.get(departmentId);
-    if (!dept) return null;
-    if (dept.orgId !== profile.orgId) throw new Error("Unauthorized");
-    return dept;
+    const userId = await getAuthUserId(ctx);
+    if (userId === null) return null;
+    try {
+      const profile = await requireProfile(ctx);
+      const dept = await ctx.db.get(departmentId);
+      if (!dept) return null;
+      if (dept.orgId !== profile.orgId) return null;
+      return dept;
+    } catch {
+      return null;
+    }
   },
 });
 

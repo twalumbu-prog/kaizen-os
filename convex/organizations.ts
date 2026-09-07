@@ -7,8 +7,15 @@ import { requireProfile } from "./lib/roles";
 export const getPrimary = query({
   args: {},
   handler: async (ctx) => {
-    const profile = await requireProfile(ctx);
-    return await ctx.db.get(profile.orgId);
+    const userId = await getAuthUserId(ctx);
+    if (userId === null) return null;
+
+    try {
+      const profile = await requireProfile(ctx);
+      return await ctx.db.get(profile.orgId);
+    } catch {
+      return null;
+    }
   },
 });
 
@@ -17,7 +24,7 @@ export const listMyOrgs = query({
   args: {},
   handler: async (ctx) => {
     const userId = await getAuthUserId(ctx);
-    if (userId === null) throw new Error("Not authenticated");
+    if (userId === null) return [];
 
     const profiles = await ctx.db
       .query("profiles")
