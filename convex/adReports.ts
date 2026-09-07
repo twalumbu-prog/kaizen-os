@@ -135,8 +135,11 @@ async function fetchFacebookRows(token: string, dateStr: string, explicitAccount
       "creative{object_type,body}",
       `insights.time_range(${encodeURIComponent(dateRange)}){impressions,clicks,reach,ctr,actions}`,
     ].join(",");
-
-    const url  = `${GRAPH}/${acct.id}/ads?fields=${fields}&limit=100&access_token=${token}`;
+    // Include every status so paused, archived, and deleted ads are all captured.
+    const allStatuses = encodeURIComponent(
+      JSON.stringify(["ACTIVE","PAUSED","DELETED","ARCHIVED","CAMPAIGN_PAUSED","ADSET_PAUSED","IN_PROCESS","WITH_ISSUES"])
+    );
+    const url  = `${GRAPH}/${acct.id}/ads?fields=${fields}&effective_status=${allStatuses}&limit=200&access_token=${token}`;
     const res  = await fetch(url);
     const data = await res.json();
 
