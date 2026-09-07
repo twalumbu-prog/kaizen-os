@@ -41,7 +41,7 @@ export const manualSubmit = internalAction({
 
 async function submitForTarget(
   ctx: { storage: { store: (b: Blob) => Promise<Id<"_storage">> }; runMutation: Function },
-  target: { orgId: Id<"organizations">; templateId: Id<"reportTemplates">; userId: Id<"users">; accessToken: string; template: { cadence: string; [k: string]: unknown } },
+  target: { orgId: Id<"organizations">; templateId: Id<"reportTemplates">; userId: Id<"users">; accessToken: string; adAccountIds: string[]; template: { cadence: string; [k: string]: unknown } },
 ) {
   const token = target.accessToken;
 
@@ -53,7 +53,7 @@ async function submitForTarget(
 
   // ── Facebook Ads ──────────────────────────────────────────────────────────
   try {
-    const fbRows = await fetchFacebookRows(token, dateStr);
+    const fbRows = await fetchFacebookRows(token, dateStr, target.adAccountIds);
     rows.push(...fbRows);
   } catch (err) {
     console.warn("[adReports] Facebook fetch failed:", err);
@@ -112,11 +112,19 @@ interface AdRow {
   conversionRate: number;
 }
 
-async function fetchFacebookRows(token: string, dateStr: string): Promise<AdRow[]> {
-  // Discover all ad accounts.
+async function fetchFacebookRows(token: string, dateStr: string, explicitAccountIds: string[] = []): Promise<AdRow[]> {
+  // Auto-discover ad accounts the token can see.
   const acctRes  = await fetch(`${GRAPH}/me/adaccounts?fields=id,name&limit=50&access_token=${token}`);
   const acctData = await acctRes.json();
-  const accounts: Array<{ id: string }> = acctData.data ?? [];
+  const discovered: Array<{ id: string }> = acctData.data ?? [];
+
+  // Merge with any explicitly configured account IDs — normalise, dedupe.
+  const seen = new Set(discovered.map((a) => a.id));
+  for (const id of explicitAccountIds) {
+    const normalised = id.startsWith("act_") ? id : `act_${id}`;
+    if (!seen.has(normalised)) { discovered.push({ id: normalised }); seen.add(normalised); }
+  }
+  const accounts = discovered;
 
   const rows: AdRow[] = [];
 
