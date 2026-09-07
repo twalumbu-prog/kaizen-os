@@ -55,11 +55,13 @@ export const findTargets = internalQuery({
             .first();
           if (!admin) continue;
 
-          // Collect all explicitly configured account IDs (support both singular and array forms).
-          const explicitIds = [
-            ...(cfg.adAccountIds ?? []),
-            ...(cfg.adAccountId ? [cfg.adAccountId] : []),
-          ].map((id) => (id.startsWith("act_") ? id : `act_${id}`));
+          // Collect all explicitly configured account IDs (support both singular and array forms), deduped.
+          const explicitIds = [...new Set(
+            [
+              ...(cfg.adAccountIds ?? []),
+              ...(cfg.adAccountId ? [cfg.adAccountId] : []),
+            ].map((id) => (id.startsWith("act_") ? id : `act_${id}`))
+          )];
 
           targets.push({
             orgId:        integration.orgId,
