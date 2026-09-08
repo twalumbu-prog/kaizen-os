@@ -1,20 +1,81 @@
-"use node";
-
 import * as XLSX from "xlsx";
 import { v } from "convex/values";
-import { internalAction } from "./_generated/server";
+import { internalAction, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { periodContaining } from "./lib/periods";
 import type { Id } from "./_generated/dataModel";
 
 const GRAPH = "https://graph.facebook.com/v21.0";
 
+// ── Internal query: find orgs that need auto-submission ──────────────────────
+
+export const findTargets = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const integrations = await ctx.db
+      .query("integrations")
+      .filter((q) =>
+        q.and(
+          q.eq(q.field("provider"), "meta"),
+          q.eq(q.field("status"), "active"),
+        ),
+      )
+      .collect();
+
+    const targets: Array<{
+      orgId: Id<"organizations">;
+      templateId: Id<"reportTemplates">;
+      userId: Id<"users">;
+      accessToken: string;
+      template: { cadence: string; [k: string]: unknown };
+    }> = [];
+
+    for (const integration of integrations) {
+      if (!integration.config) continue;
+      const cfg = JSON.parse(integration.config) as { accessToken?: string };
+      if (!cfg.accessToken) continue;
+
+      const departments = await ctx.db
+        .query("departments")
+        .withIndex("by_orgId", (q) => q.eq("orgId", integration.orgId))
+        .collect();
+
+      for (const dept of departments) {
+        const templates = await ctx.db
+          .query("reportTemplates")
+          .withIndex("by_departmentId", (q) => q.eq("departmentId", dept._id))
+          .filter((q) => q.eq(q.field("validatorKey"), "adPerformance"))
+          .collect();
+
+        for (const template of templates) {
+          const admin = await ctx.db
+            .query("profiles")
+            .withIndex("by_orgId", (q) => q.eq("orgId", integration.orgId))
+            .filter((q) => q.eq(q.field("role"), "admin"))
+            .first();
+          if (!admin) continue;
+
+          targets.push({
+            orgId:       integration.orgId,
+            templateId:  template._id,
+            userId:      admin.userId,
+            accessToken: cfg.accessToken!,
+            template:    template as unknown as { cadence: string; [k: string]: unknown },
+          });
+        }
+      }
+    }
+
+    return targets;
+  },
+});
+
 // ── Cron entry-point ─────────────────────────────────────────────────────────
 
 export const autoSubmitAll = internalAction({
   args: {},
   handler: async (ctx) => {
-    const targets = await ctx.runQuery(internal.adReportsData.findTargets, {});
+    const targets = await ctx.runQuery(internal.adReports.findTargets, {});
     for (const target of targets) {
       try {
         await submitForTarget(ctx, target);
@@ -30,7 +91,7 @@ export const autoSubmitAll = internalAction({
 export const manualSubmit = internalAction({
   args: { orgId: v.id("organizations") },
   handler: async (ctx, { orgId }) => {
-    const targets = await ctx.runQuery(internal.adReportsData.findTargets, {});
+    const targets = await ctx.runQuery(internal.adReports.findTargets, {});
     const target = targets.find((t) => t.orgId === orgId);
     if (!target) throw new Error("No adPerformance template + active Meta integration found for this org.");
     await submitForTarget(ctx, target);
@@ -41,7 +102,7 @@ export const manualSubmit = internalAction({
 
 async function submitForTarget(
   ctx: { storage: { store: (b: Blob) => Promise<Id<"_storage">> }; runMutation: Function },
-  target: { orgId: Id<"organizations">; templateId: Id<"reportTemplates">; userId: Id<"users">; accessToken: string; adAccountIds: string[]; template: { cadence: string; [k: string]: unknown } },
+  target: { orgId: Id<"organizations">; templateId: Id<"reportTemplates">; userId: Id<"users">; accessToken: string; template: { cadence: string; [k: string]: unknown } },
 ) {
   const token = target.accessToken;
 
@@ -53,7 +114,7 @@ async function submitForTarget(
 
   // ── Facebook Ads ──────────────────────────────────────────────────────────
   try {
-    const fbRows = await fetchFacebookRows(token, dateStr, target.adAccountIds);
+    const fbRows = await fetchFacebookRows(token, dateStr);
     rows.push(...fbRows);
   } catch (err) {
     console.warn("[adReports] Facebook fetch failed:", err);
@@ -112,19 +173,11 @@ interface AdRow {
   conversionRate: number;
 }
 
-async function fetchFacebookRows(token: string, dateStr: string, explicitAccountIds: string[] = []): Promise<AdRow[]> {
-  // Auto-discover ad accounts the token can see.
+async function fetchFacebookRows(token: string, dateStr: string): Promise<AdRow[]> {
+  // Discover all ad accounts.
   const acctRes  = await fetch(`${GRAPH}/me/adaccounts?fields=id,name&limit=50&access_token=${token}`);
   const acctData = await acctRes.json();
-  const discovered: Array<{ id: string }> = acctData.data ?? [];
-
-  // Merge with any explicitly configured account IDs — normalise, dedupe.
-  const seen = new Set(discovered.map((a) => a.id));
-  for (const id of explicitAccountIds) {
-    const normalised = id.startsWith("act_") ? id : `act_${id}`;
-    if (!seen.has(normalised)) { discovered.push({ id: normalised }); seen.add(normalised); }
-  }
-  const accounts = discovered;
+  const accounts: Array<{ id: string }> = acctData.data ?? [];
 
   const rows: AdRow[] = [];
 
@@ -135,12 +188,8 @@ async function fetchFacebookRows(token: string, dateStr: string, explicitAccount
       "creative{object_type,body}",
       `insights.time_range(${encodeURIComponent(dateRange)}){impressions,clicks,reach,ctr,actions}`,
     ].join(",");
-    // Include all non-deleted statuses. DELETED and ARCHIVED cause an API error
-    // ("Cannot request deleted objects is not supported in this endpoint").
-    const allStatuses = encodeURIComponent(
-      JSON.stringify(["ACTIVE","PAUSED","CAMPAIGN_PAUSED","ADSET_PAUSED","IN_PROCESS","WITH_ISSUES"])
-    );
-    const url  = `${GRAPH}/${acct.id}/ads?fields=${fields}&effective_status=${allStatuses}&limit=200&access_token=${token}`;
+
+    const url  = `${GRAPH}/${acct.id}/ads?fields=${fields}&limit=100&access_token=${token}`;
     const res  = await fetch(url);
     const data = await res.json();
 
