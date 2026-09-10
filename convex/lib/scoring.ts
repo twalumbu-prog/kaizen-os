@@ -31,15 +31,23 @@ export function submissionScore(params: {
   dueAt: number;
   submittedAt?: number;
   lateGraceHours?: number;
+  /**
+   * Minimum score a late-but-submitted report can earn, however late.
+   * Without this, decay reaches 0 once `lateGraceHours` has fully elapsed —
+   * indistinguishable from never submitting at all, which erases the
+   * difference between "very late" and "missing" everywhere this score
+   * surfaces (report scores, department health, the leaderboard).
+   */
+  lateFloor?: number;
 }): number {
-  const { status, dueAt, submittedAt, lateGraceHours = 48 } = params;
+  const { status, dueAt, submittedAt, lateGraceHours = 48, lateFloor = 10 } = params;
   if (status === "missing" || status === "pending") return 0;
   if (status === "submitted") return 100;
   // late
   if (submittedAt === undefined) return 0;
   const hoursLate = (submittedAt - dueAt) / (1000 * 60 * 60);
   const decay = Math.max(0, 1 - hoursLate / lateGraceHours);
-  return Math.round(decay * 100);
+  return Math.max(lateFloor, Math.round(decay * 100));
 }
 
 /** Quality score as a 0-100 percentage of earned checklist points. */

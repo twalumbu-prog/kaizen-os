@@ -47,14 +47,41 @@ describe("submissionScore", () => {
     expect(score).toBe(50);
   });
 
-  it("floors late score at 0 past the grace window", () => {
+  it("never fully decays a late-but-submitted report to 0 — a floor keeps it distinguishable from missing", () => {
     const score = submissionScore({
       status: "late",
       dueAt: 0,
       submittedAt: 1000 * 60 * 60 * 100,
       lateGraceHours: 48,
     });
-    expect(score).toBe(0);
+    expect(score).toBe(10);
+    expect(score).toBeGreaterThan(submissionScore({ status: "missing", dueAt: 0 }));
+  });
+
+  it("lets the floor be tuned per caller", () => {
+    const score = submissionScore({
+      status: "late",
+      dueAt: 0,
+      submittedAt: 1000 * 60 * 60 * 100,
+      lateGraceHours: 48,
+      lateFloor: 25,
+    });
+    expect(score).toBe(25);
+  });
+
+  it("doesn't let the floor override a decay score that's already above it", () => {
+    const score = submissionScore({
+      status: "late",
+      dueAt: 0,
+      submittedAt: 1000 * 60 * 60 * 24, // 1 day late, decays to 50 — well above the floor
+      lateGraceHours: 48,
+      lateFloor: 10,
+    });
+    expect(score).toBe(50);
+  });
+
+  it("still scores 0 when marked late but with no submittedAt (unknown, not floored)", () => {
+    expect(submissionScore({ status: "late", dueAt: 0 })).toBe(0);
   });
 });
 

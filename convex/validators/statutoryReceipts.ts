@@ -280,20 +280,23 @@ export async function statutoryReceiptsValidator(
     );
   }
 
-  const score = checklist.reduce((s, c) => s + c.points, 0);
+  const earnedPoints = checklist.reduce((s, c) => s + c.points, 0);
   const maxScore = checklist.reduce((s, c) => s + c.maxPoints, 0);
-  const pct = maxScore > 0 ? Math.round((score / maxScore) * 100) : 0;
+  // The caller (finalReportScore) expects a 0-100 percentage, same as every
+  // other validator — earnedPoints alone would be out of this validator's
+  // own 150-point max, overstating quality by up to 1.5x wherever it landed.
+  const pct = maxScore > 0 ? Math.round((earnedPoints / maxScore) * 100) : 0;
 
   const failures = checklist.filter((c) => c.status === "fail");
   const warnings = checklist.filter((c) => c.status === "warning");
 
   let summary: string;
   if (failures.length === 0 && warnings.length === 0) {
-    summary = `All statutory payments for ${expectedPeriod} were made on time. Score: ${score}/${maxScore} (${pct}%).`;
+    summary = `All statutory payments for ${expectedPeriod} were made on time. Score: ${earnedPoints}/${maxScore} (${pct}%).`;
   } else if (failures.some((c) => c.title.includes("on time"))) {
-    summary = `One or more statutory payments were made AFTER the ${formatDate(deadline)} deadline. Score: ${score}/${maxScore} (${pct}%).`;
+    summary = `One or more statutory payments were made AFTER the ${formatDate(deadline)} deadline. Score: ${earnedPoints}/${maxScore} (${pct}%).`;
   } else {
-    summary = `Statutory receipts submitted with ${failures.length + warnings.length} issue(s). Score: ${score}/${maxScore} (${pct}%).`;
+    summary = `Statutory receipts submitted with ${failures.length + warnings.length} issue(s). Score: ${earnedPoints}/${maxScore} (${pct}%).`;
   }
 
   const recommendations: string[] = [];
@@ -310,5 +313,5 @@ export async function statutoryReceiptsValidator(
     recommendations.push(`Double-check that the uploaded receipt matches the reporting period before submitting.`);
   }
 
-  return { score, checklist, summary, recommendations };
+  return { score: pct, checklist, summary, recommendations };
 }
