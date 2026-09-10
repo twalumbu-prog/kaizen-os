@@ -109,7 +109,7 @@ export default function TeamMembersPage() {
                   Share this code with people who want to join {org?.name ?? "your organization"}.
                   They paste it into the "Invite Code" field on the sign-up page.
                 </p>
-                {org === undefined ? (
+                {!org ? (
                   <Skeleton className="h-10 w-full rounded-lg mt-4" />
                 ) : (
                   <div className="flex items-center gap-2 mt-4">

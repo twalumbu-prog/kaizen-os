@@ -27,7 +27,7 @@ export default function DepartmentPage({
     );
   }
 
-  if (!data.department) {
+  if (data === null) {
     return (
       <AppShell>
         <p className="text-sm text-muted-foreground">Department not found.</p>
