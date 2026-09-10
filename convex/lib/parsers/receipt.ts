@@ -23,8 +23,19 @@ export interface ReceiptData {
 
 const ZRA_ENTITY_MARKER = /Pay As You Earn|PAYE|Zambia Revenue Authority|ZRA/i;
 
-/** "Payment Date: 2025-08-10 00:00:00.0" → "2025-08-10" */
+/** "Payment Date: 2025-08-10 00:00:00.0" → "2025-08-10" — works when the PDF
+ * text keeps the label and its value adjacent. */
 const ZRA_PAYMENT_DATE = /Payment Date:\s*(\d{4}-\d{2}-\d{2})/i;
+
+/**
+ * Fallback for the real ZRA "Payment Receipt" export, whose layout separates
+ * every label from its value (all labels extracted first, then all values, in
+ * matching order) — so the regex above never finds an adjacent match. Payment
+ * Date is the only date on the receipt formatted as a pure calendar date, at
+ * midnight ("00:00:00") — Processed Date always carries a real time-of-day —
+ * which distinguishes it without depending on label/value adjacency at all.
+ */
+const ZRA_PAYMENT_DATE_ZEROED_TIME = /(\d{4}-\d{2}-\d{2})\s+00:00:00/;
 
 /**
  * Table row: "Pay As You Earn  PAY ...  01/07/2025  31/07/2025  1,351.13"
@@ -39,14 +50,34 @@ const ZRA_RECEIPT_NO = /Receipt No\.?\s*(\w+)/i;
 
 const NAPSA_ENTITY_MARKER = /NATIONAL PENSION SCHEME AUTHORITY|NAPSA/i;
 
-/** "Receipt Date: 2025-08-12" → "2025-08-12" */
+/** "Receipt Date: 2025-08-12" → "2025-08-12" — the ISO-formatted style. */
 const NAPSA_RECEIPT_DATE = /Receipt Date:\s*(\d{4}-\d{2}-\d{2})/i;
 
 /**
- * Data row: "2025/07  <refNo>  5,641.9  0  5,641.9"
- * Captures year/month and first numeric amount (contribution).
+ * The real NAPSA "Contribution/Penalty Receipt" export instead writes
+ * "Receipted Date: 07 SEPT 2026" — a different label ("Receipted", not
+ * "Receipt") and a day/month-name/year format, not ISO.
  */
-const NAPSA_PERIOD_ROW = /(\d{4})\/(\d{2})\s+\S+\s+([\d,]+\.?\d*)/;
+const NAPSA_RECEIPT_DATE_TEXT = /Receipted?\s*Date:\s*(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})/i;
+
+const MONTH_NUMBER: Record<string, string> = {
+  jan: "01", feb: "02", mar: "03", apr: "04", may: "05", jun: "06",
+  jul: "07", aug: "08", sep: "09", sept: "09", oct: "10", nov: "11", dec: "12",
+};
+
+/** "SEPT" / "Sep" / "September" → "09". NAPSA's own abbreviation is 4 letters, not the usual 3. */
+export function monthNameToNumber(raw: string): string | null {
+  const lower = raw.toLowerCase();
+  return MONTH_NUMBER[lower] ?? MONTH_NUMBER[lower.slice(0, 3)] ?? null;
+}
+
+/**
+ * Data row: "8/2026  <refNo>  9,629.5  0  9,629.5" — month/year (not
+ * year/month), month not zero-padded. The long all-digit reference number is
+ * required immediately after so this can't also match an unrelated DD/MM/YYYY
+ * date elsewhere on the receipt (e.g. "Date printed: 07/09/2026").
+ */
+const NAPSA_PERIOD_ROW = /\b(\d{1,2})\/(\d{4})\s+(\d{5,})\s+([\d,]+\.?\d*)/;
 
 /** "Receipt Number: 202958455" */
 const NAPSA_RECEIPT_NO = /Receipt Number:\s*(\w+)/i;
@@ -65,8 +96,8 @@ function zeroPad(n: string | number): string {
 
 // ─── Parsers ─────────────────────────────────────────────────────────────────
 
-function parseZraPaye(text: string): ReceiptData {
-  const paymentDateMatch = text.match(ZRA_PAYMENT_DATE);
+export function parseZraPaye(text: string): ReceiptData {
+  const paymentDateMatch = text.match(ZRA_PAYMENT_DATE) ?? text.match(ZRA_PAYMENT_DATE_ZEROED_TIME);
   const paymentDate = paymentDateMatch ? paymentDateMatch[1] : null;
 
   let coveragePeriod: string | null = null;
@@ -85,15 +116,25 @@ function parseZraPaye(text: string): ReceiptData {
   return { entityType: "ZRA_PAYE", paymentDate, coveragePeriod, amount, receiptNumber, rawText: text };
 }
 
-function parseNapsa(text: string): ReceiptData {
-  const receiptDateMatch = text.match(NAPSA_RECEIPT_DATE);
-  const paymentDate = receiptDateMatch ? receiptDateMatch[1] : null;
+export function parseNapsa(text: string): ReceiptData {
+  let paymentDate: string | null = null;
+  const isoMatch = text.match(NAPSA_RECEIPT_DATE);
+  if (isoMatch) {
+    paymentDate = isoMatch[1];
+  } else {
+    const textMatch = text.match(NAPSA_RECEIPT_DATE_TEXT);
+    if (textMatch) {
+      const [, day, monthName, year] = textMatch;
+      const month = monthNameToNumber(monthName);
+      if (month) paymentDate = `${year}-${month}-${zeroPad(day)}`;
+    }
+  }
 
   let coveragePeriod: string | null = null;
   let amount: number | null = null;
   const periodMatch = text.match(NAPSA_PERIOD_ROW);
   if (periodMatch) {
-    const [, year, month, amtRaw] = periodMatch;
+    const [, month, year, , amtRaw] = periodMatch;
     coveragePeriod = `${year}-${zeroPad(month)}`;
     amount = toNumber(amtRaw);
   }
@@ -104,7 +145,7 @@ function parseNapsa(text: string): ReceiptData {
   return { entityType: "NAPSA", paymentDate, coveragePeriod, amount, receiptNumber, rawText: text };
 }
 
-function parseNhima(text: string): ReceiptData {
+export function parseNhima(text: string): ReceiptData {
   const dateMatch = text.match(/Date Generated\s*:\s*(\d{4}-\d{2}-\d{2})/i);
   const paymentDate = dateMatch ? dateMatch[1] : null;
 
