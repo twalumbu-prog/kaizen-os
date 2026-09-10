@@ -112,6 +112,8 @@ export default defineSchema({
     cadence: CADENCE,
     /** Required when `cadence` is "cycle"; ignored otherwise. */
     cycle: v.optional(CYCLE_CONFIG),
+    /** Monthly only: day of the following month it falls due, instead of the 1st. */
+    dueDayOfMonth: v.optional(v.number()),
     validatorKey: v.string(),
     weight: v.number(),
     /** Admin-entered opening balance for the first-ever period, when there's no prior period to roll forward from. */

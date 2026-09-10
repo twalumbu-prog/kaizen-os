@@ -165,6 +165,7 @@ export default function ReportConfigPage({
   const unassignUser = useMutation(api.reportAssignments.unassign);
 
   const [weight, setWeight] = useState<number | null>(null);
+  const [dueDayOfMonth, setDueDayOfMonth] = useState<number | null>(null);
   const [startingBalance, setStartingBalance] = useState<number | null>(null);
   const [selectedUserId, setSelectedUserId] = useState<string>("");
 
@@ -251,6 +252,29 @@ export default function ReportConfigPage({
                 </SelectContent>
               </Select>
             </div>
+            {template.cadence === "monthly" && (
+              <div className="flex items-center gap-4">
+                <Label className="w-32">Due day of month</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  max="31"
+                  className="w-40"
+                  placeholder="1"
+                  defaultValue={template.dueDayOfMonth ?? 1}
+                  onChange={(e) => setDueDayOfMonth(parseInt(e.target.value, 10))}
+                  onBlur={() => {
+                    if (dueDayOfMonth !== null && !Number.isNaN(dueDayOfMonth) && dueDayOfMonth >= 1) {
+                      updateTemplate({ templateId, dueDayOfMonth });
+                      toast.success("Due day updated");
+                    }
+                  }}
+                />
+                <span className="text-xs text-muted-foreground">
+                  of the following month (default: 1st)
+                </span>
+              </div>
+            )}
             <div className="flex items-center gap-4">
               <Label className="w-32">Department weight</Label>
               <Input

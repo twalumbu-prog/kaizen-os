@@ -164,3 +164,33 @@ describe("cycle periods", () => {
     expect(() => periodContaining("cycle", Date.now())).toThrow(/cycle settings/i);
   });
 });
+
+describe("monthly periods with a custom due day", () => {
+  it("falls due on the given day of the following month instead of the 1st", () => {
+    const schedule = { cadence: "monthly" as const, dueDayOfMonth: 5 };
+    const bounds = periodContaining(schedule, Date.parse("2026-07-10T00:00:00Z"));
+    expect(iso(bounds.periodStart)).toBe("2026-07-01T00:00:00.000Z");
+    expect(iso(bounds.periodEnd)).toBe("2026-07-31T23:59:59.999Z");
+    expect(new Date(bounds.dueAt).toISOString().slice(0, 10)).toBe("2026-08-05");
+  });
+
+  it("defaults to the 1st when dueDayOfMonth is not set, unchanged from before", () => {
+    const bounds = periodContaining("monthly", Date.parse("2026-07-10T00:00:00Z"));
+    expect(new Date(bounds.dueAt).toISOString().slice(0, 10)).toBe("2026-08-01");
+  });
+
+  it("clamps to the following month's last day if it's shorter than the configured day", () => {
+    // February (28 days in 2026) following January — dueDayOfMonth 30 doesn't exist.
+    const schedule = { cadence: "monthly" as const, dueDayOfMonth: 30 };
+    const bounds = periodContaining(schedule, Date.parse("2026-01-10T00:00:00Z"));
+    expect(new Date(bounds.dueAt).toISOString().slice(0, 10)).toBe("2026-02-28");
+  });
+
+  it("steps forward correctly across months with nextPeriod", () => {
+    const schedule = { cadence: "monthly" as const, dueDayOfMonth: 5 };
+    const jan = periodContaining(schedule, Date.parse("2026-01-15T00:00:00Z"));
+    const feb = nextPeriod(schedule, jan);
+    expect(iso(feb.periodStart)).toBe("2026-02-01T00:00:00.000Z");
+    expect(new Date(feb.dueAt).toISOString().slice(0, 10)).toBe("2026-03-05");
+  });
+});

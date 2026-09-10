@@ -26,6 +26,15 @@ export interface CycleConfig {
 export interface Schedule {
   cadence: Cadence;
   cycle?: CycleConfig | null;
+  /**
+   * Monthly only: the day of the following month the report falls due, instead
+   * of the 1st. For statutory filings whose own payment deadline is later in
+   * the month (e.g. ZRA/NAPSA/NHIMA are due the 5th) — due on the 1st would
+   * make the report impossible to submit on time, since the thing it's
+   * evidence of hasn't happened yet. Clamped to the following month's last
+   * day if it doesn't have that many days. Defaults to 1.
+   */
+  dueDayOfMonth?: number | null;
 }
 
 export type ScheduleInput = Cadence | Schedule;
@@ -204,8 +213,12 @@ function boundsFromStart(schedule: Schedule, start: Date): PeriodBounds {
     const lastDay = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 0));
     end = endOfUTCDay(lastDay);
     periodLabel = start.toISOString().slice(0, 7);
-    due = new Date(end);
-    due.setUTCDate(due.getUTCDate() + 1);
+
+    const nextMonthLastDay = new Date(
+      Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 2, 0),
+    ).getUTCDate();
+    const dueDay = Math.min(schedule.dueDayOfMonth ?? 1, nextMonthLastDay);
+    due = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, dueDay));
   }
 
   return {
