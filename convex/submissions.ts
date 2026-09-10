@@ -315,13 +315,44 @@ export const deleteSubmissionFile = mutation({
       throw new Error("You can only delete files from your own reports");
     }
 
-    // Delete the file record
     await ctx.db.delete(fileId);
 
-    // If no files remain, reset submission to pending? 
-    // Actually, we can just trigger validation, which will mark it as missing files.
-    // Or we reset to pending if we want them to start from scratch.
-    // Let's just trigger validation so it fails and they can see it's missing.
+    const remaining = await ctx.db
+      .query("submissionFiles")
+      .withIndex("by_submissionId", (q) => q.eq("submissionId", submission._id))
+      .collect();
+
+    if (remaining.length === 0) {
+      // Nothing left to validate — revert the submission to exactly the state
+      // it would be in had nothing ever been uploaded, rather than leaving it
+      // marked "submitted"/"late" with a stale score from before the delete.
+      const staleResults = await ctx.db
+        .query("validationResults")
+        .withIndex("by_submissionId", (q) => q.eq("submissionId", submission._id))
+        .collect();
+      for (const result of staleResults) {
+        const items = await ctx.db
+          .query("validationChecklistItems")
+          .withIndex("by_validationResultId", (q) => q.eq("validationResultId", result._id))
+          .collect();
+        for (const item of items) await ctx.db.delete(item._id);
+        await ctx.db.delete(result._id);
+      }
+
+      const now = Date.now();
+      await ctx.db.patch(submission._id, {
+        status: now <= submission.dueAt ? "pending" : "missing",
+        submittedAt: undefined,
+        submissionScore: undefined,
+        finalScore: undefined,
+        bankClosingBalance: undefined,
+      });
+      return null;
+    }
+
+    // Files remain (a multi-file report missing just one) — still submitted,
+    // and re-validating will correctly fail the "required file" checks for
+    // whatever's now missing.
     const now = Date.now();
     const status = now <= submission.dueAt ? "submitted" : "late";
     const subScore = computeSubmissionScore({ status, dueAt: submission.dueAt, submittedAt: now });
