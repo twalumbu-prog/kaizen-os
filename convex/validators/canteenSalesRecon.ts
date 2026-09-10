@@ -224,28 +224,35 @@ export async function canteenSalesReconValidator(
     }
   }
 
-  // ── 6. Grand Total == Cash + Airtel (+ MasterFees) ────────────────────────
+  // ── 6. Grand Total — every payment method's footer figure sums to the same
+  //      total as summing every individual entry across the whole sheet.
+  //      The real template has no separately-typed "Grand Total" cell to check
+  //      against, so this instead verifies the footer row itself is internally
+  //      consistent with the rows it is supposed to total. ────────────────────
   if (ruleEnabled(rules, "grandTotalCorrect") && reconFile) {
-    const grandTotal      = meta<number>(reconFile, "grandTotal");
-    const cashTotal       = meta<number>(reconFile, "cashTotal")       ?? 0;
-    const airtelTotal     = meta<number>(reconFile, "airtelTotal")     ?? 0;
-    const masterfeesTotal = meta<number>(reconFile, "masterfeesTotal") ?? 0;
-    const expectedGrand   = round2(cashTotal + airtelTotal + masterfeesTotal);
+    const methods = ["cash", "airtel", "wise", "bank", "master"] as const;
+    const footerRead = methods.some((m) => meta<number>(reconFile, `${m}Total`) !== null);
 
-    if (grandTotal === null) {
+    if (!footerRead) {
       push("grandTotalCorrect", "Grand Total Is Correct",
         false, "",
-        "Could not read the Grand Total from the Sales Recon.",
+        "Could not find the Total row on the Sales Recon.",
         "medium");
     } else {
-      const ok = near(grandTotal, expectedGrand);
-      const diff = round2(grandTotal - expectedGrand);
+      const footerTotal = round2(
+        methods.reduce((sum, m) => sum + (meta<number>(reconFile, `${m}Total`) ?? 0), 0),
+      );
+      const rowSum = round2(
+        methods.reduce((sum, m) => sum + (meta<number>(reconFile, `${m}Sum`) ?? 0), 0),
+      );
+      const ok = near(footerTotal, rowSum);
+      const diff = round2(footerTotal - rowSum);
       push("grandTotalCorrect", "Grand Total Is Correct",
         ok,
-        `Grand Total (${grandTotal.toFixed(2)}) equals Cash (${cashTotal.toFixed(2)}) + Airtel (${airtelTotal.toFixed(2)})${masterfeesTotal ? ` + MasterFees (${masterfeesTotal.toFixed(2)})` : ""}.`,
-        `Grand Total (${grandTotal.toFixed(2)}) does not equal Cash + Airtel${masterfeesTotal ? " + MasterFees" : ""} (${expectedGrand.toFixed(2)}) — a difference of ${diff > 0 ? "+" : ""}${diff.toFixed(2)}.`,
+        `The Total row (${footerTotal.toFixed(2)}) matches the sum of every individual entry (${rowSum.toFixed(2)}) across all payment methods.`,
+        `The Total row (${footerTotal.toFixed(2)}) does not match the sum of every individual entry across all payment methods (${rowSum.toFixed(2)}) — a difference of ${diff > 0 ? "+" : ""}${diff.toFixed(2)}.`,
         "high");
-      if (!ok) recommendations.push("Correct the Grand Total formula in the Sales Recon spreadsheet.");
+      if (!ok) recommendations.push("Recheck the Total row — it should equal the sum of every payment column added up individually.");
     }
   }
 

@@ -10,6 +10,7 @@
 
 import type * as adReports from "../adReports.js";
 import type * as adReportsData from "../adReportsData.js";
+import type * as adReportsDebug from "../adReportsDebug.js";
 import type * as ai from "../ai.js";
 import type * as auth from "../auth.js";
 import type * as composio from "../composio.js";
@@ -53,6 +54,8 @@ import type * as scripts from "../scripts.js";
 import type * as seed from "../seed.js";
 import type * as seedBlueOpus from "../seedBlueOpus.js";
 import type * as seedTwalumbu from "../seedTwalumbu.js";
+import type * as seeds_adPerformanceTemplate from "../seeds/adPerformanceTemplate.js";
+import type * as seeds_addAdAccount from "../seeds/addAdAccount.js";
 import type * as submissions from "../submissions.js";
 import type * as validationRunner from "../validationRunner.js";
 import type * as validators_adPerformance from "../validators/adPerformance.js";
@@ -73,6 +76,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   adReports: typeof adReports;
   adReportsData: typeof adReportsData;
+  adReportsDebug: typeof adReportsDebug;
   ai: typeof ai;
   auth: typeof auth;
   composio: typeof composio;
@@ -116,6 +120,8 @@ declare const fullApi: ApiFromModules<{
   seed: typeof seed;
   seedBlueOpus: typeof seedBlueOpus;
   seedTwalumbu: typeof seedTwalumbu;
+  "seeds/adPerformanceTemplate": typeof seeds_adPerformanceTemplate;
+  "seeds/addAdAccount": typeof seeds_addAdAccount;
   submissions: typeof submissions;
   validationRunner: typeof validationRunner;
   "validators/adPerformance": typeof validators_adPerformance;
