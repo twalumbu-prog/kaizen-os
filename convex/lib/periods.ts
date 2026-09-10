@@ -274,3 +274,34 @@ export function nextPeriod(schedule: ScheduleInput, bounds: PeriodBounds): Perio
 
   return boundsFromStart(normalized, nextStart);
 }
+
+/**
+ * Recovers the exact period bounds that produced a given `dueAt` — what lets
+ * a calendar hand back a due timestamp (e.g. "what's due on this specific
+ * day?") and get back the right period.
+ *
+ * Monthly reports need their own path: `dueAt` always falls in the calendar
+ * month *after* the period (boundsFromStart always computes
+ * `start.getUTCMonth() + 1`), but exactly which day of that month depends on
+ * the report's `dueDayOfMonth` — so "probe back 1 day" only lands back in the
+ * origin period when the due day is the 1st. Stepping back a whole calendar
+ * month instead is correct regardless of which day the report falls due on.
+ *
+ * Every other cadence still has `dueAt === periodEnd + 1 day` (periods tile
+ * the calendar with no gap), where probing one day back reliably lands back
+ * in the same period.
+ */
+export function boundsForDueAt(schedule: ScheduleInput, dueAt: number): PeriodBounds {
+  const normalized = asSchedule(schedule);
+
+  if (normalized.cadence === "monthly") {
+    const d = new Date(dueAt);
+    const origin = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - 1, 1));
+    return periodContaining(normalized, origin.getTime());
+  }
+
+  const probe = new Date(dueAt);
+  probe.setUTCDate(probe.getUTCDate() - 1);
+  probe.setUTCHours(12, 0, 0, 0);
+  return periodContaining(schedule, probe.getTime());
+}

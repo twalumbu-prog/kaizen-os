@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { currentPeriod, nextPeriod, periodContaining } from "./periods";
+import { boundsForDueAt, currentPeriod, nextPeriod, periodContaining } from "./periods";
 
 const iso = (ms: number) => new Date(ms).toISOString();
 
@@ -192,5 +192,47 @@ describe("monthly periods with a custom due day", () => {
     const feb = nextPeriod(schedule, jan);
     expect(iso(feb.periodStart)).toBe("2026-02-01T00:00:00.000Z");
     expect(new Date(feb.dueAt).toISOString().slice(0, 10)).toBe("2026-03-05");
+  });
+});
+
+describe("boundsForDueAt", () => {
+  it("recovers a default monthly period (due the 1st) from its due date", () => {
+    // August (due 1 September) — the case this always worked for.
+    const bounds = boundsForDueAt("monthly", Date.parse("2026-09-01T00:00:00Z"));
+    expect(bounds.periodLabel).toBe("2026-08");
+  });
+
+  it("recovers a monthly period with a custom due day — regression for the day-5 statutory reports", () => {
+    // August, due day 5 → due 5 September. Probing "1 day before due" (4
+    // September) used to land back in September itself, not August, because
+    // it fell into the calendar month *after* the origin period.
+    const schedule = { cadence: "monthly" as const, dueDayOfMonth: 5 };
+    const bounds = boundsForDueAt(schedule, Date.parse("2026-09-05T00:00:00Z"));
+    expect(bounds.periodLabel).toBe("2026-08");
+    expect(iso(bounds.periodStart)).toBe("2026-08-01T00:00:00.000Z");
+    expect(iso(bounds.periodEnd)).toBe("2026-08-31T23:59:59.999Z");
+  });
+
+  it("round-trips through a full year of custom due days without drifting", () => {
+    const schedule = { cadence: "monthly" as const, dueDayOfMonth: 20 };
+    let cursor = periodContaining(schedule, Date.parse("2026-01-15T00:00:00Z"));
+    for (let i = 0; i < 12; i++) {
+      const recovered = boundsForDueAt(schedule, cursor.dueAt);
+      expect(recovered.periodLabel).toBe(cursor.periodLabel);
+      cursor = nextPeriod(schedule, cursor);
+    }
+  });
+
+  it("recovers correctly across a December → January year boundary", () => {
+    const schedule = { cadence: "monthly" as const, dueDayOfMonth: 5 };
+    // December, due 5 January of the following year.
+    const bounds = boundsForDueAt(schedule, Date.parse("2027-01-05T00:00:00Z"));
+    expect(bounds.periodLabel).toBe("2026-12");
+  });
+
+  it("still recovers a weekly period (due the 1st is a Friday)", () => {
+    const original = periodContaining("weekly", Date.parse("2026-07-15T00:00:00Z"));
+    const recovered = boundsForDueAt("weekly", original.dueAt);
+    expect(recovered.periodLabel).toBe(original.periodLabel);
   });
 });

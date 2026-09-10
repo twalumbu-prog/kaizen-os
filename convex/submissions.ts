@@ -5,8 +5,8 @@ import type { MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { CHECKLIST_STATUS, FILE_TYPE } from "./schema";
 import { requireProfile } from "./lib/roles";
-import { currentPeriod, nextPeriod, periodContaining } from "./lib/periods";
-import type { PeriodBounds, Schedule } from "./lib/periods";
+import { boundsForDueAt, currentPeriod, nextPeriod, periodContaining } from "./lib/periods";
+import type { PeriodBounds } from "./lib/periods";
 import { finalReportScore, submissionScore as computeSubmissionScore } from "./lib/scoring";
 import { getMaxPossibleScore } from "./validators/registry";
 
@@ -159,19 +159,6 @@ async function getOrCreateSubmissionForBounds(
     dueAt: bounds.dueAt,
     status: "pending",
   });
-}
-
-/**
- * Recovers the exact period bounds that produced a given `dueAt`. Since
- * `dueAt` is always `periodEnd + 1 day` (see convex/lib/periods.ts), probing
- * the day before `dueAt` lands back in the same period every time — this is
- * what lets a calendar hand back a due timestamp and get the right period.
- */
-function boundsForDueAt(schedule: Schedule, dueAt: number): PeriodBounds {
-  const probe = new Date(dueAt);
-  probe.setUTCDate(probe.getUTCDate() - 1);
-  probe.setUTCHours(12, 0, 0, 0);
-  return periodContaining(schedule, probe.getTime());
 }
 
 /** Ensures a submission row exists for the current period, for the calling user. */
