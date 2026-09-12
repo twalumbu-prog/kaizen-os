@@ -47,8 +47,13 @@ export const listFinanceTemplates = query({
 });
 
 const REQUIRED_FILES = v.array(
-  v.object({ label: v.string(), fileType: FILE_TYPE, required: v.boolean() }),
+  v.object({ label: v.string(), fileTypes: v.array(FILE_TYPE), required: v.boolean() }),
 );
+
+function assertEveryRequiredFileHasAFormat(requiredFiles: { label: string; fileTypes: string[] }[]) {
+  const empty = requiredFiles.find((f) => f.fileTypes.length === 0);
+  if (empty) throw new Error(`"${empty.label}" needs at least one accepted file format.`);
+}
 const VALIDATION_RULES = v.array(
   v.object({
     key: v.string(),
@@ -74,6 +79,7 @@ export const create = mutation({
   },
   handler: async (ctx, args) => {
     await requireRole(ctx, ["admin"]);
+    assertEveryRequiredFileHasAFormat(args.requiredFiles);
     return await ctx.db.insert("reportTemplates", args);
   },
 });
@@ -93,6 +99,7 @@ export const update = mutation({
   },
   handler: async (ctx, { templateId, ...patch }) => {
     await requireRole(ctx, ["admin"]);
+    if (patch.requiredFiles) assertEveryRequiredFileHasAFormat(patch.requiredFiles);
     const fields = Object.fromEntries(
       Object.entries(patch).filter(([, value]) => value !== undefined),
     );

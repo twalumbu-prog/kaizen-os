@@ -53,10 +53,10 @@ export async function parseUploadedFile(
   // ── Statutory receipt PDFs ────────────────────────────────────────────────
   if (validatorKey === "statutoryReceipts" && fileType === "pdf") return parseReceiptPdf(buffer);
 
-  // ── Images ────────────────────────────────────────────────────────────────
-  // Photos carry no machine-readable figures; only the document-review
+  // ── Images and Word documents ────────────────────────────────────────────
+  // Neither carries machine-readable figures; only the document-review
   // validators handle them, and those read the raw bytes rather than this.
-  if (fileType === "jpg" || fileType === "png") {
+  if (fileType === "jpg" || fileType === "png" || fileType === "docx") {
     return { openingBalance: null, closingBalance: null, transactions: [] };
   }
 

@@ -56,9 +56,9 @@ export const updateStatutoryAndPayroll = mutation({
         cadence: "monthly",
         validatorKey: "statutoryReceipts",
         requiredFiles: [
-          { label: "PAYE Receipt", fileType: "pdf", required: true },
-          { label: "NAPSA Receipt", fileType: "pdf", required: true },
-          { label: "NHIMA Receipt", fileType: "pdf", required: true },
+          { label: "PAYE Receipt", fileTypes: ["pdf"], required: true },
+          { label: "NAPSA Receipt", fileTypes: ["pdf"], required: true },
+          { label: "NHIMA Receipt", fileTypes: ["pdf"], required: true },
         ],
         validationRules: STATUTORY_RULES,
       });
@@ -70,9 +70,9 @@ export const updateStatutoryAndPayroll = mutation({
         validatorKey: "statutoryReceipts",
         weight: 1,
         requiredFiles: [
-          { label: "PAYE Receipt", fileType: "pdf", required: true },
-          { label: "NAPSA Receipt", fileType: "pdf", required: true },
-          { label: "NHIMA Receipt", fileType: "pdf", required: true },
+          { label: "PAYE Receipt", fileTypes: ["pdf"], required: true },
+          { label: "NAPSA Receipt", fileTypes: ["pdf"], required: true },
+          { label: "NHIMA Receipt", fileTypes: ["pdf"], required: true },
         ],
         validationRules: STATUTORY_RULES,
       });
@@ -90,9 +90,9 @@ export const updateStatutoryAndPayroll = mutation({
         cadence: "monthly",
         validatorKey: "payroll",
         requiredFiles: [
-          { label: "Payroll Register", fileType: "xlsx", required: true },
-          { label: "Payroll Journal Extract", fileType: "xlsx", required: true },
-          { label: "QuickBooks Data", fileType: "xlsx", required: false },
+          { label: "Payroll Register", fileTypes: ["xlsx"], required: true },
+          { label: "Payroll Journal Extract", fileTypes: ["xlsx"], required: true },
+          { label: "QuickBooks Data", fileTypes: ["xlsx"], required: false },
         ],
         validationRules: PAYROLL_RULES,
       });
@@ -104,9 +104,9 @@ export const updateStatutoryAndPayroll = mutation({
         validatorKey: "payroll",
         weight: 1,
         requiredFiles: [
-          { label: "Payroll Register", fileType: "xlsx", required: true },
-          { label: "Payroll Journal Extract", fileType: "xlsx", required: true },
-          { label: "QuickBooks Data", fileType: "xlsx", required: false },
+          { label: "Payroll Register", fileTypes: ["xlsx"], required: true },
+          { label: "Payroll Journal Extract", fileTypes: ["xlsx"], required: true },
+          { label: "QuickBooks Data", fileTypes: ["xlsx"], required: false },
         ],
         validationRules: PAYROLL_RULES,
       });

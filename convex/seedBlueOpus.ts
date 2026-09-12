@@ -48,7 +48,7 @@ interface ReportSpec {
   validatorKey: "documentSubmission" | "adPerformance";
   weight: number;
   validationRules: { key: string; label: string; enabled: boolean }[];
-  files: { label: string; fileType?: FileType }[];
+  files: { label: string; fileType?: FileType }[]; // one accepted format per slot; runtime writes it as fileTypes: [fileType]
 }
 
 /** Departments with no reports configured yet — placeholders, same as any department created empty via Settings. */
@@ -160,7 +160,7 @@ export const seedReports = internalMutation({
         weight: report.weight,
         requiredFiles: report.files.map((f) => ({
           label: f.label,
-          fileType: f.fileType ?? ("pdf" as const),
+          fileTypes: [f.fileType ?? ("pdf" as const)],
           required: true,
         })),
         validationRules: report.validationRules,

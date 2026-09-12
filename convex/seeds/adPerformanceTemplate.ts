@@ -28,7 +28,7 @@ export const create = internalMutation({
       cadence: "daily",
       validatorKey: "adPerformance",
       weight: 100,
-      requiredFiles: [{ label: "Ad Performance Report", fileType: "xlsx", required: true }],
+      requiredFiles: [{ label: "Ad Performance Report", fileTypes: ["xlsx"], required: true }],
       validationRules: [],
     });
     console.log("Created template:", id);

@@ -48,9 +48,9 @@ export const seedFinance = mutation({
       validatorKey: "bankReconciliation",
       weight: 1,
       requiredFiles: [
-        { label: "Internal Ledger", fileType: "xlsx", required: true },
-        { label: "Bank Statement", fileType: "xlsx", required: true },
-        { label: "Supporting Documents", fileType: "pdf", required: false },
+        { label: "Internal Ledger", fileTypes: ["xlsx"], required: true },
+        { label: "Bank Statement", fileTypes: ["xlsx"], required: true },
+        { label: "Supporting Documents", fileTypes: ["pdf"], required: false },
       ],
       validationRules: BANK_RECONCILIATION_RULES,
     });

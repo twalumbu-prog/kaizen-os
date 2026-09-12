@@ -39,7 +39,7 @@ const VALIDATOR_PRESETS: Record<
   {
     label: string;
     defaultWeight: number;
-    requiredFiles: { label: string; fileType: FileType; required: boolean }[];
+    requiredFiles: { label: string; fileTypes: FileType[]; required: boolean }[];
     validationRules: { key: string; label: string; enabled: boolean }[];
   }
 > = {
@@ -47,8 +47,8 @@ const VALIDATOR_PRESETS: Record<
     label: "Bank Reconciliation",
     defaultWeight: 1,
     requiredFiles: [
-      { label: "Bank Statement", fileType: "pdf", required: true },
-      { label: "Internal Ledger", fileType: "xlsx", required: true },
+      { label: "Bank Statement", fileTypes: ["pdf"], required: true },
+      { label: "Internal Ledger", fileTypes: ["xlsx"], required: true },
     ],
     validationRules: [
       { key: "openingBalance", label: "Opening balance matches", enabled: true },
@@ -69,8 +69,8 @@ const VALIDATOR_PRESETS: Record<
     label: "Statutory Return Receipts",
     defaultWeight: 1,
     requiredFiles: [
-      { label: "PAYE Receipt", fileType: "pdf", required: true },
-      { label: "NAPSA Receipt", fileType: "pdf", required: true },
+      { label: "PAYE Receipt", fileTypes: ["pdf"], required: true },
+      { label: "NAPSA Receipt", fileTypes: ["pdf"], required: true },
     ],
     validationRules: [
       { key: "payePeriodMatch", label: "PAYE receipt covers the correct period", enabled: true },
@@ -82,7 +82,7 @@ const VALIDATOR_PRESETS: Record<
   documentSubmission: {
     label: "Document Submission (AI review)",
     defaultWeight: 1,
-    requiredFiles: [{ label: "Document", fileType: "pdf", required: true }],
+    requiredFiles: [{ label: "Document", fileTypes: ["pdf"], required: true }],
     validationRules: [
       { key: "filesPresent", label: "Required documents attached", enabled: true },
       { key: "documentRelevant", label: "Document matches the report requested", enabled: true },
@@ -92,9 +92,9 @@ const VALIDATOR_PRESETS: Record<
     label: "Canteen Sales Reconciliation",
     defaultWeight: 1,
     requiredFiles: [
-      { label: "Sales Collection Recon", fileType: "xlsx", required: true },
-      { label: "Inventory", fileType: "xlsx", required: true },
-      { label: "Proof of Payment", fileType: "pdf", required: true },
+      { label: "Sales Collection Recon", fileTypes: ["xlsx"], required: true },
+      { label: "Inventory", fileTypes: ["xlsx"], required: true },
+      { label: "Proof of Payment", fileTypes: ["pdf"], required: true },
     ],
     validationRules: [
       { key: "datesMatch", label: "Recon and inventory cover the same day", enabled: true },
@@ -110,9 +110,9 @@ const VALIDATOR_PRESETS: Record<
     label: "Payroll",
     defaultWeight: 1,
     requiredFiles: [
-      { label: "Payroll Register", fileType: "xlsx", required: true },
-      { label: "Payroll Journal Extract", fileType: "xlsx", required: true },
-      { label: "QuickBooks Payroll Data", fileType: "csv", required: false },
+      { label: "Payroll Register", fileTypes: ["xlsx"], required: true },
+      { label: "Payroll Journal Extract", fileTypes: ["xlsx"], required: true },
+      { label: "QuickBooks Payroll Data", fileTypes: ["csv"], required: false },
     ],
     validationRules: [
       // Phase 1 — Register integrity
@@ -302,7 +302,7 @@ export function CreateReportDialog({
               <p className="font-medium text-foreground">Will configure:</p>
               <p>
                 <span className="font-medium">Files:</span>{" "}
-                {preset.requiredFiles.map((f) => `${f.label} (${f.fileType.toUpperCase()})`).join(", ")}
+                {preset.requiredFiles.map((f) => `${f.label} (${f.fileTypes.map((t) => t.toUpperCase()).join("/")})`).join(", ")}
               </p>
               <p>
                 <span className="font-medium">Checks:</span>{" "}

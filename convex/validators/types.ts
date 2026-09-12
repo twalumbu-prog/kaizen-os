@@ -1,4 +1,4 @@
-export type FileType = "xlsx" | "pdf" | "csv" | "jpg" | "png";
+export type FileType = "xlsx" | "pdf" | "csv" | "jpg" | "png" | "docx";
 
 export type ChecklistStatus = "pass" | "fail" | "warning";
 export type Severity = "low" | "medium" | "high" | "critical";

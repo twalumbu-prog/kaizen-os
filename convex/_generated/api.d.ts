@@ -40,7 +40,6 @@ import type * as lib_roles from "../lib/roles.js";
 import type * as lib_scoring from "../lib/scoring.js";
 import type * as meta from "../meta.js";
 import type * as migrateMultiTenancy from "../migrateMultiTenancy.js";
-import type * as migrateNHIMA from "../migrateNHIMA.js";
 import type * as organizations from "../organizations.js";
 import type * as profiles from "../profiles.js";
 import type * as quickbooks from "../quickbooks.js";
@@ -106,7 +105,6 @@ declare const fullApi: ApiFromModules<{
   "lib/scoring": typeof lib_scoring;
   meta: typeof meta;
   migrateMultiTenancy: typeof migrateMultiTenancy;
-  migrateNHIMA: typeof migrateNHIMA;
   organizations: typeof organizations;
   profiles: typeof profiles;
   quickbooks: typeof quickbooks;

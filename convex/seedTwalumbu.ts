@@ -277,7 +277,7 @@ export const seedReports = internalMutation({
           weight: 1,
           requiredFiles: report.files.map((f) => ({
             label: f.label,
-            fileType: f.fileType ?? ("pdf" as const),
+            fileTypes: [f.fileType ?? ("pdf" as const)],
             required: f.required ?? true,
           })),
           validationRules: report.validationRules ?? DOCUMENT_RULES,

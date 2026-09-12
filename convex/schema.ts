@@ -55,6 +55,8 @@ export const FILE_TYPE = v.union(
   /** Photos of paperwork — nothing is extracted from these, they are reviewed as images. */
   v.literal("jpg"),
   v.literal("png"),
+  /** Word documents — like jpg/png, nothing is extracted, reviewed as a document. */
+  v.literal("docx"),
 );
 
 export default defineSchema({
@@ -121,7 +123,8 @@ export default defineSchema({
     requiredFiles: v.array(
       v.object({
         label: v.string(),
-        fileType: FILE_TYPE,
+        /** Formats accepted for this slot — at least one, enforced in reportTemplates.ts. */
+        fileTypes: v.array(FILE_TYPE),
         required: v.boolean(),
       }),
     ),

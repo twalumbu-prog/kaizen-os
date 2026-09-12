@@ -13,16 +13,41 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { CheckCircle2, RefreshCw } from "lucide-react";
+import { acceptedFileTypes, fileTypeLabel, type FileType } from "@/lib/file-types";
 
-const ACCEPT: Record<string, string> = {
+const ACCEPT: Record<FileType, string> = {
   xlsx: ".xlsx,.xls",
   pdf: ".pdf",
   csv: ".csv",
+  docx: ".docx,.doc",
   // `capture` is deliberately not set: staff should be able to pick an existing
   // photo as well as take a new one.
   jpg: ".jpg,.jpeg,image/jpeg",
   png: ".png,image/png",
 };
+
+const EXTENSION_TO_FILE_TYPE: Record<string, FileType> = {
+  xlsx: "xlsx",
+  xls: "xlsx",
+  pdf: "pdf",
+  csv: "csv",
+  docx: "docx",
+  doc: "docx",
+  jpg: "jpg",
+  jpeg: "jpg",
+  png: "png",
+};
+
+/** Which of a slot's accepted formats a picked file actually is, by extension. */
+function inferFileType(file: File, accepted: FileType[]): FileType | null {
+  const ext = file.name.split(".").pop()?.toLowerCase();
+  const guessed = ext ? EXTENSION_TO_FILE_TYPE[ext] : undefined;
+  if (guessed && accepted.includes(guessed)) return guessed;
+  // Only one format accepted and the extension is unrecognised (rare, e.g. no
+  // extension at all) — still let it through as that one format rather than
+  // blocking on a naming quirk.
+  return accepted.length === 1 ? accepted[0] : null;
+}
 
 export default function UploadReportPage({
   params,
@@ -148,6 +173,12 @@ export default function UploadReportPage({
       for (const requirement of visibleRequirements) {
         const file = selectedFiles[requirement.label];
         if (!file) continue;
+        const fileType = inferFileType(file, acceptedFileTypes(requirement));
+        if (!fileType) {
+          toast.error(`"${file.name}" isn't one of the accepted formats for ${requirement.label}.`);
+          setSubmitting(false);
+          return;
+        }
         const uploadUrl = await generateUploadUrl();
         const response = await fetch(uploadUrl, {
           method: "POST",
@@ -158,7 +189,7 @@ export default function UploadReportPage({
         uploaded.push({
           storageId,
           label: requirement.label,
-          fileType: requirement.fileType,
+          fileType,
           fileName: file.name,
         });
       }
@@ -230,31 +261,43 @@ export default function UploadReportPage({
               </div>
             )}
             
-            {visibleRequirements.map((requirement) => (
-              <div key={requirement.label} className="flex flex-col gap-2">
-                <Label htmlFor={requirement.label} className="flex items-center gap-2">
-                  {requirement.label}
-                  <Badge variant={requirement.required ? "default" : "outline"} className="uppercase">
-                    {requirement.required ? "Required" : "Optional"}
-                  </Badge>
-                  <Badge variant="outline" className="uppercase">
-                    {requirement.fileType}
-                  </Badge>
-                </Label>
-                <input
-                  id={requirement.label}
-                  type="file"
-                  accept={ACCEPT[requirement.fileType]}
-                  onChange={(e) =>
-                    setSelectedFiles((prev) => ({
-                      ...prev,
-                      [requirement.label]: e.target.files?.[0] ?? null,
-                    }))
-                  }
-                  className="text-sm file:mr-3 file:rounded-md file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium"
-                />
-              </div>
-            ))}
+            {visibleRequirements.map((requirement) => {
+              const accepted = acceptedFileTypes(requirement);
+              return (
+                <div key={requirement.label} className="flex flex-col gap-2">
+                  <Label htmlFor={requirement.label} className="flex flex-wrap items-center gap-2">
+                    {requirement.label}
+                    <Badge variant={requirement.required ? "default" : "outline"} className="uppercase">
+                      {requirement.required ? "Required" : "Optional"}
+                    </Badge>
+                    {accepted.map((type) => (
+                      <Badge key={type} variant="outline" className="uppercase">
+                        {fileTypeLabel(type)}
+                      </Badge>
+                    ))}
+                  </Label>
+                  <input
+                    id={requirement.label}
+                    type="file"
+                    accept={accepted.map((t) => ACCEPT[t]).join(",")}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0] ?? null;
+                      if (file && !inferFileType(file, accepted)) {
+                        toast.error(
+                          `"${file.name}" isn't one of the accepted formats for ${requirement.label} (${accepted
+                            .map((t) => fileTypeLabel(t))
+                            .join(", ")}).`,
+                        );
+                        e.target.value = "";
+                        return;
+                      }
+                      setSelectedFiles((prev) => ({ ...prev, [requirement.label]: file }));
+                    }}
+                    className="text-sm file:mr-3 file:rounded-md file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium"
+                  />
+                </div>
+              );
+            })}
 
             <Button
               onClick={handleSubmit}

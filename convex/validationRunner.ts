@@ -19,6 +19,7 @@ const MIME_TYPES: Record<string, string> = {
   xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   jpg: "image/jpeg",
   png: "image/png",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 };
 
 const EMPTY_STATEMENT: ParsedStatement = {

@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
-import { FILE_TYPE_OPTIONS, fileTypeLabel, type FileType } from "@/lib/file-types";
+import { FILE_TYPE_OPTIONS, acceptedFileTypes, type FileType } from "@/lib/file-types";
 import {
   CADENCE_OPTIONS,
   cadenceLabel,
@@ -149,6 +149,21 @@ function CycleSettingsCard({
       </CardContent>
     </Card>
   );
+}
+
+/**
+ * Rebuilds one required-file entry in the clean `{label, fileTypes, required}`
+ * shape, dropping the legacy singular `fileType` field a pre-migration row
+ * might still carry — every write to `requiredFiles` goes through this so a
+ * report is fully migrated the moment any one of its files is edited.
+ */
+function normalizeRequiredFile(rf: {
+  label: string;
+  fileType?: FileType;
+  fileTypes?: FileType[];
+  required: boolean;
+}): { label: string; fileTypes: FileType[]; required: boolean } {
+  return { label: rf.label, fileTypes: acceptedFileTypes(rf), required: rf.required };
 }
 
 export default function ReportConfigPage({
@@ -330,55 +345,71 @@ export default function ReportConfigPage({
               return (
                 <div key={f.label} className="flex flex-col gap-2 rounded-md border p-3 text-sm">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span>{f.label}</span>
-                      <Select
-                        value={f.fileType}
-                        onValueChange={(value) => {
-                          if (!value) return;
-                          updateTemplate({
-                            templateId,
-                            requiredFiles: template.requiredFiles.map((rf, i) =>
-                              i === idx ? { ...rf, fileType: value as FileType } : rf,
-                            ),
-                          });
-                          toast.success(`${f.label} now accepts ${fileTypeLabel(value)}`);
-                        }}
-                      >
-                        <SelectTrigger size="sm" className="w-36">
-                          <SelectValue>{(value: string) => fileTypeLabel(value)}</SelectValue>
-                        </SelectTrigger>
-                        <SelectContent>
-                          {FILE_TYPE_OPTIONS.map((option) => (
-                            <SelectItem key={option.value} value={option.value}>
-                              {option.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                    <span>{f.label}</span>
                     <div className="flex items-center gap-2">
                       <Label className="text-xs text-muted-foreground">Required</Label>
                       <Switch
                         checked={f.required}
                         onCheckedChange={(checked) => {
                           const requiredFiles = template.requiredFiles.map((rf, i) =>
-                            i === idx ? { ...rf, required: checked } : rf,
+                            i === idx
+                              ? { ...normalizeRequiredFile(rf), required: checked }
+                              : normalizeRequiredFile(rf),
                           );
-                          
+
                           let newQbAccountId = template.quickbooksAccountId;
                           if (isInternalLedger && checked) {
                             newQbAccountId = undefined;
                           }
 
-                          updateTemplate({ 
-                            templateId, 
+                          updateTemplate({
+                            templateId,
                             requiredFiles,
                             ...(isInternalLedger ? { quickbooksAccountId: newQbAccountId } : {})
                           });
                         }}
                       />
                     </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-xs text-muted-foreground">Accepts:</span>
+                    {FILE_TYPE_OPTIONS.map((option) => {
+                      const current = acceptedFileTypes(f);
+                      const active = current.includes(option.value);
+                      return (
+                        <Badge
+                          key={option.value}
+                          variant={active ? "default" : "outline"}
+                          className="cursor-pointer select-none"
+                          render={
+                            <button
+                              type="button"
+                              aria-pressed={active}
+                              onClick={() => {
+                                const next = active
+                                  ? current.filter((t) => t !== option.value)
+                                  : [...current, option.value];
+                                if (next.length === 0) {
+                                  toast.error(`${f.label} needs at least one accepted format.`);
+                                  return;
+                                }
+                                updateTemplate({
+                                  templateId,
+                                  requiredFiles: template.requiredFiles.map((rf, i) =>
+                                    i === idx
+                                      ? { ...normalizeRequiredFile(rf), fileTypes: next }
+                                      : normalizeRequiredFile(rf),
+                                  ),
+                                });
+                              }}
+                            >
+                              {option.label}
+                            </button>
+                          }
+                        />
+                      );
+                    })}
                   </div>
 
                   {isInternalLedger && isQbActive && (
@@ -426,9 +457,9 @@ export default function ReportConfigPage({
                               const newAccountId = accountId === "none" ? undefined : accountId;
                               
                               const requiredFiles = template.requiredFiles.map((rf) =>
-                                rf.label.toLowerCase() === "internal ledger" 
-                                  ? { ...rf, required: newAccountId ? false : rf.required } 
-                                  : rf
+                                rf.label.toLowerCase() === "internal ledger"
+                                  ? { ...normalizeRequiredFile(rf), required: newAccountId ? false : rf.required }
+                                  : normalizeRequiredFile(rf)
                               );
                               
                               updateTemplate({ 
