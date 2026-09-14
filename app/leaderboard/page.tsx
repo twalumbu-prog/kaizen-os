@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery } from "convex/react";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { ChevronLeft, ChevronRight, Trophy } from "lucide-react";
 import { api } from "@/convex/_generated/api";
@@ -11,7 +12,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { LeaderboardRow } from "@/components/leaderboard/leaderboard-row";
-import { LeaderboardHistoryDialog } from "@/components/leaderboard/leaderboard-history-dialog";
 
 function EmptyState() {
   return (
@@ -118,7 +118,11 @@ function WeeklyBoard({ onSelectUser }: { onSelectUser: (userId: Id<"users">) => 
 }
 
 export default function LeaderboardPage() {
-  const [historyUserId, setHistoryUserId] = useState<Id<"users"> | null>(null);
+  const router = useRouter();
+
+  function openHistory(userId: Id<"users">) {
+    router.push(`/leaderboard/${userId}`);
+  }
 
   return (
     <AppShell>
@@ -140,19 +144,13 @@ export default function LeaderboardPage() {
             <TabsTrigger value="weekly">By Week</TabsTrigger>
           </TabsList>
           <TabsContent value="cumulative">
-            <CumulativeBoard onSelectUser={setHistoryUserId} />
+            <CumulativeBoard onSelectUser={openHistory} />
           </TabsContent>
           <TabsContent value="weekly">
-            <WeeklyBoard onSelectUser={setHistoryUserId} />
+            <WeeklyBoard onSelectUser={openHistory} />
           </TabsContent>
         </Tabs>
       </div>
-
-      <LeaderboardHistoryDialog
-        userId={historyUserId}
-        open={historyUserId !== null}
-        onOpenChange={(open) => !open && setHistoryUserId(null)}
-      />
     </AppShell>
   );
 }
