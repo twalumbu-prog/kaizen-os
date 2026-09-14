@@ -33,15 +33,32 @@ export interface LeaderboardStanding {
 export function LeaderboardRow({
   standing,
   showRankChange,
+  onSelect,
 }: {
   standing: LeaderboardStanding;
   showRankChange?: boolean;
+  /** Opens this person's point history — omit to render a plain, non-interactive row. */
+  onSelect?: () => void;
 }) {
   const percent =
     standing.maxPoints === 0 ? null : Math.round((standing.points / standing.maxPoints) * 100);
 
   return (
-    <div className="flex items-center gap-3 py-3">
+    <div
+      role={onSelect ? "button" : undefined}
+      tabIndex={onSelect ? 0 : undefined}
+      onClick={onSelect}
+      onKeyDown={(e) => {
+        if (onSelect && (e.key === "Enter" || e.key === " ")) {
+          e.preventDefault();
+          onSelect();
+        }
+      }}
+      className={cn(
+        "flex items-center gap-3 py-3",
+        onSelect && "cursor-pointer rounded-md px-2 -mx-2 transition-colors hover:bg-accent",
+      )}
+    >
       <div className="flex w-8 shrink-0 items-center justify-center">
         {standing.rank <= 3 ? (
           <Medal className={cn("size-5", RANK_MEDAL[standing.rank])} />

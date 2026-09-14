@@ -4,12 +4,14 @@ import { useQuery } from "convex/react";
 import { useState } from "react";
 import { ChevronLeft, ChevronRight, Trophy } from "lucide-react";
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import { AppShell } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { LeaderboardRow } from "@/components/leaderboard/leaderboard-row";
+import { LeaderboardHistoryDialog } from "@/components/leaderboard/leaderboard-history-dialog";
 
 function EmptyState() {
   return (
@@ -20,7 +22,7 @@ function EmptyState() {
   );
 }
 
-function CumulativeBoard() {
+function CumulativeBoard({ onSelectUser }: { onSelectUser: (userId: Id<"users">) => void }) {
   const data = useQuery(api.leaderboard.leaderboardTotals, {});
 
   return (
@@ -36,7 +38,11 @@ function CumulativeBoard() {
         ) : (
           <div className="flex flex-col divide-y">
             {data.standings.map((standing) => (
-              <LeaderboardRow key={standing.userId} standing={standing} />
+              <LeaderboardRow
+                key={standing.userId}
+                standing={standing}
+                onSelect={() => onSelectUser(standing.userId as Id<"users">)}
+              />
             ))}
           </div>
         )}
@@ -45,7 +51,7 @@ function CumulativeBoard() {
   );
 }
 
-function WeeklyBoard() {
+function WeeklyBoard({ onSelectUser }: { onSelectUser: (userId: Id<"users">) => void }) {
   // undefined = "this week"; the server always normalizes to the Friday-anchored
   // week containing whatever timestamp it's given.
   const [weekStart, setWeekStart] = useState<number | undefined>(undefined);
@@ -97,7 +103,12 @@ function WeeklyBoard() {
         ) : (
           <div className="flex flex-col divide-y">
             {data.standings.map((standing) => (
-              <LeaderboardRow key={standing.userId} standing={standing} showRankChange />
+              <LeaderboardRow
+                key={standing.userId}
+                standing={standing}
+                showRankChange
+                onSelect={() => onSelectUser(standing.userId as Id<"users">)}
+              />
             ))}
           </div>
         )}
@@ -107,6 +118,8 @@ function WeeklyBoard() {
 }
 
 export default function LeaderboardPage() {
+  const [historyUserId, setHistoryUserId] = useState<Id<"users"> | null>(null);
+
   return (
     <AppShell>
       <div className="flex flex-col gap-6">
@@ -116,6 +129,7 @@ export default function LeaderboardPage() {
             <h1 className="text-2xl font-semibold tracking-tight">Leaderboard</h1>
             <p className="text-sm text-muted-foreground">
               Points for submitting on time — full marks on time, less if late, none if missed.
+              Click anyone to see their history.
             </p>
           </div>
         </div>
@@ -126,13 +140,19 @@ export default function LeaderboardPage() {
             <TabsTrigger value="weekly">By Week</TabsTrigger>
           </TabsList>
           <TabsContent value="cumulative">
-            <CumulativeBoard />
+            <CumulativeBoard onSelectUser={setHistoryUserId} />
           </TabsContent>
           <TabsContent value="weekly">
-            <WeeklyBoard />
+            <WeeklyBoard onSelectUser={setHistoryUserId} />
           </TabsContent>
         </Tabs>
       </div>
+
+      <LeaderboardHistoryDialog
+        userId={historyUserId}
+        open={historyUserId !== null}
+        onOpenChange={(open) => !open && setHistoryUserId(null)}
+      />
     </AppShell>
   );
 }

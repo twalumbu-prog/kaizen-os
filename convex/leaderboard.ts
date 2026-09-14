@@ -77,10 +77,17 @@ async function templatesInScope(
  * Missing periods are computed live from the template's cadence rather than
  * requiring a "missing" submission row to already exist, so a report the
  * nightly backfill hasn't reached yet still counts against whoever owes it.
- * A period only counts once it has actually fallen due (`dueAt <= now`) and
- * once the assignee was actually responsible for it (`dueAt >= their
- * assignment's start`), so nobody is scored on work from before they joined
- * or on a deadline that hasn't arrived yet.
+ * A period only counts once it has actually fallen due (`dueAt <= now`).
+ *
+ * The walk covers every period in the window regardless of when the
+ * assignment was created — a real submission for a period predating the
+ * assignment (someone assigned after the fact, catching up on a past period
+ * through the calendar's backdated-submission flow) still counts in their
+ * favour. Only the *absence* of a submission is guarded by assignment
+ * timing: a period with nothing submitted only counts as "missing" — 0
+ * points — if the assignee was actually responsible for it by the time it
+ * was due (`dueAt >= their assignment's start`), so nobody is penalised for
+ * a deadline that came and went before they joined.
  */
 async function accumulate(
   ctx: QueryCtx,
@@ -110,23 +117,33 @@ async function accumulate(
       .order("desc")
       .take(600);
 
-    for (const assignment of assignments) {
-      const effectiveFrom = Math.max(windowFrom, assignment._creationTime);
-      if (effectiveFrom > windowTo) continue;
+    // Walked once per template, covering the whole window — shared by every
+    // assignee, since a period's existence doesn't depend on who's assigned.
+    // For "totals" windowFrom is 0 (epoch), which would walk tens of
+    // thousands of empty periods for an old daily report before PERIOD_GUARD
+    // even reached anything real — so the walk starts no earlier than
+    // whichever is earliest: the first assignment, or an actual submission's
+    // own period (covering a backdated submission that predates its own
+    // assignment, same as Moses Kalunga's case above).
+    const walkFrom = Math.max(
+      windowFrom,
+      Math.min(...assignments.map((a) => a._creationTime), ...submissions.map((s) => s.periodStart)),
+    );
 
-      let cursor: PeriodBounds;
-      try {
-        cursor = periodContaining(template, effectiveFrom);
-      } catch {
-        // A misconfigured report (e.g. "cycle" cadence with no cycle
-        // settings) is skipped rather than failing the whole leaderboard.
-        continue;
-      }
+    let cursor: PeriodBounds;
+    try {
+      cursor = periodContaining(template, walkFrom);
+    } catch {
+      // A misconfigured report (e.g. "cycle" cadence with no cycle settings)
+      // is skipped rather than failing the whole leaderboard.
+      continue;
+    }
 
-      let guard = 0;
-      while (guard < PERIOD_GUARD) {
-        if (cursor.dueAt > windowTo) break;
-        if (cursor.dueAt <= now && cursor.dueAt >= effectiveFrom) {
+    let guard = 0;
+    while (guard < PERIOD_GUARD) {
+      if (cursor.dueAt > windowTo) break;
+      if (cursor.dueAt <= now) {
+        for (const assignment of assignments) {
           // A handful of periods can carry duplicate rows from earlier
           // backfill runs (see myReportScores); prefer a real submission
           // over a stray "missing" placeholder when both exist.
@@ -134,6 +151,12 @@ async function accumulate(
             (s) => s.periodLabel === cursor.periodLabel && s.userId === assignment.userId,
           );
           const submission = matches.find((s) => s.status !== "missing") ?? matches[0];
+
+          // No submission, and the period was due before they were even
+          // assigned — not their gap to answer for, skip entirely (doesn't
+          // count toward points, maxPoints, or dueCount).
+          if (!submission && cursor.dueAt < assignment._creationTime) continue;
+
           const status = submission?.status ?? "missing";
           const points = computeSubmissionScore({
             status,
@@ -149,9 +172,9 @@ async function accumulate(
           else if (status === "late") entry.late += 1;
           else entry.missing += 1;
         }
-        cursor = nextPeriod(template, cursor);
-        guard++;
       }
+      cursor = nextPeriod(template, cursor);
+      guard++;
     }
   }
 
@@ -257,6 +280,74 @@ export const leaderboardWeek = query({
           rankChange: previousRank === null ? null : previousRank - s.rank,
         };
       }),
+    };
+  },
+});
+
+const DEFAULT_HISTORY_WEEKS = 12;
+const MAX_HISTORY_WEEKS = 52;
+
+/**
+ * One person's points, week by week, going back from the current week — what
+ * a click on a leaderboard row opens to show how their standing built up.
+ * Scoped the same as the boards themselves: only returns a week's numbers for
+ * templates the *caller* can see, so a manager can't page through an
+ * employee's history in a department they don't oversee.
+ */
+export const leaderboardUserHistory = query({
+  args: { userId: v.id("users"), weeks: v.optional(v.number()) },
+  handler: async (ctx, { userId, weeks }) => {
+    const profile = await requireProfile(ctx);
+    const departments = await scopedDepartments(ctx, profile);
+    const templates = await templatesInScope(ctx, departments);
+
+    const target = await ctx.db
+      .query("profiles")
+      .withIndex("by_userId", (q) => q.eq("userId", userId))
+      .filter((q) => q.eq(q.field("orgId"), profile.orgId))
+      .first();
+    if (!target) return null;
+
+    const weekCount = Math.min(Math.max(weeks ?? DEFAULT_HISTORY_WEEKS, 1), MAX_HISTORY_WEEKS);
+
+    // Walk backward from the current week so the most recent week is always
+    // included, however many weeks are asked for.
+    const weekBounds: PeriodBounds[] = [];
+    let cursor = periodContaining("weekly", Date.now());
+    for (let i = 0; i < weekCount; i++) {
+      weekBounds.unshift(cursor);
+      cursor = periodContaining("weekly", cursor.periodStart - 1);
+    }
+
+    const aggs = await Promise.all(
+      weekBounds.map((bounds) => accumulate(ctx, templates, bounds.periodStart, bounds.periodEnd)),
+    );
+
+    const weeklyEmpty = emptyAgg();
+    const history = weekBounds.map((bounds, i) => {
+      const a = aggs[i].get(userId) ?? weeklyEmpty;
+      return {
+        weekStart: bounds.periodStart,
+        weekEnd: bounds.periodEnd,
+        weekLabel: bounds.periodLabel,
+        points: a.points,
+        maxPoints: a.maxPoints,
+        onTime: a.onTime,
+        late: a.late,
+        missing: a.missing,
+        dueCount: a.dueCount,
+      };
+    });
+
+    const cumulativePoints = history.reduce((sum, w) => sum + w.points, 0);
+    const cumulativeMaxPoints = history.reduce((sum, w) => sum + w.maxPoints, 0);
+
+    return {
+      userId,
+      name: target.name,
+      history,
+      cumulativePoints,
+      cumulativeMaxPoints,
     };
   },
 });
