@@ -133,6 +133,16 @@ async function accumulate(
     let cursor: PeriodBounds;
     try {
       cursor = periodContaining(template, walkFrom);
+      // A period's due date always falls within the *next* period at most
+      // (e.g. a monthly report is due sometime in the following calendar
+      // month, never later) — so stepping back one period before starting
+      // guarantees a period that starts before `walkFrom` but falls due
+      // inside the window is never skipped. This matters for narrow windows
+      // (a single week): `walkFrom` can land inside, say, September while
+      // the period actually due that week is August's, which periodContaining
+      // alone would miss entirely. The loop below then skips anything whose
+      // due date is still before the window rather than counting it.
+      cursor = periodContaining(template, cursor.periodStart - 1);
     } catch {
       // A misconfigured report (e.g. "cycle" cadence with no cycle settings)
       // is skipped rather than failing the whole leaderboard.
@@ -142,7 +152,7 @@ async function accumulate(
     let guard = 0;
     while (guard < PERIOD_GUARD) {
       if (cursor.dueAt > windowTo) break;
-      if (cursor.dueAt <= now) {
+      if (cursor.dueAt >= windowFrom && cursor.dueAt <= now) {
         for (const assignment of assignments) {
           // A handful of periods can carry duplicate rows from earlier
           // backfill runs (see myReportScores); prefer a real submission
