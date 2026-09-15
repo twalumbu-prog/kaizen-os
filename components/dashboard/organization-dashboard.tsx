@@ -1,18 +1,29 @@
 "use client";
 
 import { useQuery } from "convex/react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { StatusBadge } from "@/components/dashboard/status-badge";
 import { TrendSparkline } from "@/components/dashboard/trend-sparkline";
 import { LeadingMeasuresCard } from "@/components/dashboard/leading-measures-card";
 import { KeyOutcomesCard } from "@/components/dashboard/key-outcomes-card";
+import { WorkCalendar } from "@/components/calendar/work-calendar";
+import { ScoreTab } from "@/components/employee/score-tab";
+import { DashboardTab } from "@/components/employee/dashboard-tab";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Clock, Target } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Award, Calendar, Clock, Target } from "lucide-react";
 
 export function OrganizationDashboard({ orgId }: { orgId: Id<"organizations"> }) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const tab = searchParams.get("tab") ?? "leading";
+  const [showChart, setShowChart] = useState(false);
+
   const data = useQuery(api.dashboard.organizationDashboard, { orgId });
 
   if (data === undefined || data === null) {
@@ -40,18 +51,31 @@ export function OrganizationDashboard({ orgId }: { orgId: Id<"organizations"> })
         </CardContent>
       </Card>
 
-      <Tabs defaultValue="leading" className="w-full space-y-6">
+      <Tabs value={tab} onValueChange={(v) => router.push(`/?tab=${v}`)} className="w-full space-y-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <TabsList className="grid w-full max-w-md grid-cols-2">
+          <TabsList className="grid w-full max-w-xl grid-cols-2 sm:grid-cols-4">
             <TabsTrigger value="leading" className="flex items-center gap-2">
               <Clock className="size-4" />
-              Leading Measures
+              Leading
             </TabsTrigger>
             <TabsTrigger value="outcomes" className="flex items-center gap-2">
               <Target className="size-4" />
               Key Outcomes
             </TabsTrigger>
+            <TabsTrigger value="reports" className="flex items-center gap-2">
+              <Calendar className="size-4" />
+              Reports
+            </TabsTrigger>
+            <TabsTrigger value="score" className="flex items-center gap-2">
+              <Award className="size-4" />
+              Score
+            </TabsTrigger>
           </TabsList>
+          {tab === "score" && (
+            <Button variant="outline" size="sm" onClick={() => setShowChart(!showChart)}>
+              {showChart ? "Hide Chart" : "Show Chart"}
+            </Button>
+          )}
         </div>
 
         <TabsContent value="leading" className="space-y-4">
@@ -101,6 +125,15 @@ export function OrganizationDashboard({ orgId }: { orgId: Id<"organizations"> })
               ))}
             </div>
           )}
+        </TabsContent>
+
+        <TabsContent value="reports" className="space-y-4">
+          <WorkCalendar />
+        </TabsContent>
+
+        <TabsContent value="score" className="space-y-6">
+          <DashboardTab />
+          <ScoreTab showChart={showChart} />
         </TabsContent>
       </Tabs>
     </div>

@@ -25,8 +25,10 @@ type PeriodScore = ReportScore["periods"][number];
 function PeriodRow({ period, periodKey }: { period: PeriodScore; periodKey: string }) {
   const [open, setOpen] = useState(false);
   const router = useRouter();
+  const me = useQuery(api.profiles.getMe);
   const hasChecklist = period.checklist.length > 0;
   const pct = period.possible > 0 ? Math.round((period.earned / period.possible) * 100) : 0;
+  const targetPath = me?.role === "admin" ? "/" : "/employee";
 
   return (
     <div className="border-t first:border-t-0">
@@ -79,7 +81,7 @@ function PeriodRow({ period, periodKey }: { period: PeriodScore; periodKey: stri
             <Button 
               variant="outline" 
               size="sm" 
-              onClick={() => router.push(`/employee?tab=reports&date=${period.dueAt}`)}
+              onClick={() => router.push(`${targetPath}?tab=reports&date=${period.dueAt}`)}
             >
               View on Calendar <ArrowRight className="ml-2 h-4 w-4" />
             </Button>

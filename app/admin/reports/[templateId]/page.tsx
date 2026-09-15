@@ -351,7 +351,7 @@ export default function ReportConfigPage({
 
   const assignedUserIds = new Set(assignments.map((a) => a.userId));
   const assignableUsers = users.filter(
-    (u) => (u.role === "employee" || u.role === "manager") && !assignedUserIds.has(u.userId),
+    (u) => !assignedUserIds.has(u.userId),
   );
 
   return (

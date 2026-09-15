@@ -2,13 +2,13 @@
 
 import { useQuery } from "convex/react";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, Suspense } from "react";
 import { api } from "@/convex/_generated/api";
 import { AppShell } from "@/components/layout/app-shell";
 import { OrganizationDashboard } from "@/components/dashboard/organization-dashboard";
 import { Skeleton } from "@/components/ui/skeleton";
 
-export default function Home() {
+function AdminHomeContent() {
   const me = useQuery(api.profiles.getMe);
   const org = useQuery(api.organizations.getPrimary);
   const router = useRouter();
@@ -52,5 +52,19 @@ export default function Home() {
     <AppShell>
       <OrganizationDashboard orgId={org._id} />
     </AppShell>
+  );
+}
+
+export default function Home() {
+  return (
+    <Suspense
+      fallback={
+        <AppShell>
+          <Skeleton className="h-48 w-full rounded-xl" />
+        </AppShell>
+      }
+    >
+      <AdminHomeContent />
+    </Suspense>
   );
 }

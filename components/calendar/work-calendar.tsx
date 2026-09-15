@@ -164,14 +164,14 @@ export function WorkCalendar({ viewSwitcher }: { viewSwitcher?: ReactNode }) {
                   <div className="font-medium">{item.templateName}</div>
                   <div className="text-xs text-muted-foreground">{ownerLine(item)}</div>
                 </div>
-                {item.assigneeName || item.unassigned ? (
-                  <span className="text-xs capitalize text-muted-foreground">
-                    {item.unassigned ? "Unassigned" : item.status}
-                  </span>
-                ) : (
+                {item.canSubmit || (!item.assigneeName && !item.unassigned) ? (
                   <Button size="sm" onClick={() => goToUpload(item)}>
                     Submit
                   </Button>
+                ) : (
+                  <span className="text-xs capitalize text-muted-foreground">
+                    {item.unassigned ? "Unassigned" : item.status}
+                  </span>
                 )}
                 <ReportOptionsMenu templateId={item.templateId} canViewConfig={canViewConfig} />
               </div>

@@ -861,6 +861,10 @@ export const myCalendar = query({
             : row.userId
               ? periodSubmissions.find((s) => s.userId === row.userId)
               : periodSubmissions.find((s) => s.isAutoSubmitted) ?? undefined;
+          const isMine = shared
+            ? responsible.includes(profile.userId)
+            : row.userId === profile.userId;
+
           items.push({
             templateId: template._id,
             templateName: template.name,
@@ -872,14 +876,15 @@ export const myCalendar = query({
             score: submission?.finalScore ?? null,
             /** Set only when overseeing someone else's report — drives read-only UI. */
             assigneeName: shared
-              ? overseeing
+              ? overseeing && !isMine
                 ? sharedAssigneeLabel(responsible, nameByUserId)
                 : null
-              : overseeing && row.userId
+              : overseeing && row.userId && !isMine
                 ? (nameByUserId.get(row.userId) ?? "Unknown")
                 : null,
             shared,
             unassigned: !shared && row.userId === null && !submission,
+            canSubmit: isMine,
           });
         }
       }
