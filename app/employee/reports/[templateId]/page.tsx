@@ -13,41 +13,12 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { CheckCircle2, RefreshCw } from "lucide-react";
-import { acceptedFileTypes, fileTypeLabel, type FileType } from "@/lib/file-types";
-
-const ACCEPT: Record<FileType, string> = {
-  xlsx: ".xlsx,.xls",
-  pdf: ".pdf",
-  csv: ".csv",
-  docx: ".docx,.doc",
-  // `capture` is deliberately not set: staff should be able to pick an existing
-  // photo as well as take a new one.
-  jpg: ".jpg,.jpeg,image/jpeg",
-  png: ".png,image/png",
-};
-
-const EXTENSION_TO_FILE_TYPE: Record<string, FileType> = {
-  xlsx: "xlsx",
-  xls: "xlsx",
-  pdf: "pdf",
-  csv: "csv",
-  docx: "docx",
-  doc: "docx",
-  jpg: "jpg",
-  jpeg: "jpg",
-  png: "png",
-};
-
-/** Which of a slot's accepted formats a picked file actually is, by extension. */
-function inferFileType(file: File, accepted: FileType[]): FileType | null {
-  const ext = file.name.split(".").pop()?.toLowerCase();
-  const guessed = ext ? EXTENSION_TO_FILE_TYPE[ext] : undefined;
-  if (guessed && accepted.includes(guessed)) return guessed;
-  // Only one format accepted and the extension is unrecognised (rare, e.g. no
-  // extension at all) — still let it through as that one format rather than
-  // blocking on a naming quirk.
-  return accepted.length === 1 ? accepted[0] : null;
-}
+import {
+  acceptedFileTypes,
+  fileTypeLabel,
+  inferFileType,
+  FILE_TYPE_ACCEPT as ACCEPT,
+} from "@/lib/file-types";
 
 export default function UploadReportPage({
   params,

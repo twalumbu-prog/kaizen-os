@@ -29,3 +29,36 @@ export function acceptedFileTypes(requiredFile: {
   if (requiredFile.fileTypes && requiredFile.fileTypes.length > 0) return requiredFile.fileTypes;
   return requiredFile.fileType ? [requiredFile.fileType] : [];
 }
+
+/** `accept` attribute values for a native file input, per format. */
+export const FILE_TYPE_ACCEPT: Record<FileType, string> = {
+  xlsx: ".xlsx,.xls",
+  pdf: ".pdf",
+  csv: ".csv",
+  docx: ".docx,.doc",
+  jpg: ".jpg,.jpeg,image/jpeg",
+  png: ".png,image/png",
+};
+
+const EXTENSION_TO_FILE_TYPE: Record<string, FileType> = {
+  xlsx: "xlsx",
+  xls: "xlsx",
+  pdf: "pdf",
+  csv: "csv",
+  docx: "docx",
+  doc: "docx",
+  jpg: "jpg",
+  jpeg: "jpg",
+  png: "png",
+};
+
+/** Which of a set of accepted formats a picked file actually is, by extension. */
+export function inferFileType(file: File, accepted: FileType[]): FileType | null {
+  const ext = file.name.split(".").pop()?.toLowerCase();
+  const guessed = ext ? EXTENSION_TO_FILE_TYPE[ext] : undefined;
+  if (guessed && accepted.includes(guessed)) return guessed;
+  // Only one format accepted and the extension is unrecognised (rare, e.g. no
+  // extension at all) — still let it through as that one format rather than
+  // blocking on a naming quirk.
+  return accepted.length === 1 ? accepted[0] : null;
+}

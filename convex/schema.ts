@@ -126,6 +126,20 @@ export default defineSchema({
         /** Formats accepted for this slot — at least one, enforced in reportTemplates.ts. */
         fileTypes: v.array(FILE_TYPE),
         required: v.boolean(),
+        /**
+         * A reference file an admin has attached for this slot: either a
+         * blank "template" to fill in and submit, or a "sample" of what a
+         * real one looks like — for documents nobody templates, like a
+         * government receipt, where the point is just showing what to expect.
+         */
+        referenceFile: v.optional(
+          v.object({
+            storageId: v.id("_storage"),
+            fileName: v.string(),
+            fileType: FILE_TYPE,
+            kind: v.union(v.literal("template"), v.literal("sample")),
+          }),
+        ),
       }),
     ),
     validationRules: v.array(

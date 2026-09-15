@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CalendarStrip } from "@/components/employee/calendar-strip";
 import { FullCalendarDialog } from "@/components/employee/full-calendar-dialog";
+import { ReportOptionsMenu } from "@/components/calendar/report-options-menu";
 
 function todayMidnightUTC(): number {
   const d = new Date();
@@ -65,6 +66,8 @@ export function WorkCalendar({ viewSwitcher }: { viewSwitcher?: ReactNode }) {
     from: selectedDate,
     to: selectedDate,
   });
+  const me = useQuery(api.profiles.getMe);
+  const canViewConfig = me?.role === "admin";
 
   // Keep showing the last-known data while a wider range loads, so growing the
   // window doesn't flash the whole view back to a loading skeleton.
@@ -170,6 +173,7 @@ export function WorkCalendar({ viewSwitcher }: { viewSwitcher?: ReactNode }) {
                     Submit
                   </Button>
                 )}
+                <ReportOptionsMenu templateId={item.templateId} canViewConfig={canViewConfig} />
               </div>
             ))
           )}
@@ -187,35 +191,40 @@ export function WorkCalendar({ viewSwitcher }: { viewSwitcher?: ReactNode }) {
             </p>
           ) : (
             doneItems.map((item, index) => (
-              <button
+              <div
                 key={`${item.templateId}-${item.assigneeName ?? "me"}-${index}`}
-                type="button"
-                onClick={() => goToSubmission(item)}
-                className="flex items-center gap-3 py-3 text-left hover:opacity-80"
+                className="flex items-center gap-3 py-3"
               >
-                <CheckCircle2 className="size-5 shrink-0 text-emerald-500" />
-                <div className="flex-1">
-                  <div className="font-medium">{item.templateName}</div>
-                  <div className="text-xs text-muted-foreground">{ownerLine(item)}</div>
-                  {item.score !== null && item.score !== undefined && (
-                    <div className="flex items-center gap-2 mt-1.5">
-                      <span className="text-xs font-medium text-muted-foreground">
-                        Score: {item.score}%
-                      </span>
-                      <span
-                        className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded-sm ${
-                          item.score >= 80
-                            ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                            : "bg-red-500/10 text-red-600 dark:text-red-400"
-                        }`}
-                      >
-                        {item.score >= 80 ? "Good" : "Poor"}
-                      </span>
-                    </div>
-                  )}
-                </div>
+                <button
+                  type="button"
+                  onClick={() => goToSubmission(item)}
+                  className="flex flex-1 items-center gap-3 text-left hover:opacity-80"
+                >
+                  <CheckCircle2 className="size-5 shrink-0 text-emerald-500" />
+                  <div className="flex-1">
+                    <div className="font-medium">{item.templateName}</div>
+                    <div className="text-xs text-muted-foreground">{ownerLine(item)}</div>
+                    {item.score !== null && item.score !== undefined && (
+                      <div className="flex items-center gap-2 mt-1.5">
+                        <span className="text-xs font-medium text-muted-foreground">
+                          Score: {item.score}%
+                        </span>
+                        <span
+                          className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded-sm ${
+                            item.score >= 80
+                              ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                              : "bg-red-500/10 text-red-600 dark:text-red-400"
+                          }`}
+                        >
+                          {item.score >= 80 ? "Good" : "Poor"}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </button>
                 <span className="text-xs capitalize text-muted-foreground">{item.status}</span>
-              </button>
+                <ReportOptionsMenu templateId={item.templateId} canViewConfig={canViewConfig} />
+              </div>
             ))
           )}
         </CardContent>

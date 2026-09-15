@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useAction } from "convex/react";
-import { use, useState, useEffect } from "react";
+import { use, useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
-import { FILE_TYPE_OPTIONS, acceptedFileTypes, type FileType } from "@/lib/file-types";
+import { FILE_TYPE_OPTIONS, acceptedFileTypes, inferFileType, type FileType } from "@/lib/file-types";
 import {
   CADENCE_OPTIONS,
   cadenceLabel,
@@ -157,13 +157,142 @@ function CycleSettingsCard({
  * might still carry — every write to `requiredFiles` goes through this so a
  * report is fully migrated the moment any one of its files is edited.
  */
+interface ReferenceFile {
+  storageId: Id<"_storage">;
+  fileName: string;
+  fileType: FileType;
+  kind: "template" | "sample";
+}
+
 function normalizeRequiredFile(rf: {
   label: string;
   fileType?: FileType;
   fileTypes?: FileType[];
   required: boolean;
-}): { label: string; fileTypes: FileType[]; required: boolean } {
-  return { label: rf.label, fileTypes: acceptedFileTypes(rf), required: rf.required };
+  referenceFile?: ReferenceFile;
+}): { label: string; fileTypes: FileType[]; required: boolean; referenceFile?: ReferenceFile } {
+  return {
+    label: rf.label,
+    fileTypes: acceptedFileTypes(rf),
+    required: rf.required,
+    ...(rf.referenceFile ? { referenceFile: rf.referenceFile } : {}),
+  };
+}
+
+/**
+ * The reference file an admin can attach to one required-file slot — either a
+ * blank template to download and fill in, or a sample of a real submission
+ * (for documents nobody templates, like a government receipt). Shown on the
+ * Work Calendar's "..." menu for every assignee, not just admins.
+ */
+function ReferenceFileControl({
+  templateId,
+  fileLabel,
+  accepted,
+  referenceFile,
+}: {
+  templateId: Id<"reportTemplates">;
+  fileLabel: string;
+  accepted: FileType[];
+  referenceFile?: ReferenceFile;
+}) {
+  const generateUploadUrl = useMutation(api.submissions.generateUploadUrl);
+  const setReference = useMutation(api.reportTemplates.setRequiredFileReference);
+  const removeReference = useMutation(api.reportTemplates.removeRequiredFileReference);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [kind, setKind] = useState<"template" | "sample">("template");
+  const [uploading, setUploading] = useState(false);
+
+  async function handleFilePicked(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+
+    const fileType = inferFileType(file, accepted.length > 0 ? accepted : FILE_TYPE_OPTIONS.map((o) => o.value));
+    if (!fileType) {
+      toast.error(`Couldn't tell what format "${file.name}" is — try a different file.`);
+      return;
+    }
+
+    setUploading(true);
+    try {
+      const uploadUrl = await generateUploadUrl();
+      const response = await fetch(uploadUrl, {
+        method: "POST",
+        headers: { "Content-Type": file.type || "application/octet-stream" },
+        body: file,
+      });
+      const { storageId } = await response.json();
+      await setReference({ templateId, fileLabel, storageId, fileName: file.name, fileType, kind });
+      toast.success(`${kind === "template" ? "Template" : "Sample"} uploaded for ${fileLabel}.`);
+    } catch {
+      toast.error("Upload failed. Please try again.");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  if (referenceFile) {
+    return (
+      <div className="flex items-center justify-between gap-3 rounded-md border bg-muted/20 p-2.5 text-xs">
+        <div className="flex min-w-0 items-center gap-2">
+          <Badge variant="outline" className="shrink-0 capitalize">
+            {referenceFile.kind}
+          </Badge>
+          <span className="truncate text-muted-foreground">{referenceFile.fileName}</span>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={uploading}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            {uploading ? "Uploading…" : "Replace"}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="text-destructive hover:text-destructive"
+            onClick={() => {
+              removeReference({ templateId, fileLabel });
+              toast.success(`Removed the reference file for ${fileLabel}.`);
+            }}
+          >
+            Remove
+          </Button>
+        </div>
+        <input ref={fileInputRef} type="file" className="hidden" onChange={handleFilePicked} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-2 rounded-md border border-dashed p-2.5 text-xs">
+      <span className="text-muted-foreground">No reference file yet —</span>
+      <Select value={kind} onValueChange={(v) => v && setKind(v as "template" | "sample")}>
+        <SelectTrigger size="sm" className="h-7 w-28">
+          <SelectValue>{(v: string) => (v === "template" ? "Template" : "Sample")}</SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="template">Template</SelectItem>
+          <SelectItem value="sample">Sample</SelectItem>
+        </SelectContent>
+      </Select>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        disabled={uploading}
+        onClick={() => fileInputRef.current?.click()}
+      >
+        {uploading ? "Uploading…" : "Upload"}
+      </Button>
+      <input ref={fileInputRef} type="file" className="hidden" onChange={handleFilePicked} />
+    </div>
+  );
 }
 
 export default function ReportConfigPage({
@@ -411,6 +540,13 @@ export default function ReportConfigPage({
                       );
                     })}
                   </div>
+
+                  <ReferenceFileControl
+                    templateId={templateId}
+                    fileLabel={f.label}
+                    accepted={acceptedFileTypes(f)}
+                    referenceFile={f.referenceFile}
+                  />
 
                   {isInternalLedger && isQbActive && (
                     <div 
