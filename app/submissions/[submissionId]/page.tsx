@@ -2,7 +2,8 @@
 
 import { useQuery, useMutation } from "convex/react";
 import { use, useRef, useState } from "react";
-import { ArrowLeft, CheckCircle2, XCircle, AlertTriangle, FileText, Upload, Loader2, Trash2 } from "lucide-react";
+import { toast } from "sonner";
+import { ArrowLeft, CheckCircle2, XCircle, AlertTriangle, FileText, Upload, Loader2, Trash2, UserCog } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { AppShell } from "@/components/layout/app-shell";
@@ -13,6 +14,13 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 const STATUS_ICON = {
   pass: <CheckCircle2 className="size-4 text-emerald-500" />,
@@ -99,6 +107,66 @@ function ReuploadFile({ fileId }: { fileId: Id<"submissionFiles"> }) {
   );
 }
 
+/**
+ * Lets an admin move a submission to a different person — e.g. it was filed
+ * through the admin's own account on someone's behalf and now needs to count
+ * against the actual employee instead. Only rendered for admins; `listUsers`
+ * itself is also admin-gated, so this is safe even if someone else reaches it.
+ */
+function ReassignSubmission({
+  submissionId,
+  currentUserId,
+}: {
+  submissionId: Id<"submissions">;
+  currentUserId: Id<"users">;
+}) {
+  const users = useQuery(api.profiles.listUsers);
+  const reassign = useMutation(api.submissions.reassignSubmission);
+  const [selected, setSelected] = useState<string>("");
+  const [saving, setSaving] = useState(false);
+
+  if (!users) return null;
+  const candidates = users.filter((u) => u.userId !== currentUserId);
+  if (candidates.length === 0) return null;
+
+  return (
+    <div className="col-span-2 mt-2 flex items-center gap-2 border-t pt-3">
+      <UserCog className="size-4 shrink-0 text-muted-foreground" />
+      <Select value={selected} onValueChange={(v) => setSelected(v ?? "")}>
+        <SelectTrigger className="h-8 flex-1">
+          <SelectValue placeholder="Reassign to…" />
+        </SelectTrigger>
+        <SelectContent>
+          {candidates.map((u) => (
+            <SelectItem key={u.userId} value={u.userId}>
+              {u.name} ({u.role})
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <Button
+        size="sm"
+        disabled={!selected || saving}
+        onClick={async () => {
+          setSaving(true);
+          try {
+            await reassign({ submissionId, newUserId: selected as Id<"users"> });
+            const name = candidates.find((u) => u.userId === selected)?.name ?? "them";
+            toast.success(`Reassigned to ${name}.`);
+            setSelected("");
+          } catch (err) {
+            toast.error(err instanceof Error ? err.message : "Failed to reassign.");
+          } finally {
+            setSaving(false);
+          }
+        }}
+      >
+        {saving ? "…" : "Move"}
+      </Button>
+    </div>
+  );
+}
+
 export default function SubmissionDetailPage({
   params,
 }: {
@@ -106,6 +174,7 @@ export default function SubmissionDetailPage({
 }) {
   const { submissionId } = use(params);
   const data = useQuery(api.submissions.getSubmission, { submissionId });
+  const me = useQuery(api.profiles.getMe);
 
   const router = useRouter();
 
@@ -162,6 +231,9 @@ export default function SubmissionDetailPage({
               <span className="capitalize">{template?.cadence}</span>
               <span className="text-muted-foreground">Submission Score</span>
               <span>{submission.submissionScore ?? "—"}</span>
+              {me?.role === "admin" && (
+                <ReassignSubmission submissionId={submissionId} currentUserId={submission.userId} />
+              )}
             </CardContent>
           </Card>
 

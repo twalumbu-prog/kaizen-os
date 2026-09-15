@@ -4,7 +4,7 @@ import { internalMutation, internalQuery, mutation, query } from "./_generated/s
 import type { MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { CHECKLIST_STATUS, FILE_TYPE } from "./schema";
-import { requireProfile } from "./lib/roles";
+import { requireProfile, requireRole } from "./lib/roles";
 import { boundsForDueAt, currentPeriod, nextPeriod, periodContaining } from "./lib/periods";
 import type { PeriodBounds } from "./lib/periods";
 import { finalReportScore, submissionScore as computeSubmissionScore } from "./lib/scoring";
@@ -578,6 +578,50 @@ export const getSubmission = query({
       validationResult,
       checklist,
     };
+  },
+});
+
+/**
+ * Moves a submission to a different person — e.g. an admin filed a report
+ * through their own account on someone's behalf (backdated, or while
+ * checking a new file format imports correctly) and now wants it to count
+ * against the actual employee instead of themselves.
+ */
+export const reassignSubmission = mutation({
+  args: { submissionId: v.id("submissions"), newUserId: v.id("users") },
+  handler: async (ctx, { submissionId, newUserId }) => {
+    const profile = await requireRole(ctx, ["admin"]);
+    const submission = await ctx.db.get(submissionId);
+    if (!submission) throw new Error("Submission not found");
+
+    const template = await ctx.db.get(submission.templateId);
+    const dept = template ? await ctx.db.get(template.departmentId) : null;
+    if (!dept || dept.orgId !== profile.orgId) throw new Error("Unauthorized");
+
+    const newProfile = await ctx.db
+      .query("profiles")
+      .withIndex("by_userId", (q) => q.eq("userId", newUserId))
+      .first();
+    if (!newProfile || newProfile.orgId !== profile.orgId) {
+      throw new Error("That user isn't a member of this organization");
+    }
+
+    // A shared report has at most one submission per period — reassigning it
+    // onto someone who already has their own row for the same period would
+    // leave two, so that case is refused rather than silently merged.
+    if (template && isShared(template)) {
+      const clash = await ctx.db
+        .query("submissions")
+        .withIndex("by_templateId_periodLabel", (q) =>
+          q.eq("templateId", submission.templateId).eq("periodLabel", submission.periodLabel),
+        )
+        .filter((q) => q.and(q.eq(q.field("userId"), newUserId), q.neq(q.field("_id"), submissionId)))
+        .first();
+      if (clash) throw new Error("That person already has their own submission for this period");
+    }
+
+    await ctx.db.patch(submissionId, { userId: newUserId });
+    return null;
   },
 });
 
