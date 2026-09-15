@@ -3,15 +3,26 @@ import { v } from "convex/values";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { ROLES } from "./schema";
 import { requireRole } from "./lib/roles";
+import type { Id } from "./_generated/dataModel";
 
 // Called from convex/auth.ts right after a user is created or signs in.
 export const ensureProfile = internalMutation({
   args: { userId: v.id("users"), name: v.string(), orgName: v.optional(v.string()) },
   handler: async (ctx, { userId, name, orgName }) => {
-    let orgId;
-    if (orgName) {
-      // Try to see if they provided a valid organization ID (acting as an invite code)
-      const existingOrg = await ctx.db.normalizeId("organizations", orgName);
+    const user = await ctx.db.get(userId);
+    if (!user) return;
+
+    const userProfiles = await ctx.db
+      .query("profiles")
+      .withIndex("by_userId", (q) => q.eq("userId", userId))
+      .collect();
+
+    let orgId: Id<"organizations"> | undefined;
+
+    if (orgName && orgName.trim().length > 0) {
+      const trimmed = orgName.trim();
+      // 1. Try to see if orgName is a valid organization ID (acting as an invite code)
+      const existingOrg = await ctx.db.normalizeId("organizations", trimmed);
       if (existingOrg) {
         const org = await ctx.db.get(existingOrg);
         if (org) {
@@ -19,37 +30,43 @@ export const ensureProfile = internalMutation({
         }
       }
 
-      // If not a valid existing ID, create a new organization
+      // 2. Try to see if orgName matches an existing organization by exact name
       if (!orgId) {
-        orgId = await ctx.db.insert("organizations", { name: orgName });
+        const orgByName = await ctx.db
+          .query("organizations")
+          .filter((q) => q.eq(q.field("name"), trimmed))
+          .first();
+        if (orgByName) {
+          orgId = orgByName._id;
+        }
       }
-    } else {
-      // Fallback: assign to first org or create a default one
+
+      // 3. If not found by ID or name, create a new organization
+      if (!orgId) {
+        orgId = await ctx.db.insert("organizations", { name: trimmed });
+      }
+    } else if (userProfiles.length === 0) {
+      // Fallback: only assign to first org or create a default one if user has NO profiles at all
       const anyOrg = await ctx.db.query("organizations").first();
       orgId = anyOrg ? anyOrg._id : await ctx.db.insert("organizations", { name: "Default Organization" });
     }
 
-    // Skip if this user already has a profile in this org.
-    const existing = await ctx.db
-      .query("profiles")
-      .withIndex("by_orgId", (q) => q.eq("orgId", orgId!))
-      .filter((q) => q.eq(q.field("userId"), userId))
-      .unique();
-    if (existing !== null) return;
+    if (orgId) {
+      const existingInOrg = userProfiles.find((p) => p.orgId === orgId);
+      if (!existingInOrg) {
+        const firstInOrg = await ctx.db
+          .query("profiles")
+          .withIndex("by_orgId", (q) => q.eq("orgId", orgId))
+          .first();
+        const role = firstInOrg === null ? "admin" : "employee";
 
-    // First user in the org becomes admin, subsequent users get employee role.
-    const firstInOrg = await ctx.db
-      .query("profiles")
-      .withIndex("by_orgId", (q) => q.eq("orgId", orgId!))
-      .first();
-    const role = firstInOrg === null ? "admin" : "employee";
+        await ctx.db.insert("profiles", { userId, role, name, orgId });
+      }
 
-    await ctx.db.insert("profiles", { userId, role, name, orgId: orgId! });
-
-    // Set as the active org if the user has none selected yet.
-    const user = await ctx.db.get(userId);
-    if (user && !user.selectedOrgId) {
-      await ctx.db.patch(userId, { selectedOrgId: orgId! });
+      // Always switch active org to the target org when joining/creating an org
+      await ctx.db.patch(userId, { selectedOrgId: orgId });
+    } else if (!user.selectedOrgId && userProfiles.length > 0) {
+      await ctx.db.patch(userId, { selectedOrgId: userProfiles[0].orgId });
     }
   },
 });

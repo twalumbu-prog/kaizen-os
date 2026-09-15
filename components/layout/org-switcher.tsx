@@ -59,7 +59,7 @@ export function OrgSwitcher() {
         <DropdownMenuItem
           render={
             <Link href="/create-organization" className="gap-2">
-              <span className="text-muted-foreground">+ Create new organization</span>
+              <span className="text-muted-foreground">+ Create or join organization</span>
             </Link>
           }
         />
