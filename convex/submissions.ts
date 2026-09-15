@@ -10,28 +10,55 @@ import type { PeriodBounds } from "./lib/periods";
 import { finalReportScore, submissionScore as computeSubmissionScore } from "./lib/scoring";
 import { getMaxPossibleScore } from "./validators/registry";
 
+function isShared(template: Doc<"reportTemplates">): boolean {
+  return template.sharingMode === "shared";
+}
+
+/** "Shared · A, B, C" for an overseer looking at a shared report's one row. */
+function sharedAssigneeLabel(
+  responsible: Id<"users">[],
+  nameByUserId: Map<Id<"users">, string>,
+): string {
+  if (responsible.length === 0) return "Shared · nobody assigned";
+  return `Shared · ${responsible.map((id) => nameByUserId.get(id) ?? "Unknown").join(", ")}`;
+}
+
 /**
  * Walks forward from the caller's most recent submission (or, if they have
  * none yet, from when they were assigned the report) inserting `"missing"`
  * rows for any period whose due date has already passed with nothing
  * submitted. Called both lazily (when an employee opens the upload page) and
  * proactively (daily cron in convex/crons.ts) so gaps surface either way.
+ *
+ * For a "shared" report (one submission covers everyone responsible, e.g. a
+ * single NAPSA receipt), this considers every assignee's submissions rather
+ * than just the caller's — otherwise every assignee would each get their own
+ * "missing" row for a period a teammate already filed.
  */
 async function backfillMissingPeriods(
   ctx: MutationCtx,
   template: Doc<"reportTemplates">,
   userId: Id<"users">,
 ): Promise<boolean> {
+  const shared = isShared(template);
   const existing = await ctx.db
     .query("submissions")
     .withIndex("by_templateId", (q) => q.eq("templateId", template._id))
     .order("desc")
     .take(400);
-  const mine = existing.filter((s) => s.userId === userId);
+  const relevant = shared ? existing : existing.filter((s) => s.userId === userId);
 
   let anchorEnd: number;
-  if (mine.length > 0) {
-    anchorEnd = Math.max(...mine.map((s) => s.periodEnd));
+  if (relevant.length > 0) {
+    anchorEnd = Math.max(...relevant.map((s) => s.periodEnd));
+  } else if (shared) {
+    const assignments = await ctx.db
+      .query("reportAssignments")
+      .withIndex("by_templateId", (q) => q.eq("templateId", template._id))
+      .collect();
+    if (assignments.length === 0) return false; // nobody assigned, nothing to backfill
+    const earliest = Math.min(...assignments.map((a) => a._creationTime));
+    anchorEnd = periodContaining(template, earliest).periodEnd;
   } else {
     const assignment = await ctx.db
       .query("reportAssignments")
@@ -42,7 +69,7 @@ async function backfillMissingPeriods(
     anchorEnd = periodContaining(template, assignment._creationTime).periodEnd;
   }
 
-  const existingLabels = new Set(mine.map((s) => s.periodLabel));
+  const existingLabels = new Set(relevant.map((s) => s.periodLabel));
   let cursor = nextPeriod(template, periodContaining(template, anchorEnd));
   const now = Date.now();
   let inserted = false;
@@ -134,20 +161,26 @@ export const generateUploadUrl = mutation({
   },
 });
 
-/** Finds this user's existing submission for `bounds`' period, or creates a pending one. */
+/**
+ * Finds the existing submission for `bounds`' period, or creates a pending
+ * one. For a "shared" report, the whole team's period has exactly one
+ * submission (whoever gets there first "owns" the row, but anyone assigned
+ * may act on it — see assertCanActOnSubmission) rather than one per assignee.
+ */
 async function getOrCreateSubmissionForBounds(
   ctx: MutationCtx,
   template: Doc<"reportTemplates">,
   userId: Id<"users">,
   bounds: PeriodBounds,
 ): Promise<Id<"submissions">> {
-  const existing = await ctx.db
+  const byPeriod = ctx.db
     .query("submissions")
     .withIndex("by_templateId_periodLabel", (q) =>
       q.eq("templateId", template._id).eq("periodLabel", bounds.periodLabel),
-    )
-    .filter((q) => q.eq(q.field("userId"), userId))
-    .unique();
+    );
+  const existing = isShared(template)
+    ? await byPeriod.first()
+    : await byPeriod.filter((q) => q.eq(q.field("userId"), userId)).unique();
   if (existing) return existing._id;
 
   return await ctx.db.insert("submissions", {
@@ -233,6 +266,33 @@ export const backfillAllMissingSubmissions = internalMutation({
   },
 });
 
+/**
+ * An employee may act on a submission that isn't theirs when the report is
+ * "shared" and they're one of the assignees — e.g. any of the people
+ * responsible for filing NAPSA can submit the one receipt on the team's
+ * behalf. Admins/managers are unrestricted, as before.
+ */
+async function assertCanActOnSubmission(
+  ctx: MutationCtx,
+  profile: Doc<"profiles">,
+  submission: Doc<"submissions">,
+  action: string,
+): Promise<void> {
+  if (profile.role !== "employee" || submission.userId === profile.userId) return;
+
+  const template = await ctx.db.get(submission.templateId);
+  if (template && isShared(template)) {
+    const assignment = await ctx.db
+      .query("reportAssignments")
+      .withIndex("by_templateId", (q) => q.eq("templateId", submission.templateId))
+      .filter((q) => q.eq(q.field("userId"), profile.userId))
+      .unique();
+    if (assignment) return;
+  }
+
+  throw new Error(`You can only ${action} your own reports`);
+}
+
 export const submitReport = mutation({
   args: {
     submissionId: v.id("submissions"),
@@ -249,9 +309,7 @@ export const submitReport = mutation({
     const profile = await requireProfile(ctx);
     const submission = await ctx.db.get(submissionId);
     if (!submission) throw new Error("Submission not found");
-    if (submission.userId !== profile.userId && profile.role === "employee") {
-      throw new Error("You can only submit your own reports");
-    }
+    await assertCanActOnSubmission(ctx, profile, submission, "submit");
 
     for (const file of files) {
       await ctx.db.insert("submissionFiles", { submissionId, ...file });
@@ -280,9 +338,7 @@ export const replaceSubmissionFile = mutation({
 
     const submission = await ctx.db.get(file.submissionId);
     if (!submission) throw new Error("Submission not found");
-    if (submission.userId !== profile.userId && profile.role === "employee") {
-      throw new Error("You can only replace your own reports");
-    }
+    await assertCanActOnSubmission(ctx, profile, submission, "replace");
 
     // Optionally delete old storage ID here.
     // await ctx.storage.delete(file.storageId);
@@ -311,9 +367,7 @@ export const deleteSubmissionFile = mutation({
 
     const submission = await ctx.db.get(file.submissionId);
     if (!submission) throw new Error("Submission not found");
-    if (submission.userId !== profile.userId && profile.role === "employee") {
-      throw new Error("You can only delete files from your own reports");
-    }
+    await assertCanActOnSubmission(ctx, profile, submission, "delete files from");
 
     await ctx.db.delete(fileId);
 
@@ -733,9 +787,17 @@ export const myCalendar = query({
         .order("desc")
         .take(400);
       for (const template of templates) {
+        // A shared report's one submission may belong to a teammate, not me —
+        // "mine" alone would wrongly show it as still outstanding.
         submissionsByTemplate.set(
           template._id,
-          mine.filter((s) => s.templateId === template._id),
+          isShared(template)
+            ? await ctx.db
+                .query("submissions")
+                .withIndex("by_templateId", (q) => q.eq("templateId", template._id))
+                .order("desc")
+                .take(600)
+            : mine.filter((s) => s.templateId === template._id),
         );
       }
     }
@@ -780,17 +842,25 @@ export const myCalendar = query({
           (s) => s.periodLabel === bounds.periodLabel,
         );
         const responsible = owners.get(template._id) ?? [];
+        const shared = isShared(template);
 
-        // One row per person who owes the report, so nobody's gap is hidden
-        // behind a colleague who did submit.
-        const rows: { userId: Id<"users"> | null }[] =
-          responsible.length > 0 ? responsible.map((userId) => ({ userId })) : [{ userId: null }];
+        // A shared report has exactly one row for the whole team — whoever
+        // submits it settles it for everyone responsible. An individual
+        // report gets one row per person who owes it, so nobody's gap is
+        // hidden behind a colleague who did submit.
+        const rows: { userId: Id<"users"> | null }[] = shared
+          ? [{ userId: responsible[0] ?? null }]
+          : responsible.length > 0
+            ? responsible.map((userId) => ({ userId }))
+            : [{ userId: null }];
 
         for (const row of rows) {
           // For unassigned rows, still surface any auto-submitted report for the period.
-          const submission = row.userId
-            ? periodSubmissions.find((s) => s.userId === row.userId)
-            : periodSubmissions.find((s) => s.isAutoSubmitted) ?? undefined;
+          const submission = shared
+            ? periodSubmissions[0]
+            : row.userId
+              ? periodSubmissions.find((s) => s.userId === row.userId)
+              : periodSubmissions.find((s) => s.isAutoSubmitted) ?? undefined;
           items.push({
             templateId: template._id,
             templateName: template.name,
@@ -801,9 +871,15 @@ export const myCalendar = query({
             completed: submission?.status === "submitted" || submission?.status === "late",
             score: submission?.finalScore ?? null,
             /** Set only when overseeing someone else's report — drives read-only UI. */
-            assigneeName:
-              overseeing && row.userId ? (nameByUserId.get(row.userId) ?? "Unknown") : null,
-            unassigned: row.userId === null && !submission,
+            assigneeName: shared
+              ? overseeing
+                ? sharedAssigneeLabel(responsible, nameByUserId)
+                : null
+              : overseeing && row.userId
+                ? (nameByUserId.get(row.userId) ?? "Unknown")
+                : null,
+            shared,
+            unassigned: !shared && row.userId === null && !submission,
           });
         }
       }
@@ -849,18 +925,22 @@ export const myReportScores = query({
           guard++;
         }
 
+        const shared = isShared(template);
         const periods = await Promise.all(
           ytdPeriods.map(async (bounds) => {
             // Uses .collect() + pick rather than .unique(): a handful of periods have
             // duplicate rows for the same (template, period, user) from earlier backfill
             // runs, which would otherwise throw here. Prefer a non-"missing" row when both exist.
-            const matches = await ctx.db
+            // For a shared report the one submission may belong to a teammate — matched
+            // by period only, not by userId.
+            const byPeriod = ctx.db
               .query("submissions")
               .withIndex("by_templateId_periodLabel", (q) =>
                 q.eq("templateId", template._id).eq("periodLabel", bounds.periodLabel),
-              )
-              .filter((q) => q.eq(q.field("userId"), profile.userId))
-              .collect();
+              );
+            const matches = shared
+              ? await byPeriod.collect()
+              : await byPeriod.filter((q) => q.eq(q.field("userId"), profile.userId)).collect();
             const submission = matches.find((s) => s.status !== "missing") ?? matches[0];
 
             let earned = 0;
@@ -1004,6 +1084,10 @@ export const reportTimeline = query({
           .order("desc")
           .take(600);
 
+        // A shared report needs only one submission per period no matter how
+        // many people are responsible for making sure it happens.
+        const expectedCount = isShared(template) ? (assigneeIds.length > 0 ? 1 : 0) : assigneeIds.length;
+
         // Walk the report's own periods across the window. A misconfigured
         // report (e.g. "cycle" with no settings) is skipped, not fatal.
         const due = [];
@@ -1018,9 +1102,9 @@ export const reportTimeline = query({
               );
 
               let state: DueState;
-              if (assigneeIds.length === 0) {
+              if (expectedCount === 0) {
                 state = "unassigned";
-              } else if (done.length >= assigneeIds.length) {
+              } else if (done.length >= expectedCount) {
                 state = "complete";
               } else if (done.length > 0) {
                 state = "partial";
@@ -1037,7 +1121,7 @@ export const reportTimeline = query({
                 periodLabel: cursor.periodLabel,
                 state,
                 submitted: done.length,
-                expected: assigneeIds.length,
+                expected: expectedCount,
               });
             }
             cursor = nextPeriod(template, cursor);

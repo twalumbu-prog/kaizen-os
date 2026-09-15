@@ -156,9 +156,14 @@ async function accumulate(
         for (const assignment of assignments) {
           // A handful of periods can carry duplicate rows from earlier
           // backfill runs (see myReportScores); prefer a real submission
-          // over a stray "missing" placeholder when both exist.
+          // over a stray "missing" placeholder when both exist. For a
+          // "shared" report the team's one submission may belong to a
+          // teammate — every assignee shares credit for it, matched by
+          // period only rather than by their own userId.
           const matches = submissions.filter(
-            (s) => s.periodLabel === cursor.periodLabel && s.userId === assignment.userId,
+            (s) =>
+              s.periodLabel === cursor.periodLabel &&
+              (template.sharingMode === "shared" || s.userId === assignment.userId),
           );
           const submission = matches.find((s) => s.status !== "missing") ?? matches[0];
 

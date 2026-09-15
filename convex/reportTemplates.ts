@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { CADENCE, CYCLE_CONFIG, FILE_TYPE } from "./schema";
+const SHARING_MODE = v.union(v.literal("individual"), v.literal("shared"));
 import { requireProfile, requireRole } from "./lib/roles";
 
 export const listByDepartment = query({
@@ -84,6 +85,7 @@ export const create = mutation({
     dueDayOfMonth: v.optional(v.number()),
     validatorKey: v.string(),
     weight: v.number(),
+    sharingMode: v.optional(SHARING_MODE),
     startingBalance: v.optional(v.number()),
     requiredFiles: REQUIRED_FILES,
     validationRules: VALIDATION_RULES,
@@ -104,6 +106,7 @@ export const update = mutation({
     cycle: v.optional(CYCLE_CONFIG),
     dueDayOfMonth: v.optional(v.number()),
     weight: v.optional(v.number()),
+    sharingMode: v.optional(SHARING_MODE),
     startingBalance: v.optional(v.number()),
     requiredFiles: v.optional(REQUIRED_FILES),
     validationRules: v.optional(VALIDATION_RULES),

@@ -156,6 +156,7 @@ export function CreateReportDialog({
   const [validatorKey, setValidatorKey] = useState<string>("");
   const [cadence, setCadence] = useState<Cadence>("monthly");
   const [weight, setWeight] = useState("1");
+  const [sharingMode, setSharingMode] = useState<"individual" | "shared">("individual");
   const [saving, setSaving] = useState(false);
 
   const preset = validatorKey ? VALIDATOR_PRESETS[validatorKey] : null;
@@ -176,6 +177,7 @@ export function CreateReportDialog({
     setValidatorKey("");
     setCadence("monthly");
     setWeight("1");
+    setSharingMode("individual");
   }
 
   async function handleCreate() {
@@ -194,6 +196,7 @@ export function CreateReportDialog({
         cycle: cadence === "cycle" ? defaultCycleConfig() : undefined,
         validatorKey,
         weight: parseFloat(weight) || 1,
+        sharingMode,
         requiredFiles: preset.requiredFiles,
         validationRules: preset.validationRules,
       });
@@ -294,6 +297,31 @@ export function CreateReportDialog({
                 onChange={(e) => setWeight(e.target.value)}
               />
             </div>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <Label>Sharing</Label>
+            <Select
+              value={sharingMode}
+              onValueChange={(v) => v && setSharingMode(v as "individual" | "shared")}
+            >
+              <SelectTrigger>
+                <SelectValue>
+                  {(value: string) =>
+                    value === "shared" ? "Shared — one submission for everyone" : "Individual — each person submits their own"
+                  }
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="individual">Individual — each person submits their own</SelectItem>
+                <SelectItem value="shared">Shared — one submission for everyone</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {sharingMode === "shared"
+                ? "One submission settles it for every assignee — e.g. NAPSA/NHIMA/PAYE, where only one receipt exists no matter who's responsible."
+                : "Each assignee owes their own submission — e.g. individual sales targets."}
+            </p>
           </div>
 
           {/* Preview what will be created */}

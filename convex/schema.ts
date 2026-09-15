@@ -118,6 +118,15 @@ export default defineSchema({
     dueDayOfMonth: v.optional(v.number()),
     validatorKey: v.string(),
     weight: v.number(),
+    /**
+     * Whether each assignee owes their own copy ("individual" — e.g. Sales
+     * targets, one submission per person) or the whole group shares a single
+     * submission ("shared" — e.g. NAPSA/NHIMA/PAYE receipts, where only one
+     * copy of the document exists no matter how many people are responsible
+     * for making sure it gets filed). Undefined means "individual", so every
+     * report created before this field existed keeps its current behavior.
+     */
+    sharingMode: v.optional(v.union(v.literal("individual"), v.literal("shared"))),
     /** Admin-entered opening balance for the first-ever period, when there's no prior period to roll forward from. */
     startingBalance: v.optional(v.number()),
     requiredFiles: v.array(

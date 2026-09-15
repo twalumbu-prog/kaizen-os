@@ -456,6 +456,36 @@ export default function ReportConfigPage({
               Used as the expected opening balance for the very first period only. Every period after
               that rolls forward from the prior period&apos;s validated closing balance automatically.
             </p>
+            <div className="flex items-center gap-4">
+              <Label className="w-32">Sharing</Label>
+              <Select
+                value={template.sharingMode ?? "individual"}
+                onValueChange={(value) => {
+                  if (!value) return;
+                  updateTemplate({ templateId, sharingMode: value as "individual" | "shared" });
+                  toast.success("Sharing mode updated");
+                }}
+              >
+                <SelectTrigger className="w-72">
+                  <SelectValue>
+                    {(value: string) =>
+                      value === "shared"
+                        ? "Shared — one submission for everyone"
+                        : "Individual — each person submits their own"
+                    }
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="individual">Individual — each person submits their own</SelectItem>
+                  <SelectItem value="shared">Shared — one submission for everyone</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {(template.sharingMode ?? "individual") === "shared"
+                ? "Any assignee can submit the one copy everyone shares — e.g. NAPSA/NHIMA/PAYE, where only one receipt exists no matter who's responsible for filing it."
+                : "Each assignee owes their own submission for every period — e.g. individual sales targets."}
+            </p>
           </CardContent>
         </Card>
 
