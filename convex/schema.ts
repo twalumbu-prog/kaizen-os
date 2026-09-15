@@ -133,7 +133,8 @@ export default defineSchema({
       v.object({
         label: v.string(),
         /** Formats accepted for this slot — at least one, enforced in reportTemplates.ts. */
-        fileTypes: v.array(FILE_TYPE),
+        fileTypes: v.optional(v.array(FILE_TYPE)),
+        fileType: v.optional(FILE_TYPE),
         required: v.boolean(),
         /**
          * A reference file an admin has attached for this slot: either a
