@@ -273,6 +273,18 @@ export const INTEGRATIONS: CatalogEntry[] = [
     iconClassName: "bg-orange-50 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400",
   },
   {
+    slug: "salesforce",
+    name: "Salesforce",
+    description: "Sync leads, contacts, opportunities, and CRM records.",
+    category: "Finance",
+    kind: "composio",
+    href: "/admin/integrations/composio/salesforce",
+    domain: "salesforce.com",
+    logoUrl: "https://logos.composio.dev/api/salesforce",
+    initials: "Sf",
+    iconClassName: "bg-sky-50 text-sky-600 dark:bg-sky-900/30 dark:text-sky-400",
+  },
+  {
     slug: "jira",
     name: "Jira",
     description: "Create and track issues across Jira projects.",

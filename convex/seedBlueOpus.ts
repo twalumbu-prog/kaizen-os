@@ -4,16 +4,16 @@ import type { Infer } from "convex/values";
 import { FILE_TYPE } from "./schema";
 
 /**
- * Creates Blue Opus's department structure and its Marketing reports —
- * matching what's actually configured in local dev, not the org's original
- * shape (the Daily Ad Performance Tracking Sheet was since upgraded from a
- * plain document-submission report to one wired into the Meta Ads API; this
- * mirrors that).
+ * Creates Blue Opus's department structure and its reports — matching what's
+ * actually configured in local dev, not the org's original shape (the Daily
+ * Ad Performance Tracking Sheet was since upgraded from a plain
+ * document-submission report to one wired into the Meta Ads API; this
+ * mirrors that), plus a new Sales Outreach Summary report.
  *
- * Every department is created, even the five with no reports configured yet
- * (Customer Service, Accounting, Sales, Finance, Software Development) — they
- * exist as real placeholders in local dev, ready for reports the same way
- * Twalumbu's Compliance department was added after the fact.
+ * Every department is created, even the ones with no reports configured yet
+ * (Customer Service, Accounting, Finance, Software Development) — they exist
+ * as real placeholders, ready for reports the same way Twalumbu's Compliance
+ * department was added after the fact.
  *
  * The Ad Performance report is harmless to create without a connected Meta
  * integration: convex/adReports.ts's daily auto-submit only looks at orgs
@@ -42,63 +42,94 @@ const TIMELINESS_ONLY_RULES = [
   { key: "documentRelevant", label: "Document matches the report requested", enabled: false },
 ];
 
+interface FileSpec {
+  label: string;
+  /** Formats this slot accepts — defaults to just PDF when omitted. */
+  fileTypes?: FileType[];
+}
+
 interface ReportSpec {
   name: string;
   cadence: "daily" | "weekly";
   validatorKey: "documentSubmission" | "adPerformance";
   weight: number;
   validationRules: { key: string; label: string; enabled: boolean }[];
-  files: { label: string; fileType?: FileType }[]; // one accepted format per slot; runtime writes it as fileTypes: [fileType]
+  files: FileSpec[];
 }
 
-/** Departments with no reports configured yet — placeholders, same as any department created empty via Settings. */
-const EMPTY_DEPARTMENTS = [
-  { name: "Customer Service", slug: "customer-service" },
-  { name: "Accounting", slug: "accounting" },
-  { name: "Sales", slug: "sales" },
-  { name: "Finance", slug: "finance" },
-  { name: "Software Development", slug: "software-development" },
-];
+interface DepartmentSpec {
+  name: string;
+  slug: string;
+  reports: ReportSpec[];
+}
 
-const MARKETING_REPORTS: ReportSpec[] = [
+const DEPARTMENTS: DepartmentSpec[] = [
+  { name: "Customer Service", slug: "customer-service", reports: [] },
+  { name: "Accounting", slug: "accounting", reports: [] },
+  { name: "Finance", slug: "finance", reports: [] },
+  { name: "Software Development", slug: "software-development", reports: [] },
   {
-    name: "Weekly Newsletter",
-    cadence: "weekly",
-    validatorKey: "documentSubmission",
-    weight: 1,
-    validationRules: TIMELINESS_ONLY_RULES,
-    files: [{ label: "Newsletter", fileType: "pdf" }],
-  },
-  {
-    name: "Image Ad",
-    cadence: "weekly",
-    validatorKey: "documentSubmission",
-    weight: 1,
-    validationRules: TIMELINESS_ONLY_RULES,
-    files: [
-      { label: "Image Ad 1", fileType: "jpg" },
-      { label: "Image Ad 2", fileType: "jpg" },
-      { label: "Image Ad 3", fileType: "jpg" },
-      { label: "Image Ad 4", fileType: "jpg" },
+    name: "Marketing",
+    slug: "marketing",
+    reports: [
+      {
+        name: "Weekly Newsletter",
+        cadence: "weekly",
+        validatorKey: "documentSubmission",
+        weight: 1,
+        validationRules: TIMELINESS_ONLY_RULES,
+        files: [{ label: "Newsletter", fileTypes: ["pdf"] }],
+      },
+      {
+        name: "Image Ad",
+        cadence: "weekly",
+        validatorKey: "documentSubmission",
+        weight: 1,
+        validationRules: TIMELINESS_ONLY_RULES,
+        files: [
+          { label: "Image Ad 1", fileTypes: ["jpg"] },
+          { label: "Image Ad 2", fileTypes: ["jpg"] },
+          { label: "Image Ad 3", fileTypes: ["jpg"] },
+          { label: "Image Ad 4", fileTypes: ["jpg"] },
+        ],
+      },
+      {
+        // Matches convex/seeds/adPerformanceTemplate.ts exactly — the Meta
+        // Ads-integrated validator, not a plain document-submission report.
+        name: "Daily Ad Performance Tracking Sheet",
+        cadence: "daily",
+        validatorKey: "adPerformance",
+        weight: 100,
+        validationRules: [],
+        files: [{ label: "Ad Performance Report", fileTypes: ["xlsx"] }],
+      },
+      {
+        name: "Posting Schedule - Weekly",
+        cadence: "weekly",
+        validatorKey: "documentSubmission",
+        weight: 1,
+        validationRules: TIMELINESS_ONLY_RULES,
+        files: [{ label: "Posting Schedule", fileTypes: ["xlsx"] }],
+      },
     ],
   },
   {
-    // Matches convex/seeds/adPerformanceTemplate.ts exactly — the Meta
-    // Ads-integrated validator, not a plain document-submission report.
-    name: "Daily Ad Performance Tracking Sheet",
-    cadence: "daily",
-    validatorKey: "adPerformance",
-    weight: 100,
-    validationRules: [],
-    files: [{ label: "Ad Performance Report", fileType: "xlsx" }],
-  },
-  {
-    name: "Posting Schedule - Weekly",
-    cadence: "weekly",
-    validatorKey: "documentSubmission",
-    weight: 1,
-    validationRules: TIMELINESS_ONLY_RULES,
-    files: [{ label: "Posting Schedule", fileType: "xlsx" }],
+    name: "Sales",
+    slug: "sales",
+    reports: [
+      {
+        // Each rep fills in the standard Word template (see
+        // "Blue Opus - Sales Outreach Summary Template.docx"): every business
+        // reached out to that week, the outcome, and whether/when there's a
+        // follow-up — a PDF export of the same template is accepted too.
+        name: "Sales Outreach Summary",
+        cadence: "weekly",
+        validatorKey: "documentSubmission",
+        weight: 1,
+        validationRules: TIMELINESS_ONLY_RULES,
+        files: [{ label: "Sales Outreach Summary", fileTypes: ["docx", "pdf"] }],
+      },
+    ],
   },
 ];
 
@@ -111,7 +142,7 @@ export const seedReports = internalMutation({
       .unique();
     if (!org) throw new Error(`Organization "${ORG_NAME}" not found`);
 
-    const departments = await ctx.db
+    const existingDepartments = await ctx.db
       .query("departments")
       .withIndex("by_orgId", (q) => q.eq("orgId", org._id))
       .collect();
@@ -119,53 +150,49 @@ export const seedReports = internalMutation({
     const created: string[] = [];
     const skipped: string[] = [];
 
-    for (const spec of EMPTY_DEPARTMENTS) {
-      if (departments.some((d) => d.name === spec.name)) {
-        skipped.push(`department: ${spec.name}`);
-        continue;
-      }
-      await ctx.db.insert("departments", { orgId: org._id, ...spec });
-      created.push(`department: ${spec.name}`);
-    }
-
-    const marketing = departments.find((d) => d.name === "Marketing");
-    let marketingId: Id<"departments">;
-    if (!marketing) {
-      marketingId = await ctx.db.insert("departments", {
-        orgId: org._id,
-        name: "Marketing",
-        slug: "marketing",
-      });
-      created.push("department: Marketing");
-    } else {
-      marketingId = marketing._id;
-    }
-
-    const existingReports = await ctx.db
-      .query("reportTemplates")
-      .withIndex("by_departmentId", (q) => q.eq("departmentId", marketingId))
-      .collect();
-
-    for (const report of MARKETING_REPORTS) {
-      if (existingReports.some((t) => t.name === report.name)) {
-        skipped.push(`Marketing / ${report.name}`);
-        continue;
+    for (const dept of DEPARTMENTS) {
+      const department = existingDepartments.find((d) => d.name === dept.name);
+      let departmentId: Id<"departments">;
+      if (!department) {
+        departmentId = await ctx.db.insert("departments", {
+          orgId: org._id,
+          name: dept.name,
+          slug: dept.slug,
+        });
+        created.push(`department: ${dept.name}`);
+      } else {
+        departmentId = department._id;
+        skipped.push(`department: ${dept.name}`);
       }
 
-      await ctx.db.insert("reportTemplates", {
-        departmentId: marketingId,
-        name: report.name,
-        cadence: report.cadence,
-        validatorKey: report.validatorKey,
-        weight: report.weight,
-        requiredFiles: report.files.map((f) => ({
-          label: f.label,
-          fileTypes: [f.fileType ?? ("pdf" as const)],
-          required: true,
-        })),
-        validationRules: report.validationRules,
-      });
-      created.push(`Marketing / ${report.name}`);
+      if (dept.reports.length === 0) continue;
+
+      const existingReports = await ctx.db
+        .query("reportTemplates")
+        .withIndex("by_departmentId", (q) => q.eq("departmentId", departmentId))
+        .collect();
+
+      for (const report of dept.reports) {
+        if (existingReports.some((t) => t.name === report.name)) {
+          skipped.push(`${dept.name} / ${report.name}`);
+          continue;
+        }
+
+        await ctx.db.insert("reportTemplates", {
+          departmentId,
+          name: report.name,
+          cadence: report.cadence,
+          validatorKey: report.validatorKey,
+          weight: report.weight,
+          requiredFiles: report.files.map((f) => ({
+            label: f.label,
+            fileTypes: f.fileTypes ?? ["pdf"],
+            required: true,
+          })),
+          validationRules: report.validationRules,
+        });
+        created.push(`${dept.name} / ${report.name}`);
+      }
     }
 
     return { orgId: org._id, created, skipped };
