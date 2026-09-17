@@ -3,7 +3,7 @@
 import { useQuery, useMutation } from "convex/react";
 import { Fragment, use, useRef, useState } from "react";
 import { toast } from "sonner";
-import { ArrowLeft, CheckCircle2, XCircle, AlertTriangle, FileText, Upload, Loader2, Trash2, UserCog } from "lucide-react";
+import { ArrowLeft, CheckCircle2, XCircle, AlertTriangle, FileText, Upload, Loader2, Trash2, UserCog, ExternalLink } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { AppShell } from "@/components/layout/app-shell";
@@ -21,6 +21,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
 const STATUS_ICON = {
   pass: <CheckCircle2 className="size-4 text-emerald-500" />,
@@ -47,7 +55,7 @@ interface ExtractedFileData {
   metadata?: Record<string, string | number | null>;
 }
 
-/** Inline preview of an uploaded file where the browser can render one natively; a download link otherwise. */
+/** The document itself, rendered inline where the browser can do that natively — an "open in a new tab" fallback otherwise (xlsx/csv/docx have no in-browser renderer). */
 function FilePreview({
   fileName,
   fileType,
@@ -58,16 +66,10 @@ function FilePreview({
   url: string | null;
 }) {
   if (!url) {
-    return <p className="text-sm text-muted-foreground">This file is no longer available.</p>;
+    return <p className="py-12 text-center text-sm text-muted-foreground">This file is no longer available.</p>;
   }
   if (fileType === "pdf") {
-    return (
-      <iframe
-        src={url}
-        title={fileName}
-        className="h-[600px] w-full rounded-md border"
-      />
-    );
+    return <iframe src={url} title={fileName} className="h-[70vh] w-full rounded-md border" />;
   }
   if (fileType === "jpg" || fileType === "png") {
     return (
@@ -75,19 +77,20 @@ function FilePreview({
       <img
         src={url}
         alt={fileName}
-        className="max-h-[600px] w-full rounded-md border object-contain"
+        className="max-h-[70vh] w-full rounded-md border object-contain"
       />
     );
   }
   return (
-    <div className="flex flex-col items-center gap-2 rounded-md border border-dashed p-8 text-center">
-      <FileText className="size-6 text-muted-foreground" />
+    <div className="flex flex-col items-center gap-3 rounded-md border border-dashed p-12 text-center">
+      <FileText className="size-8 text-muted-foreground" />
       <p className="text-sm text-muted-foreground">
-        {fileType.toUpperCase()} files can&apos;t be previewed inline — open it to view.
+        {fileType.toUpperCase()} files can&apos;t be rendered inline — open it in a new tab to view it.
       </p>
       <a href={url} target="_blank" rel="noopener noreferrer">
         <Button variant="outline" size="sm">
-          Open {fileName}
+          <ExternalLink className="size-4" />
+          Open in new tab
         </Button>
       </a>
     </div>
@@ -130,6 +133,55 @@ function ExtractedData({ extracted }: { extracted: ExtractedFileData }) {
         </Fragment>
       ))}
     </div>
+  );
+}
+
+/** "Open" on a file — a modal with the document itself on one tab and whatever was extracted from it on the other. */
+function FileViewerDialog({
+  fileName,
+  label,
+  fileType,
+  url,
+  extracted,
+}: {
+  fileName: string;
+  label: string;
+  fileType: string;
+  url: string | null;
+  extracted?: ExtractedFileData;
+}) {
+  return (
+    <Dialog>
+      <DialogTrigger render={<Button variant="outline" size="sm" />}>Open</DialogTrigger>
+      <DialogContent className="flex max-h-[85vh] w-full max-w-4xl flex-col overflow-hidden sm:max-w-4xl">
+        <DialogHeader>
+          <DialogTitle className="flex flex-wrap items-center gap-2">
+            {label}
+            <Badge variant="outline" className="uppercase">
+              {fileType}
+            </Badge>
+          </DialogTitle>
+        </DialogHeader>
+        {extracted ? (
+          <Tabs defaultValue="document" className="flex min-h-0 flex-1 flex-col">
+            <TabsList>
+              <TabsTrigger value="document">Document</TabsTrigger>
+              <TabsTrigger value="extracted">Extracted Data</TabsTrigger>
+            </TabsList>
+            <TabsContent value="document" className="min-h-0 flex-1 overflow-y-auto">
+              <FilePreview fileName={fileName} fileType={fileType} url={url} />
+            </TabsContent>
+            <TabsContent value="extracted" className="min-h-0 flex-1 overflow-y-auto py-2">
+              <ExtractedData extracted={extracted} />
+            </TabsContent>
+          </Tabs>
+        ) : (
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <FilePreview fileName={fileName} fileType={fileType} url={url} />
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -353,20 +405,22 @@ export default function SubmissionDetailPage({
                 files.map((f) => (
                   <div
                     key={f._id}
-                    className="flex items-center gap-2 rounded-md border p-2 text-sm hover:bg-accent"
+                    className="flex items-center gap-2 rounded-md border p-2 text-sm"
                   >
-                    <a
-                      href={f.url ?? "#"}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex flex-1 items-center gap-2 truncate"
-                    >
+                    <div className="flex flex-1 items-center gap-2 truncate">
                       <FileText className="size-4 text-muted-foreground shrink-0" />
                       <span className="truncate">{f.fileName}</span>
                       <Badge variant="outline" className="uppercase shrink-0">
                         {f.fileType}
                       </Badge>
-                    </a>
+                    </div>
+                    <FileViewerDialog
+                      fileName={f.fileName}
+                      label={f.label}
+                      fileType={f.fileType}
+                      url={f.url}
+                      extracted={f.extracted}
+                    />
                     <ReuploadFile fileId={f._id} />
                   </div>
                 ))
@@ -374,50 +428,6 @@ export default function SubmissionDetailPage({
             </CardContent>
           </Card>
         </div>
-
-        {files.length > 0 && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Document Preview</CardTitle>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-6">
-              {files.map((f) => (
-                <div key={f._id} className="flex flex-col gap-2">
-                  <div className="flex items-center gap-2 text-sm font-medium">
-                    <FileText className="size-4 shrink-0 text-muted-foreground" />
-                    {f.label}
-                    <Badge variant="outline" className="uppercase">
-                      {f.fileType}
-                    </Badge>
-                    <span className="truncate text-xs font-normal text-muted-foreground">{f.fileName}</span>
-                  </div>
-                  <FilePreview fileName={f.fileName} fileType={f.fileType} url={f.url} />
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-        )}
-
-        {files.some((f) => "extracted" in f && f.extracted) && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Extracted Data</CardTitle>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-6">
-              {files
-                .filter((f): f is typeof f & { extracted: ExtractedFileData } => Boolean(f.extracted))
-                .map((f) => (
-                  <div key={f._id} className="flex flex-col gap-2">
-                    <div className="flex items-center gap-2 text-sm font-medium">
-                      <FileText className="size-4 shrink-0 text-muted-foreground" />
-                      {f.label}
-                    </div>
-                    <ExtractedData extracted={f.extracted} />
-                  </div>
-                ))}
-            </CardContent>
-          </Card>
-        )}
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
