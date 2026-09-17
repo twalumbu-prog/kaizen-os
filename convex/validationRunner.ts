@@ -72,6 +72,15 @@ export const runValidation = internalAction({
     const reviewsRawDocument = RAW_DOCUMENT_VALIDATORS.has(template.validatorKey);
 
     const parsedFiles: ParsedFile[] = [];
+    const extractedUpdates: {
+      fileId: Id<"submissionFiles">;
+      extracted: {
+        openingBalance?: number;
+        closingBalance?: number;
+        transactionCount: number;
+        metadata?: Record<string, string | number | null>;
+      };
+    }[] = [];
     console.log(`[ValidationRunner] Downloading and parsing ${files.length} files...`);
     for (const file of files) {
       console.log(`[ValidationRunner] Processing file: ${file.label} (${file.fileType})`);
@@ -104,7 +113,20 @@ export const runValidation = internalAction({
       console.log(`[ValidationRunner] Extracting text/data from ${file.label}...`);
       const statement = await parseUploadedFile(file.fileType, buffer, role, template.validatorKey, file.label);
       parsedFiles.push({ label: file.label, fileType: file.fileType, statement });
+      extractedUpdates.push({
+        fileId: file._id,
+        extracted: {
+          ...(statement.openingBalance !== null ? { openingBalance: statement.openingBalance } : {}),
+          ...(statement.closingBalance !== null ? { closingBalance: statement.closingBalance } : {}),
+          transactionCount: statement.transactions.length,
+          ...(statement.metadata ? { metadata: statement.metadata } : {}),
+        },
+      });
       console.log(`[ValidationRunner] Successfully parsed ${file.label}.`);
+    }
+
+    if (extractedUpdates.length > 0) {
+      await ctx.runMutation(internal.submissions.saveExtractedFileData, { updates: extractedUpdates });
     }
 
     console.log(`[ValidationRunner] All files parsed. Initializing validator: ${template.validatorKey}`);

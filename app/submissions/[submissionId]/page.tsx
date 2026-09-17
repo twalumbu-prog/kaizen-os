@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery, useMutation } from "convex/react";
-import { use, useRef, useState } from "react";
+import { Fragment, use, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ArrowLeft, CheckCircle2, XCircle, AlertTriangle, FileText, Upload, Loader2, Trash2, UserCog } from "lucide-react";
 import { api } from "@/convex/_generated/api";
@@ -27,6 +27,111 @@ const STATUS_ICON = {
   fail: <XCircle className="size-4 text-red-500" />,
   warning: <AlertTriangle className="size-4 text-amber-500" />,
 };
+
+/** "cashTotal" -> "Cash Total", "amtDeposited" -> "Amt Deposited". */
+function prettifyKey(key: string): string {
+  const spaced = key.replace(/([a-z0-9])([A-Z])/g, "$1 $2");
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
+function formatMetadataValue(value: string | number | null): string {
+  if (value === null) return "—";
+  if (typeof value === "number") return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  return value;
+}
+
+interface ExtractedFileData {
+  openingBalance?: number;
+  closingBalance?: number;
+  transactionCount: number;
+  metadata?: Record<string, string | number | null>;
+}
+
+/** Inline preview of an uploaded file where the browser can render one natively; a download link otherwise. */
+function FilePreview({
+  fileName,
+  fileType,
+  url,
+}: {
+  fileName: string;
+  fileType: string;
+  url: string | null;
+}) {
+  if (!url) {
+    return <p className="text-sm text-muted-foreground">This file is no longer available.</p>;
+  }
+  if (fileType === "pdf") {
+    return (
+      <iframe
+        src={url}
+        title={fileName}
+        className="h-[600px] w-full rounded-md border"
+      />
+    );
+  }
+  if (fileType === "jpg" || fileType === "png") {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={url}
+        alt={fileName}
+        className="max-h-[600px] w-full rounded-md border object-contain"
+      />
+    );
+  }
+  return (
+    <div className="flex flex-col items-center gap-2 rounded-md border border-dashed p-8 text-center">
+      <FileText className="size-6 text-muted-foreground" />
+      <p className="text-sm text-muted-foreground">
+        {fileType.toUpperCase()} files can&apos;t be previewed inline — open it to view.
+      </p>
+      <a href={url} target="_blank" rel="noopener noreferrer">
+        <Button variant="outline" size="sm">
+          Open {fileName}
+        </Button>
+      </a>
+    </div>
+  );
+}
+
+/** The figures a validator's parser actually read out of one file — opening/closing balance, transaction count, and any format-specific metadata (payment totals, dates, reference numbers, ...). */
+function ExtractedData({ extracted }: { extracted: ExtractedFileData }) {
+  const metadataEntries = Object.entries(extracted.metadata ?? {});
+  const hasBalances = extracted.openingBalance !== undefined || extracted.closingBalance !== undefined;
+
+  if (!hasBalances && extracted.transactionCount === 0 && metadataEntries.length === 0) {
+    return <p className="text-sm text-muted-foreground">Nothing was extracted from this file.</p>;
+  }
+
+  return (
+    <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm sm:grid-cols-3">
+      {extracted.openingBalance !== undefined && (
+        <>
+          <span className="text-muted-foreground">Opening Balance</span>
+          <span className="col-span-1 sm:col-span-2">{formatMetadataValue(extracted.openingBalance)}</span>
+        </>
+      )}
+      {extracted.closingBalance !== undefined && (
+        <>
+          <span className="text-muted-foreground">Closing Balance</span>
+          <span className="col-span-1 sm:col-span-2">{formatMetadataValue(extracted.closingBalance)}</span>
+        </>
+      )}
+      {extracted.transactionCount > 0 && (
+        <>
+          <span className="text-muted-foreground">Transactions</span>
+          <span className="col-span-1 sm:col-span-2">{extracted.transactionCount}</span>
+        </>
+      )}
+      {metadataEntries.map(([key, value]) => (
+        <Fragment key={key}>
+          <span className="text-muted-foreground">{prettifyKey(key)}</span>
+          <span className="col-span-1 sm:col-span-2">{formatMetadataValue(value)}</span>
+        </Fragment>
+      ))}
+    </div>
+  );
+}
 
 function ReuploadFile({ fileId }: { fileId: Id<"submissionFiles"> }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -269,6 +374,50 @@ export default function SubmissionDetailPage({
             </CardContent>
           </Card>
         </div>
+
+        {files.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Document Preview</CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-6">
+              {files.map((f) => (
+                <div key={f._id} className="flex flex-col gap-2">
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    <FileText className="size-4 shrink-0 text-muted-foreground" />
+                    {f.label}
+                    <Badge variant="outline" className="uppercase">
+                      {f.fileType}
+                    </Badge>
+                    <span className="truncate text-xs font-normal text-muted-foreground">{f.fileName}</span>
+                  </div>
+                  <FilePreview fileName={f.fileName} fileType={f.fileType} url={f.url} />
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        )}
+
+        {files.some((f) => "extracted" in f && f.extracted) && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Extracted Data</CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-6">
+              {files
+                .filter((f): f is typeof f & { extracted: ExtractedFileData } => Boolean(f.extracted))
+                .map((f) => (
+                  <div key={f._id} className="flex flex-col gap-2">
+                    <div className="flex items-center gap-2 text-sm font-medium">
+                      <FileText className="size-4 shrink-0 text-muted-foreground" />
+                      {f.label}
+                    </div>
+                    <ExtractedData extracted={f.extracted} />
+                  </div>
+                ))}
+            </CardContent>
+          </Card>
+        )}
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">

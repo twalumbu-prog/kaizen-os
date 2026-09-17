@@ -533,6 +533,28 @@ export const saveValidationResult = internalMutation({
   },
 });
 
+/** Persists what a validator's parser read out of each uploaded file, for the submission page's "Extracted Data" section. */
+export const saveExtractedFileData = internalMutation({
+  args: {
+    updates: v.array(
+      v.object({
+        fileId: v.id("submissionFiles"),
+        extracted: v.object({
+          openingBalance: v.optional(v.number()),
+          closingBalance: v.optional(v.number()),
+          transactionCount: v.number(),
+          metadata: v.optional(v.record(v.string(), v.union(v.string(), v.number(), v.null()))),
+        }),
+      }),
+    ),
+  },
+  handler: async (ctx, { updates }) => {
+    for (const { fileId, extracted } of updates) {
+      await ctx.db.patch(fileId, { extracted });
+    }
+  },
+});
+
 export const getSubmission = query({
   args: { submissionId: v.id("submissions") },
   handler: async (ctx, { submissionId }) => {

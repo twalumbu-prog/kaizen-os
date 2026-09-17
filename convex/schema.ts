@@ -198,6 +198,21 @@ export default defineSchema({
     label: v.string(),
     fileType: FILE_TYPE,
     fileName: v.string(),
+    /**
+     * The figures a validator's parser pulled out of this file, saved
+     * alongside the checklist so the submission page can show what was
+     * actually read from the document — not just whether it passed. Absent
+     * for a file type reviewed as-is (documentSubmission) or before
+     * validation has run yet.
+     */
+    extracted: v.optional(
+      v.object({
+        openingBalance: v.optional(v.number()),
+        closingBalance: v.optional(v.number()),
+        transactionCount: v.number(),
+        metadata: v.optional(v.record(v.string(), v.union(v.string(), v.number(), v.null()))),
+      }),
+    ),
   }).index("by_submissionId", ["submissionId"]),
 
   validationResults: defineTable({
