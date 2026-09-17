@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery, useMutation } from "convex/react";
-import { Fragment, use, useRef, useState } from "react";
+import { Fragment, use, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ArrowLeft, CheckCircle2, XCircle, AlertTriangle, FileText, Upload, Loader2, Trash2, UserCog, ExternalLink } from "lucide-react";
 import { api } from "@/convex/_generated/api";
@@ -55,7 +55,102 @@ interface ExtractedFileData {
   metadata?: Record<string, string | number | null>;
 }
 
-/** The document itself, rendered inline where the browser can do that natively — an "open in a new tab" fallback otherwise (xlsx/csv/docx have no in-browser renderer). */
+const SPREADSHEET_ROW_LIMIT = 500;
+
+/**
+ * A read-only grid rendering of an xlsx/csv file's first sheet, parsed
+ * client-side. Keyed by `url` at the call site so a different file (or a
+ * re-upload with a fresh storage URL) remounts this with a clean loading
+ * state instead of showing the previous file's stale grid.
+ */
+function SpreadsheetPreview({ url }: { url: string }) {
+  const [state, setState] = useState<
+    | { status: "loading" }
+    | { status: "error" }
+    | { status: "ready"; rows: unknown[][]; truncated: boolean }
+  >({ status: "loading" });
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const XLSX = await import("xlsx");
+        const response = await fetch(url);
+        const buffer = await response.arrayBuffer();
+        const workbook = XLSX.read(buffer, { type: "array" });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, raw: false });
+        if (cancelled) return;
+        setState({
+          status: "ready",
+          rows: rows.slice(0, SPREADSHEET_ROW_LIMIT),
+          truncated: rows.length > SPREADSHEET_ROW_LIMIT,
+        });
+      } catch (err) {
+        console.error(err);
+        if (!cancelled) setState({ status: "error" });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [url]);
+
+  if (state.status === "loading") {
+    return (
+      <div className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
+        <Loader2 className="size-4 animate-spin" />
+        Loading spreadsheet…
+      </div>
+    );
+  }
+  if (state.status === "error") {
+    return (
+      <p className="py-12 text-center text-sm text-muted-foreground">
+        Couldn&apos;t render this spreadsheet inline.{" "}
+        <a href={url} target="_blank" rel="noopener noreferrer" className="underline">
+          Open it in a new tab instead.
+        </a>
+      </p>
+    );
+  }
+  if (state.rows.length === 0) {
+    return <p className="py-12 text-center text-sm text-muted-foreground">This spreadsheet is empty.</p>;
+  }
+
+  const columnCount = Math.max(...state.rows.map((r) => r.length));
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="max-h-[70vh] overflow-auto rounded-md border">
+        <table className="w-full border-collapse text-xs">
+          <tbody>
+            {state.rows.map((row, i) => (
+              <tr key={i} className="border-b last:border-b-0 even:bg-muted/30">
+                {Array.from({ length: columnCount }).map((_, j) => (
+                  <td key={j} className="whitespace-nowrap border-r px-2 py-1 last:border-r-0">
+                    {row[j] === undefined || row[j] === null ? "" : String(row[j])}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {state.truncated && (
+        <p className="text-xs text-muted-foreground">
+          Showing the first {SPREADSHEET_ROW_LIMIT} rows.{" "}
+          <a href={url} target="_blank" rel="noopener noreferrer" className="underline">
+            Open in a new tab
+          </a>{" "}
+          to see the rest.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** The document itself, rendered inline where the browser can do that natively — an "open in a new tab" fallback otherwise (docx has no in-browser renderer here). */
 function FilePreview({
   fileName,
   fileType,
@@ -80,6 +175,9 @@ function FilePreview({
         className="max-h-[70vh] w-full rounded-md border object-contain"
       />
     );
+  }
+  if (fileType === "xlsx" || fileType === "csv") {
+    return <SpreadsheetPreview key={url} url={url} />;
   }
   return (
     <div className="flex flex-col items-center gap-3 rounded-md border border-dashed p-12 text-center">
@@ -162,24 +260,25 @@ function FileViewerDialog({
             </Badge>
           </DialogTitle>
         </DialogHeader>
-        {extracted ? (
-          <Tabs defaultValue="document" className="flex min-h-0 flex-1 flex-col">
-            <TabsList>
-              <TabsTrigger value="document">Document</TabsTrigger>
-              <TabsTrigger value="extracted">Extracted Data</TabsTrigger>
-            </TabsList>
-            <TabsContent value="document" className="min-h-0 flex-1 overflow-y-auto">
-              <FilePreview fileName={fileName} fileType={fileType} url={url} />
-            </TabsContent>
-            <TabsContent value="extracted" className="min-h-0 flex-1 overflow-y-auto py-2">
-              <ExtractedData extracted={extracted} />
-            </TabsContent>
-          </Tabs>
-        ) : (
-          <div className="min-h-0 flex-1 overflow-y-auto">
+        <Tabs defaultValue="document" className="flex min-h-0 flex-1 flex-col">
+          <TabsList>
+            <TabsTrigger value="document">Document</TabsTrigger>
+            <TabsTrigger value="extracted">Extracted Data</TabsTrigger>
+          </TabsList>
+          <TabsContent value="document" className="min-h-0 flex-1 overflow-y-auto">
             <FilePreview fileName={fileName} fileType={fileType} url={url} />
-          </div>
-        )}
+          </TabsContent>
+          <TabsContent value="extracted" className="min-h-0 flex-1 overflow-y-auto py-2">
+            {extracted ? (
+              <ExtractedData extracted={extracted} />
+            ) : (
+              <p className="py-12 text-center text-sm text-muted-foreground">
+                Nothing extracted yet — this appears once validation has run on this file.
+                Re-uploading it will trigger that.
+              </p>
+            )}
+          </TabsContent>
+        </Tabs>
       </DialogContent>
     </Dialog>
   );
