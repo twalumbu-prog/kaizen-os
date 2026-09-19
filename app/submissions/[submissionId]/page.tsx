@@ -471,8 +471,20 @@ export default function SubmissionDetailPage({
   const { submissionId } = use(params);
   const data = useQuery(api.submissions.getSubmission, { submissionId });
   const me = useQuery(api.profiles.getMe);
-
   const router = useRouter();
+
+  const revalidateSubmission = useAction(api.submissions.revalidateSubmission);
+  const [autoRevalidated, setAutoRevalidated] = useState(false);
+  const [isProcessingStorage, setIsProcessingStorage] = useState(false);
+
+  useEffect(() => {
+    if (!data?.submission || !data?.files || autoRevalidated) return;
+    const needsExtraction = data.files.some((f) => !f.extracted);
+    if (needsExtraction && (data.submission.status === "submitted" || data.submission.status === "late")) {
+      setAutoRevalidated(true);
+      revalidateSubmission({ submissionId }).catch(console.error);
+    }
+  }, [data, submissionId, autoRevalidated, revalidateSubmission]);
 
   if (data === undefined) {
     return (
@@ -491,18 +503,6 @@ export default function SubmissionDetailPage({
   }
 
   const { submission, template, employeeName, files, validationResult, checklist } = data;
-  const revalidateSubmission = useAction(api.submissions.revalidateSubmission);
-  const [autoRevalidated, setAutoRevalidated] = useState(false);
-  const [isProcessingStorage, setIsProcessingStorage] = useState(false);
-
-  useEffect(() => {
-    if (!submission || !files || autoRevalidated) return;
-    const needsExtraction = files.some((f) => !f.extracted);
-    if (needsExtraction && (submission.status === "submitted" || submission.status === "late")) {
-      setAutoRevalidated(true);
-      revalidateSubmission({ submissionId }).catch(console.error);
-    }
-  }, [submission, files, submissionId, autoRevalidated, revalidateSubmission]);
 
   async function handleReprocessStorage() {
     try {
