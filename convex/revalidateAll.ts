@@ -61,6 +61,18 @@ export const fixSharedTemplatesAndDups = internalMutation({
       if (isCanteen && (!t.excludedDaysOfWeek || t.excludedDaysOfWeek.length === 0)) {
         patch.excludedDaysOfWeek = [0, 1, 6]; // Sunday, Monday, Saturday
       }
+      if (isCanteen && !t.outcomeBenchmark) {
+        patch.outcomeBenchmark = {
+          metricLabel: "Sales Volume (Students)",
+          targetBenchmark: 85,
+          showBenchmarkOnChart: true,
+          exceptional: 100,
+          good: 85,
+          average: 70,
+          bad: 50,
+          terrible: 30,
+        };
+      }
 
       if (Object.keys(patch).length > 0) {
         await ctx.db.patch(t._id, patch);

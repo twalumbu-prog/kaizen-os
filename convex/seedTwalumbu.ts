@@ -61,6 +61,16 @@ interface ReportSpec {
   sharingMode?: "individual" | "shared";
   excludedDaysOfWeek?: number[];
   excludedDates?: string[];
+  outcomeBenchmark?: {
+    metricLabel?: string;
+    targetBenchmark?: number;
+    showBenchmarkOnChart?: boolean;
+    exceptional?: number;
+    good?: number;
+    average?: number;
+    bad?: number;
+    terrible?: number;
+  };
   /** Defaults to documentSubmission. */
   validatorKey?: string;
   /** Defaults to the document rules. */
@@ -200,6 +210,16 @@ const PLAN: DepartmentSpec[] = [
         cadence: "daily",
         sharingMode: "shared",
         excludedDaysOfWeek: [0, 1, 6], // Saturday, Sunday, Monday excluded
+        outcomeBenchmark: {
+          metricLabel: "Sales Volume (Students)",
+          targetBenchmark: 85,
+          showBenchmarkOnChart: true,
+          exceptional: 100,
+          good: 85,
+          average: 70,
+          bad: 50,
+          terrible: 30,
+        },
         validatorKey: "canteenSalesRecon",
         validationRules: CANTEEN_RECON_RULES,
         files: [
@@ -283,6 +303,7 @@ export const seedReports = internalMutation({
           ...(report.sharingMode ? { sharingMode: report.sharingMode } : {}),
           ...(report.excludedDaysOfWeek ? { excludedDaysOfWeek: report.excludedDaysOfWeek } : {}),
           ...(report.excludedDates ? { excludedDates: report.excludedDates } : {}),
+          ...(report.outcomeBenchmark ? { outcomeBenchmark: report.outcomeBenchmark } : {}),
           validatorKey: report.validatorKey ?? "documentSubmission",
           weight: 1,
           requiredFiles: report.files.map((f) => ({

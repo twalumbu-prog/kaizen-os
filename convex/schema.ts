@@ -35,6 +35,17 @@ export const CYCLE_CONFIG = v.object({
   label: v.optional(v.string()),
 });
 
+export const OUTCOME_BENCHMARK = v.object({
+  metricLabel: v.optional(v.string()),
+  targetBenchmark: v.optional(v.number()),
+  showBenchmarkOnChart: v.optional(v.boolean()),
+  exceptional: v.optional(v.number()),
+  good: v.optional(v.number()),
+  average: v.optional(v.number()),
+  bad: v.optional(v.number()),
+  terrible: v.optional(v.number()),
+});
+
 export const SUBMISSION_STATUS = v.union(
   v.literal("pending"),
   v.literal("submitted"),
@@ -136,6 +147,8 @@ export default defineSchema({
     excludedDaysOfWeek: v.optional(v.array(v.number())),
     /** Explicit YYYY-MM-DD date strings to exclude from reporting (e.g. holidays). */
     excludedDates: v.optional(v.array(v.string())),
+    /** Target outcome benchmarks and reference line settings. */
+    outcomeBenchmark: v.optional(OUTCOME_BENCHMARK),
     requiredFiles: v.array(
       v.object({
         label: v.string(),

@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Users, DollarSign, TrendingUp } from "lucide-react";
-import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Area, AreaChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import {
   Table,
   TableBody,
@@ -27,6 +27,31 @@ function formatShortDate(label: string): string {
     return date.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
   }
   return label;
+}
+
+function getBenchmarkRating(
+  val: number,
+  benchmark: { exceptional?: number; good?: number; average?: number; bad?: number; terrible?: number }
+) {
+  const { exceptional, good, average, bad, terrible } = benchmark;
+
+  if (exceptional !== undefined && val >= exceptional) {
+    return { label: "Exceptional", badgeClass: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20" };
+  }
+  if (good !== undefined && val >= good) {
+    return { label: "Good Performance", badgeClass: "bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/20" };
+  }
+  if (average !== undefined && val >= average) {
+    return { label: "Average", badgeClass: "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20" };
+  }
+  if (bad !== undefined && val >= bad) {
+    return { label: "Below Target", badgeClass: "bg-orange-500/10 text-orange-700 dark:text-orange-400 border-orange-500/20" };
+  }
+  if (terrible !== undefined && val <= terrible) {
+    return { label: "Needs Improvement", badgeClass: "bg-red-500/10 text-red-700 dark:text-red-400 border-red-500/20" };
+  }
+
+  return null;
 }
 
 export default function ReportDetailPage({
@@ -54,12 +79,17 @@ export default function ReportDetailPage({
   }
 
   const isCanteen = data.template.validatorKey === "canteenSalesRecon";
+  const outcomeBenchmark = data.template.outcomeBenchmark;
+  const targetBenchmark = outcomeBenchmark?.targetBenchmark;
+  const showBenchmarkOnChart = outcomeBenchmark?.showBenchmarkOnChart ?? true;
+
   const studentCounts = data.timeline
     .map((t) => t.studentCount)
     .filter((c): c is number => c !== null && c !== undefined);
 
   const totalStudents = studentCounts.reduce((sum, c) => sum + c, 0);
   const avgStudents = studentCounts.length > 0 ? Math.round(totalStudents / studentCounts.length) : 0;
+  const rating = outcomeBenchmark ? getBenchmarkRating(avgStudents, outcomeBenchmark) : null;
 
   const canteenChartData = data.timeline
     .filter((entry) => entry.studentCount !== null && entry.studentCount !== undefined)
@@ -103,8 +133,19 @@ export default function ReportDetailPage({
                   <TrendingUp className="size-4 text-primary" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold tracking-tight">{avgStudents} Students / Day</div>
-                  <p className="text-xs text-muted-foreground mt-1">Average sales volume per daily report</p>
+                  <div className="flex items-baseline justify-between">
+                    <div className="text-2xl font-bold tracking-tight">{avgStudents} Students / Day</div>
+                    {rating && (
+                      <Badge variant="outline" className={`font-medium text-xs ${rating.badgeClass}`}>
+                        {rating.label}
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {targetBenchmark !== undefined
+                      ? `Average vs target benchmark of ${targetBenchmark} students`
+                      : "Average sales volume per daily report"}
+                  </p>
                 </CardContent>
               </Card>
 
@@ -116,8 +157,14 @@ export default function ReportDetailPage({
                   <DollarSign className="size-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold tracking-tight">Sales Volume</div>
-                  <p className="text-xs text-muted-foreground mt-1">Extracted directly from daily collection recon sheets</p>
+                  <div className="text-2xl font-bold tracking-tight">
+                    {outcomeBenchmark?.metricLabel || "Sales Volume"}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {targetBenchmark !== undefined
+                      ? `Target Benchmark: ${targetBenchmark} Students`
+                      : "Extracted directly from daily collection recon sheets"}
+                  </p>
                 </CardContent>
               </Card>
             </div>
@@ -131,10 +178,17 @@ export default function ReportDetailPage({
                     Daily student count trend across reporting dates
                   </p>
                 </div>
-                <Badge variant="outline" className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20 font-medium">
-                  <Users className="mr-1 size-3.5" />
-                  Student Volume Trend
-                </Badge>
+                <div className="flex items-center gap-2">
+                  {targetBenchmark !== undefined && (
+                    <Badge variant="outline" className="bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20 font-medium">
+                      Benchmark: {targetBenchmark}
+                    </Badge>
+                  )}
+                  <Badge variant="outline" className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20 font-medium">
+                    <Users className="mr-1 size-3.5" />
+                    Student Volume Trend
+                  </Badge>
+                </div>
               </CardHeader>
               <CardContent className="pt-4">
                 {canteenChartData.length < 2 ? (
@@ -166,6 +220,20 @@ export default function ReportDetailPage({
                         labelFormatter={(_, payload) => payload?.[0]?.payload?.periodLabel ?? ""}
                         contentStyle={{ fontSize: 12, borderRadius: 8, padding: "8px 12px" }}
                       />
+                      {showBenchmarkOnChart && targetBenchmark !== undefined && (
+                        <ReferenceLine
+                          y={targetBenchmark}
+                          stroke="#f59e0b"
+                          strokeDasharray="4 4"
+                          strokeWidth={1.5}
+                          label={{
+                            value: `Target (${targetBenchmark})`,
+                            fill: "#f59e0b",
+                            fontSize: 11,
+                            position: "top",
+                          }}
+                        />
+                      )}
                       <Area
                         type="monotone"
                         dataKey="studentCount"

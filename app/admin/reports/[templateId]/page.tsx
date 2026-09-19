@@ -394,6 +394,164 @@ function ExceptionRulesCard({
   );
 }
 
+function OutcomeBenchmarkCard({
+  templateId,
+  benchmark,
+}: {
+  templateId: Id<"reportTemplates">;
+  benchmark?: {
+    metricLabel?: string;
+    targetBenchmark?: number;
+    showBenchmarkOnChart?: boolean;
+    exceptional?: number;
+    good?: number;
+    average?: number;
+    bad?: number;
+    terrible?: number;
+  };
+}) {
+  const updateTemplate = useMutation(api.reportTemplates.update);
+  const [metricLabel, setMetricLabel] = useState(benchmark?.metricLabel ?? "");
+  const [targetBenchmark, setTargetBenchmark] = useState<string>(
+    benchmark?.targetBenchmark !== undefined ? String(benchmark.targetBenchmark) : ""
+  );
+  const [showOnChart, setShowOnChart] = useState(benchmark?.showBenchmarkOnChart ?? true);
+  const [exceptional, setExceptional] = useState<string>(
+    benchmark?.exceptional !== undefined ? String(benchmark.exceptional) : ""
+  );
+  const [good, setGood] = useState<string>(
+    benchmark?.good !== undefined ? String(benchmark.good) : ""
+  );
+  const [average, setAverage] = useState<string>(
+    benchmark?.average !== undefined ? String(benchmark.average) : ""
+  );
+  const [bad, setBad] = useState<string>(
+    benchmark?.bad !== undefined ? String(benchmark.bad) : ""
+  );
+  const [terrible, setTerrible] = useState<string>(
+    benchmark?.terrible !== undefined ? String(benchmark.terrible) : ""
+  );
+
+  const handleSave = () => {
+    updateTemplate({
+      templateId,
+      outcomeBenchmark: {
+        metricLabel: metricLabel.trim() || undefined,
+        targetBenchmark: targetBenchmark ? parseFloat(targetBenchmark) : undefined,
+        showBenchmarkOnChart: showOnChart,
+        exceptional: exceptional ? parseFloat(exceptional) : undefined,
+        good: good ? parseFloat(good) : undefined,
+        average: average ? parseFloat(average) : undefined,
+        bad: bad ? parseFloat(bad) : undefined,
+        terrible: terrible ? parseFloat(terrible) : undefined,
+      },
+    });
+    toast.success("Outcome benchmarks updated");
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Outcome Benchmarks &amp; Performance Targets</CardTitle>
+        <CardDescription>
+          Establish target benchmarks and threshold levels (Exceptional, Good, Average, Bad, Terrible) for contextual evaluation.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-5">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="flex flex-col gap-2">
+            <Label>Outcome Metric Name</Label>
+            <Input
+              placeholder="e.g. Sales Volume (Students)"
+              value={metricLabel}
+              onChange={(e) => setMetricLabel(e.target.value)}
+            />
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label>Primary Target Benchmark</Label>
+            <Input
+              type="number"
+              placeholder="e.g. 85"
+              value={targetBenchmark}
+              onChange={(e) => setTargetBenchmark(e.target.value)}
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 rounded-lg border p-3 bg-muted/20">
+          <Switch
+            id="show-benchmark-chart"
+            checked={showOnChart}
+            onCheckedChange={setShowOnChart}
+          />
+          <Label htmlFor="show-benchmark-chart" className="text-xs font-medium cursor-pointer">
+            Show target benchmark reference line ({targetBenchmark || "85"}) on progression chart
+          </Label>
+        </div>
+
+        <div className="space-y-3">
+          <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Performance Rating Thresholds
+          </Label>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+            <div className="flex flex-col gap-1.5">
+              <Label className="text-xs font-medium text-purple-700 dark:text-purple-400">Exceptional (≥)</Label>
+              <Input
+                type="number"
+                placeholder="100"
+                value={exceptional}
+                onChange={(e) => setExceptional(e.target.value)}
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label className="text-xs font-medium text-emerald-700 dark:text-emerald-400">Good (≥)</Label>
+              <Input
+                type="number"
+                placeholder="85"
+                value={good}
+                onChange={(e) => setGood(e.target.value)}
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label className="text-xs font-medium text-blue-700 dark:text-blue-400">Average (≥)</Label>
+              <Input
+                type="number"
+                placeholder="70"
+                value={average}
+                onChange={(e) => setAverage(e.target.value)}
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label className="text-xs font-medium text-amber-700 dark:text-amber-400">Bad (≥)</Label>
+              <Input
+                type="number"
+                placeholder="50"
+                value={bad}
+                onChange={(e) => setBad(e.target.value)}
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label className="text-xs font-medium text-red-700 dark:text-red-400">Terrible (&lt;)</Label>
+              <Input
+                type="number"
+                placeholder="30"
+                value={terrible}
+                onChange={(e) => setTerrible(e.target.value)}
+              />
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <Button size="sm" onClick={handleSave}>
+            Save Outcome Benchmarks
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function ReportConfigPage({
   params,
 }: {
@@ -596,6 +754,11 @@ export default function ReportConfigPage({
           templateId={templateId}
           excludedDaysOfWeek={template.excludedDaysOfWeek}
           excludedDates={template.excludedDates}
+        />
+
+        <OutcomeBenchmarkCard
+          templateId={templateId}
+          benchmark={template.outcomeBenchmark}
         />
 
         <Card>

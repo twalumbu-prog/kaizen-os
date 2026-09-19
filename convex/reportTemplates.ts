@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { CADENCE, CYCLE_CONFIG, FILE_TYPE } from "./schema";
+import { CADENCE, CYCLE_CONFIG, FILE_TYPE, OUTCOME_BENCHMARK } from "./schema";
 const SHARING_MODE = v.union(v.literal("individual"), v.literal("shared"));
 import { requireProfile, requireRole } from "./lib/roles";
 
@@ -89,6 +89,7 @@ export const create = mutation({
     startingBalance: v.optional(v.number()),
     excludedDaysOfWeek: v.optional(v.array(v.number())),
     excludedDates: v.optional(v.array(v.string())),
+    outcomeBenchmark: v.optional(OUTCOME_BENCHMARK),
     requiredFiles: REQUIRED_FILES,
     validationRules: VALIDATION_RULES,
     quickbooksAccountId: v.optional(v.string()),
@@ -112,6 +113,7 @@ export const update = mutation({
     startingBalance: v.optional(v.number()),
     excludedDaysOfWeek: v.optional(v.array(v.number())),
     excludedDates: v.optional(v.array(v.string())),
+    outcomeBenchmark: v.optional(OUTCOME_BENCHMARK),
     requiredFiles: v.optional(REQUIRED_FILES),
     validationRules: v.optional(VALIDATION_RULES),
     quickbooksAccountId: v.optional(v.string()),
