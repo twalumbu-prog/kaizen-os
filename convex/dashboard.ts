@@ -50,6 +50,9 @@ export const organizationDashboard = query({
                 .first();
 
               let validationScore: number | null = null;
+              let studentCount: number | null = null;
+              let grandTotal: number | null = null;
+
               if (latestSub) {
                 const valResult = await ctx.db
                   .query("validationResults")
@@ -57,6 +60,22 @@ export const organizationDashboard = query({
                   .order("desc")
                   .first();
                 validationScore = valResult?.score ?? latestSub.finalScore ?? null;
+
+                const subFiles = await ctx.db
+                  .query("submissionFiles")
+                  .withIndex("by_submissionId", (q) => q.eq("submissionId", latestSub._id))
+                  .collect();
+
+                for (const f of subFiles) {
+                  if (f.extracted?.metadata) {
+                    if (f.extracted.metadata.studentCount !== undefined && f.extracted.metadata.studentCount !== null) {
+                      studentCount = Number(f.extracted.metadata.studentCount);
+                    }
+                    if (f.extracted.metadata.grandTotal !== undefined && f.extracted.metadata.grandTotal !== null) {
+                      grandTotal = Number(f.extracted.metadata.grandTotal);
+                    }
+                  }
+                }
               }
 
               return {
@@ -69,6 +88,8 @@ export const organizationDashboard = query({
                 dueAt: latestSub?.dueAt,
                 periodLabel: latestSub?.periodLabel,
                 qualityScore: validationScore,
+                studentCount,
+                grandTotal,
               };
             }),
           );
@@ -222,11 +243,32 @@ export const reportDetail = query({
             .withIndex("by_submissionId", (q) => q.eq("submissionId", s._id))
             .order("desc")
             .first();
+
+          const subFiles = await ctx.db
+            .query("submissionFiles")
+            .withIndex("by_submissionId", (q) => q.eq("submissionId", s._id))
+            .collect();
+
+          let studentCount: number | null = null;
+          let grandTotal: number | null = null;
+          for (const f of subFiles) {
+            if (f.extracted?.metadata) {
+              if (f.extracted.metadata.studentCount !== undefined && f.extracted.metadata.studentCount !== null) {
+                studentCount = Number(f.extracted.metadata.studentCount);
+              }
+              if (f.extracted.metadata.grandTotal !== undefined && f.extracted.metadata.grandTotal !== null) {
+                grandTotal = Number(f.extracted.metadata.grandTotal);
+              }
+            }
+          }
+
           return {
             submission: s,
             employeeName: employee && "name" in employee ? employee.name : "Unknown",
             qualityScore: validationResult?.score,
             status: statusForScore(s.finalScore ?? 0),
+            studentCount,
+            grandTotal,
           };
         }),
       );

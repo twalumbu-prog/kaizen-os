@@ -9,6 +9,7 @@ import { StatusBadge } from "@/components/dashboard/status-badge";
 import { TrendSparkline } from "@/components/dashboard/trend-sparkline";
 import { LeadingMeasuresCard } from "@/components/dashboard/leading-measures-card";
 import { KeyOutcomesCard } from "@/components/dashboard/key-outcomes-card";
+import { KeyOutcomesList } from "@/components/dashboard/key-outcomes-list";
 import { WorkCalendar } from "@/components/calendar/work-calendar";
 import { ScoreTab } from "@/components/employee/score-tab";
 import { DashboardTab } from "@/components/employee/dashboard-tab";
@@ -105,25 +106,13 @@ export function OrganizationDashboard({ orgId }: { orgId: Id<"organizations"> })
 
         <TabsContent value="outcomes" className="space-y-4">
           <div className="rounded-md border bg-muted/30 px-4 py-3 text-xs text-muted-foreground">
-            <span className="font-semibold text-foreground">Key Outcomes:</span> Measures performance quality and accuracy outcomes extracted from submitted documents across departments. Arranged by department.
+            <span className="font-semibold text-foreground">Key Outcomes:</span> Measures performance quality and accuracy outcomes extracted from submitted documents across departments. Arranged by department in a list format.
           </div>
 
           {data.departments.length === 0 ? (
             <p className="text-sm text-muted-foreground">No departments yet.</p>
           ) : (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {data.departments.map((d) => (
-                <KeyOutcomesCard
-                  key={d.department._id}
-                  department={d.department}
-                  hasData={d.hasData}
-                  healthScore={d.healthScore}
-                  qualityScore={d.qualityScore}
-                  trend={d.trend}
-                  reports={d.reports ?? []}
-                />
-              ))}
-            </div>
+            <KeyOutcomesList departments={data.departments} />
           )}
         </TabsContent>
 
