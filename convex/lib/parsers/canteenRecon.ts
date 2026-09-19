@@ -152,17 +152,31 @@ export function parseCanteenRecon(buffer: ArrayBuffer): ParsedStatement {
       continue;
     }
 
-    // Footer row: "TOTAL" in col A or col B, with each method's total in its own column.
-    if (isTotalLabel(a) || (typeof b === "string" && isTotalLabel(b))) {
+    // Footer row: "TOTAL" or "Subtotal" in any of the first few columns.
+    const isTotal = row.slice(0, 4).some((cell) => typeof cell === "string" && isTotalLabel(cell));
+    if (isTotal) {
       for (const [method, idx] of methodColumn) {
         totals.set(method, toAmt(row[idx]));
       }
       continue;
     }
 
-    // Student row: col A is the row's serial number.
-    const rowNo = typeof row[0] === "number" ? row[0] : parseFloat(a);
-    if (Number.isFinite(rowNo) && rowNo > 0) {
+    // Student row detection:
+    // 1) Serial number in Col A (e.g. 1, "1.", "1")
+    const cleanedA = a.replace(/[^0-9.]/g, "");
+    const rowNo = typeof row[0] === "number" ? row[0] : (cleanedA ? parseFloat(cleanedA) : NaN);
+    const hasValidRowNo = Number.isFinite(rowNo) && rowNo > 0;
+
+    // 2) Fallback: if header has been seen, check if row has a student name or non-zero payment amount
+    const colB = String(row[1] ?? "").trim();
+    const colC = String(row[2] ?? "").trim();
+    const isHeaderOrMetaKey = /^(no|s\/n|serial|name|class|total|grand total|amt deposited|date|prepared by)$/i.test(a) ||
+                              /^(no|s\/n|serial|name|class|total)$/i.test(colB);
+
+    const hasPaymentValue = Array.from(methodColumn.values()).some((idx) => toAmt(row[idx]) > 0);
+    const hasStudentName = (colB.length >= 2 || colC.length >= 2 || (a.length >= 2 && !hasValidRowNo)) && !isHeaderOrMetaKey;
+
+    if (headerSeen && (hasValidRowNo || (hasStudentName && hasPaymentValue))) {
       studentCount++;
       for (const [method, idx] of methodColumn) {
         sums.set(method, (sums.get(method) ?? 0) + toAmt(row[idx]));

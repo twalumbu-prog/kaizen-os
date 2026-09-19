@@ -101,4 +101,31 @@ describe("parseCanteenRecon", () => {
     expect(statement.metadata?.grandTotal).toBe(70);
     expect(statement.metadata?.amtDeposited).toBe(70);
   });
+
+  it("handles formatted row numbers like '1.' and '2.' in column A", () => {
+    const formattedRows: unknown[][] = [
+      [null, "LUNCH - 07.09.2026", null, null, null, null],
+      ["NO.", "NAME", "CLASS", "CASH", "AIRTEL"],
+      ["1.", "STUDENT A", "BABY", 70, null],
+      ["2.", "STUDENT B", "MIDDLE", null, 35],
+      [null, "TOTAL", null, 70, 35],
+    ];
+    const statement = parseCanteenRecon(buildWorkbookBuffer(formattedRows));
+    expect(statement.metadata?.studentCount).toBe(2);
+    expect(statement.metadata?.cashSum).toBe(70);
+    expect(statement.metadata?.airtelSum).toBe(35);
+  });
+
+  it("counts student rows even when serial number in col A is missing", () => {
+    const missingSerial: unknown[][] = [
+      [null, "LUNCH - 07.09.2026", null, null],
+      ["NO.", "NAME", "CLASS", "CASH"],
+      [null, "STUDENT A", "BABY", 70],
+      [null, "STUDENT B", "MIDDLE", 50],
+      [null, "TOTAL", null, 120],
+    ];
+    const statement = parseCanteenRecon(buildWorkbookBuffer(missingSerial));
+    expect(statement.metadata?.studentCount).toBe(2);
+    expect(statement.metadata?.cashSum).toBe(120);
+  });
 });

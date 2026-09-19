@@ -273,7 +273,10 @@ export const reportDetail = query({
         }),
       );
 
-      return { template, timeline: timeline.reverse() };
+      // Sort timeline strictly in chronological order by periodStart
+      timeline.sort((a, b) => a.submission.periodStart - b.submission.periodStart);
+
+      return { template, timeline };
     } catch {
       return null;
     }

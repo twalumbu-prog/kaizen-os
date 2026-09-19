@@ -58,6 +58,7 @@ interface ReportSpec {
   name: string;
   cadence: Cadence;
   cycle?: CycleConfig;
+  sharingMode?: "individual" | "shared";
   /** Defaults to documentSubmission. */
   validatorKey?: string;
   /** Defaults to the document rules. */
@@ -195,6 +196,7 @@ const PLAN: DepartmentSpec[] = [
       {
         name: "Canteen Daily Sales Report",
         cadence: "daily",
+        sharingMode: "shared",
         validatorKey: "canteenSalesRecon",
         validationRules: CANTEEN_RECON_RULES,
         files: [
@@ -273,6 +275,7 @@ export const seedReports = internalMutation({
           name: report.name,
           cadence: report.cadence,
           ...(report.cycle ? { cycle: report.cycle } : {}),
+          ...(report.sharingMode ? { sharingMode: report.sharingMode } : {}),
           validatorKey: report.validatorKey ?? "documentSubmission",
           weight: 1,
           requiredFiles: report.files.map((f) => ({

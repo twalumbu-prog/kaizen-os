@@ -41,9 +41,100 @@ export const run = internalAction({
   },
 });
 
+export const fixSharedTemplatesAndDups = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const templates = await ctx.db.query("reportTemplates").collect();
+    let updatedTemplates = 0;
+    for (const t of templates) {
+      if (
+        t.validatorKey === "canteenSalesRecon" ||
+        t.name.toLowerCase().includes("canteen daily sales") ||
+        t.name.toLowerCase().includes("statutory return")
+      ) {
+        if (t.sharingMode !== "shared") {
+          await ctx.db.patch(t._id, { sharingMode: "shared" });
+          updatedTemplates++;
+        }
+      }
+    }
+
+    let removedDups = 0;
+    const sharedTemplates = (await ctx.db.query("reportTemplates").collect()).filter(
+      (t) => t.sharingMode === "shared",
+    );
+
+    for (const t of sharedTemplates) {
+      const submissions = await ctx.db
+        .query("submissions")
+        .withIndex("by_templateId", (q) => q.eq("templateId", t._id))
+        .collect();
+
+      const byPeriod = new Map<string, typeof submissions>();
+      for (const s of submissions) {
+        const group = byPeriod.get(s.periodLabel) ?? [];
+        group.push(s);
+        byPeriod.set(s.periodLabel, group);
+      }
+
+      for (const [, group] of byPeriod) {
+        if (group.length <= 1) continue;
+
+        const scoredGroup = await Promise.all(
+          group.map(async (s) => {
+            const files = await ctx.db
+              .query("submissionFiles")
+              .withIndex("by_submissionId", (q) => q.eq("submissionId", s._id))
+              .collect();
+            const val = await ctx.db
+              .query("validationResults")
+              .withIndex("by_submissionId", (q) => q.eq("submissionId", s._id))
+              .first();
+
+            let score = 0;
+            if (s.status === "submitted" || s.status === "late") score += 100;
+            if (files.length > 0) score += 50;
+            if (val) score += 25;
+
+            return { s, files, val, score };
+          }),
+        );
+
+        scoredGroup.sort((a, b) => {
+          if (b.score !== a.score) return b.score - a.score;
+          return a.s._creationTime - b.s._creationTime;
+        });
+
+        const primary = scoredGroup[0];
+        const duplicates = scoredGroup.slice(1);
+
+        for (const dup of duplicates) {
+          for (const f of dup.files) {
+            const primaryFiles = await ctx.db
+              .query("submissionFiles")
+              .withIndex("by_submissionId", (q) => q.eq("submissionId", primary.s._id))
+              .collect();
+            if (!primaryFiles.some((pf) => pf.label === f.label)) {
+              await ctx.db.patch(f._id, { submissionId: primary.s._id });
+            }
+          }
+
+          await ctx.db.delete(dup.s._id);
+          removedDups++;
+        }
+      }
+    }
+
+    return { updatedTemplates, removedDups };
+  },
+});
+
 export const revalidateAllSubmissions = action({
   args: {},
   handler: async (ctx: ActionCtx): Promise<string> => {
+    const cleanupRes = await ctx.runMutation(internal.revalidateAll.fixSharedTemplatesAndDups, {});
+    console.log(`[RevalidateAll] Cleanup finished: updated ${cleanupRes.updatedTemplates} templates, removed ${cleanupRes.removedDups} duplicate submissions.`);
+
     const ids = (await ctx.runQuery(internal.revalidateAll.getAllSubmissionIds, {})) as Id<"submissions">[];
     console.log(`[RevalidateAll] Revalidating and extracting data for ${ids.length} submissions...`);
     let count = 0;
@@ -55,7 +146,7 @@ export const revalidateAllSubmissions = action({
         console.error(`[RevalidateAll] Error processing submission ${id}:`, err);
       }
     }
-    return `Successfully revalidated and extracted data for ${count} of ${ids.length} submissions.`;
+    return `Cleaned ${cleanupRes.removedDups} dups & updated ${cleanupRes.updatedTemplates} templates. Successfully revalidated and extracted data for ${count} of ${ids.length} submissions.`;
   },
 });
 
