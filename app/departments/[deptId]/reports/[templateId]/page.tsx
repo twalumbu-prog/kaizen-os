@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Users, DollarSign, TrendingUp } from "lucide-react";
-import { Area, AreaChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Area, CartesianGrid, ComposedChart, Legend, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import {
   Table,
   TableBody,
@@ -36,16 +36,16 @@ function getBenchmarkRating(
   const { exceptional, good, average, bad, terrible } = benchmark;
 
   if (exceptional !== undefined && val >= exceptional) {
-    return { label: "Exceptional", badgeClass: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20" };
+    return { label: "Exceptional", badgeClass: "bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-500/20" };
   }
   if (good !== undefined && val >= good) {
-    return { label: "Good Performance", badgeClass: "bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/20" };
+    return { label: "Good Performance", badgeClass: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20" };
   }
   if (average !== undefined && val >= average) {
-    return { label: "Average", badgeClass: "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20" };
+    return { label: "Average", badgeClass: "bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/20" };
   }
   if (bad !== undefined && val >= bad) {
-    return { label: "Below Target", badgeClass: "bg-orange-500/10 text-orange-700 dark:text-orange-400 border-orange-500/20" };
+    return { label: "Below Target", badgeClass: "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20" };
   }
   if (terrible !== undefined && val <= terrible) {
     return { label: "Needs Improvement", badgeClass: "bg-red-500/10 text-red-700 dark:text-red-400 border-red-500/20" };
@@ -98,6 +98,7 @@ export default function ReportDetailPage({
       shortLabel: formatShortDate(entry.submission.periodLabel),
       studentCount: entry.studentCount,
       grandTotal: entry.grandTotal,
+      targetBenchmark: targetBenchmark,
     }));
 
   return (
@@ -175,7 +176,7 @@ export default function ReportDetailPage({
                 <div>
                   <CardTitle className="text-base">Sales Volume Progression</CardTitle>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    Daily student count trend across reporting dates
+                    Daily student count trend plotted against target benchmark
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -196,8 +197,8 @@ export default function ReportDetailPage({
                     Not enough historical report data to plot progression chart.
                   </div>
                 ) : (
-                  <ResponsiveContainer width="100%" height={260}>
-                    <AreaChart data={canteenChartData} margin={{ top: 10, right: 12, bottom: 0, left: -16 }}>
+                  <ResponsiveContainer width="100%" height={280}>
+                    <ComposedChart data={canteenChartData} margin={{ top: 10, right: 12, bottom: 0, left: -16 }}>
                       <defs>
                         <linearGradient id="studentCountGradient" x1="0" y1="0" x2="0" y2="1">
                           <stop offset="5%" stopColor="#10b981" stopOpacity={0.35} />
@@ -214,35 +215,38 @@ export default function ReportDetailPage({
                       <YAxis tick={{ fontSize: 12 }} allowDecimals={false} width={40} />
                       <Tooltip
                         formatter={(value: any, name: any) => [
-                          name === "studentCount" ? `${value} Students` : `ZMW ${value}`,
-                          name === "studentCount" ? "Sales Volume (Students)" : "Grand Total",
+                          name === "Sales Volume (Students)" || name === "studentCount"
+                            ? `${value} Students`
+                            : name.startsWith("Target Benchmark")
+                              ? `${value} Students`
+                              : `ZMW ${value}`,
+                          name === "studentCount" ? "Sales Volume (Students)" : name,
                         ]}
                         labelFormatter={(_, payload) => payload?.[0]?.payload?.periodLabel ?? ""}
                         contentStyle={{ fontSize: 12, borderRadius: 8, padding: "8px 12px" }}
                       />
+                      <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
                       {showBenchmarkOnChart && targetBenchmark !== undefined && (
-                        <ReferenceLine
-                          y={targetBenchmark}
+                        <Line
+                          type="monotone"
+                          dataKey="targetBenchmark"
+                          name={`Target Benchmark (${targetBenchmark})`}
                           stroke="#f59e0b"
-                          strokeDasharray="4 4"
-                          strokeWidth={1.5}
-                          label={{
-                            value: `Target (${targetBenchmark})`,
-                            fill: "#f59e0b",
-                            fontSize: 11,
-                            position: "top",
-                          }}
+                          strokeDasharray="5 5"
+                          strokeWidth={2}
+                          dot={false}
                         />
                       )}
                       <Area
                         type="monotone"
                         dataKey="studentCount"
+                        name="Sales Volume (Students)"
                         stroke="#10b981"
                         strokeWidth={2.5}
                         fillOpacity={1}
                         fill="url(#studentCountGradient)"
                       />
-                    </AreaChart>
+                    </ComposedChart>
                   </ResponsiveContainer>
                 )}
               </CardContent>
@@ -294,48 +298,65 @@ export default function ReportDetailPage({
                   <TableHead>Employee</TableHead>
                   <TableHead>Status</TableHead>
                   {isCanteen && <TableHead>Sales Volume (Student Count)</TableHead>}
+                  <TableHead>Outcome Rating</TableHead>
                   <TableHead>Quality Score</TableHead>
                   <TableHead>Submission Time</TableHead>
                   <TableHead>Validation Result</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {data.timeline.map((entry) => (
-                  <TableRow key={entry.submission._id} className="cursor-pointer">
-                    <TableCell>
-                      <Link href={`/submissions/${entry.submission._id}`} className="hover:underline font-medium">
-                        {entry.submission.periodLabel}
-                      </Link>
-                    </TableCell>
-                    <TableCell>{entry.employeeName}</TableCell>
-                    <TableCell className="capitalize">{entry.submission.status}</TableCell>
-                    {isCanteen && (
+                {data.timeline.map((entry) => {
+                  const entryRating =
+                    outcomeBenchmark && entry.studentCount !== null && entry.studentCount !== undefined
+                      ? getBenchmarkRating(entry.studentCount, outcomeBenchmark)
+                      : null;
+
+                  return (
+                    <TableRow key={entry.submission._id} className="cursor-pointer">
                       <TableCell>
-                        {entry.studentCount !== null && entry.studentCount !== undefined ? (
-                          <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20 font-medium">
-                            <Users className="mr-1 size-3.5" />
-                            {entry.studentCount} Students
+                        <Link href={`/submissions/${entry.submission._id}`} className="hover:underline font-medium">
+                          {entry.submission.periodLabel}
+                        </Link>
+                      </TableCell>
+                      <TableCell>{entry.employeeName}</TableCell>
+                      <TableCell className="capitalize">{entry.submission.status}</TableCell>
+                      {isCanteen && (
+                        <TableCell>
+                          {entry.studentCount !== null && entry.studentCount !== undefined ? (
+                            <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20 font-medium">
+                              <Users className="mr-1 size-3.5" />
+                              {entry.studentCount} Students
+                            </Badge>
+                          ) : (
+                            <span className="text-muted-foreground text-xs">—</span>
+                          )}
+                        </TableCell>
+                      )}
+                      <TableCell>
+                        {entryRating ? (
+                          <Badge variant="outline" className={`font-medium text-xs ${entryRating.badgeClass}`}>
+                            {entryRating.label}
                           </Badge>
                         ) : (
                           <span className="text-muted-foreground text-xs">—</span>
                         )}
                       </TableCell>
-                    )}
-                    <TableCell>{entry.qualityScore !== undefined ? `${entry.qualityScore}%` : "—"}</TableCell>
-                    <TableCell>
-                      {entry.submission.submittedAt
-                        ? new Date(entry.submission.submittedAt).toLocaleString()
-                        : "—"}
-                    </TableCell>
-                    <TableCell>
-                      {entry.submission.finalScore !== undefined ? (
-                        <StatusBadge score={entry.submission.finalScore} />
-                      ) : (
-                        <span className="text-muted-foreground">Pending</span>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
+                      <TableCell>{entry.qualityScore !== undefined ? `${entry.qualityScore}%` : "—"}</TableCell>
+                      <TableCell>
+                        {entry.submission.submittedAt
+                          ? new Date(entry.submission.submittedAt).toLocaleString()
+                          : "—"}
+                      </TableCell>
+                      <TableCell>
+                        {entry.submission.finalScore !== undefined ? (
+                          <StatusBadge score={entry.submission.finalScore} />
+                        ) : (
+                          <span className="text-muted-foreground">Pending</span>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           </CardContent>

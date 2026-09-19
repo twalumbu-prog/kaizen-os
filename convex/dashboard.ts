@@ -91,6 +91,7 @@ export const organizationDashboard = query({
                 qualityScore: validationScore,
                 studentCount,
                 grandTotal,
+                outcomeBenchmark: tpl.outcomeBenchmark,
               };
             }),
           );
