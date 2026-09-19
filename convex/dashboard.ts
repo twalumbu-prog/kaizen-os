@@ -183,6 +183,51 @@ export const departmentDashboard = query({
             submissions.length === 0 ? 0 : Math.round((submitted / submissions.length) * 100);
           const missingCount = submissions.filter((s) => s.status === "missing").length;
 
+          const outcomeSubmissions = await Promise.all(
+            submissions.map(async (s) => {
+              const subFiles = await ctx.db
+                .query("submissionFiles")
+                .withIndex("by_submissionId", (q) => q.eq("submissionId", s._id))
+                .collect();
+
+              let studentCount: number | null = null;
+              let grandTotal: number | null = null;
+              for (const f of subFiles) {
+                if (f.extracted?.metadata) {
+                  if (f.extracted.metadata.studentCount !== undefined && f.extracted.metadata.studentCount !== null) {
+                    studentCount = Number(f.extracted.metadata.studentCount);
+                  }
+                  if (f.extracted.metadata.grandTotal !== undefined && f.extracted.metadata.grandTotal !== null) {
+                    grandTotal = Number(f.extracted.metadata.grandTotal);
+                  }
+                }
+              }
+              return {
+                submission: s,
+                studentCount,
+                grandTotal,
+              };
+            }),
+          );
+
+          const validStudentCounts = outcomeSubmissions
+            .map((o) => o.studentCount)
+            .filter((c): c is number => c !== null && c !== undefined);
+
+          const avgStudentCount =
+            validStudentCounts.length > 0
+              ? Math.round(validStudentCounts.reduce((sum, c) => sum + c, 0) / validStudentCounts.length)
+              : null;
+          const latestStudentCount = validStudentCounts.length > 0 ? validStudentCounts[0] : null;
+
+          const outcomeTrend = outcomeSubmissions
+            .filter((o) => o.studentCount !== null && o.studentCount !== undefined)
+            .reverse()
+            .map((o) => ({
+              periodLabel: o.submission.periodLabel,
+              score: o.studentCount!,
+            }));
+
           const healthScore = latest?.finalScore ?? 0;
 
           return {
@@ -192,6 +237,12 @@ export const departmentDashboard = query({
             status: statusForScore(healthScore),
             submissionRate: submissionRatePct,
             qualityScore: avgQuality,
+            avgStudentCount,
+            latestStudentCount,
+            outcomeTrend: outcomeTrend.length > 0 ? outcomeTrend : [...submissions].reverse().map((s) => ({
+              periodLabel: s.periodLabel,
+              score: s.finalScore ?? 0,
+            })),
             trend: [...submissions].reverse().map((s) => ({
               periodLabel: s.periodLabel,
               score: s.finalScore ?? 0,
