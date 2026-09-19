@@ -62,31 +62,42 @@ export default function DepartmentPage({
     );
   }
 
-  // Cumulative Outcome Summary for Department
-  const reportsWithBench = data.reports.filter(
-    (r) => (r as any).avgStudentCount !== null && (r as any).avgStudentCount !== undefined && r.template.outcomeBenchmark?.targetBenchmark !== undefined
-  );
+  // Category Outcome Status based solely on individual report status labels
+  const evaluatedReportStatuses = data.reports
+    .map((r) => {
+      const val = (r as any).avgStudentCount ?? (r as any).latestStudentCount;
+      const bench = r.template.outcomeBenchmark;
+      if (val === null || val === undefined || !bench) return null;
+      return getBenchmarkRating(val, bench);
+    })
+    .filter((s): s is NonNullable<typeof s> => s !== null);
 
-  let cumulativeVal = 0;
-  let cumulativeTarget = 0;
-  let totalPct = 0;
+  const statusScores: Record<string, number> = {
+    "Exceptional": 100,
+    "Good Performance": 85,
+    "Average": 70,
+    "Below Target": 50,
+    "Needs Improvement": 30,
+  };
 
-  for (const r of reportsWithBench) {
-    const avgVal = (r as any).avgStudentCount as number;
-    const target = r.template.outcomeBenchmark!.targetBenchmark!;
-    cumulativeVal += avgVal;
-    cumulativeTarget += target;
-    totalPct += (avgVal / target) * 100;
-  }
+  const avgStatusScore =
+    evaluatedReportStatuses.length > 0
+      ? Math.round(
+          evaluatedReportStatuses.reduce((sum, s) => sum + (statusScores[s.label] ?? 70), 0) /
+            evaluatedReportStatuses.length
+        )
+      : null;
 
-  const categoryAvgPct = reportsWithBench.length > 0 ? Math.round(totalPct / reportsWithBench.length) : null;
-  const categoryRating = categoryAvgPct !== null ? (() => {
-    if (categoryAvgPct >= 115) return { label: "Exceptional", badgeClass: "bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-500/20" };
-    if (categoryAvgPct >= 100) return { label: "Good Performance", badgeClass: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20" };
-    if (categoryAvgPct >= 85) return { label: "Average", badgeClass: "bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/20" };
-    if (categoryAvgPct >= 65) return { label: "Below Target", badgeClass: "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20" };
-    return { label: "Needs Improvement", badgeClass: "bg-red-500/10 text-red-700 dark:text-red-400 border-red-500/20" };
-  })() : null;
+  const categoryRating =
+    avgStatusScore !== null
+      ? (() => {
+          if (avgStatusScore >= 92) return { label: "Exceptional", badgeClass: "bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-500/20" };
+          if (avgStatusScore >= 80) return { label: "Good Performance", badgeClass: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20" };
+          if (avgStatusScore >= 65) return { label: "Average", badgeClass: "bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/20" };
+          if (avgStatusScore >= 45) return { label: "Below Target", badgeClass: "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20" };
+          return { label: "Needs Improvement", badgeClass: "bg-red-500/10 text-red-700 dark:text-red-400 border-red-500/20" };
+        })()
+      : null;
 
   return (
     <AppShell>
@@ -99,12 +110,12 @@ export default function DepartmentPage({
                 <CardTitle className="text-xl">{data.department.name} Department</CardTitle>
                 {categoryRating && (
                   <Badge variant="outline" className={`font-medium text-xs px-2.5 py-0.5 ${categoryRating.badgeClass}`}>
-                    Cumulative Rating: {categoryRating.label}
+                    Category Status: {categoryRating.label}
                   </Badge>
                 )}
               </div>
               <p className="text-xs text-muted-foreground mt-1">
-                Cumulative Extracted Outcomes &amp; Performance Benchmarks
+                Category Outcome Performance &amp; Report Status Summary
               </p>
             </div>
             <Badge variant="outline" className="text-xs font-semibold px-3 py-1 self-start sm:self-auto">
@@ -114,25 +125,25 @@ export default function DepartmentPage({
           <CardContent className="pt-0">
             <div className="grid gap-4 sm:grid-cols-3 border-t pt-4">
               <div>
-                <div className="text-xs font-medium text-muted-foreground">Category Average Daily Outcome</div>
+                <div className="text-xs font-medium text-muted-foreground">Overall Category Outcome Status</div>
+                <div className="text-2xl font-bold tracking-tight text-foreground">
+                  {categoryRating ? categoryRating.label : "Pending Benchmarks"}
+                </div>
+                <div className="text-[11px] text-muted-foreground">Average rating across evaluated report statuses</div>
+              </div>
+              <div>
+                <div className="text-xs font-medium text-muted-foreground">Evaluated Outcome Reports</div>
                 <div className="text-2xl font-bold tracking-tight text-emerald-600 dark:text-emerald-400">
-                  {cumulativeVal > 0 ? `${cumulativeVal} Students / Day` : "—"}
+                  {evaluatedReportStatuses.length} / {data.reports.length}
                 </div>
-                <div className="text-[11px] text-muted-foreground">Average daily volume across reports</div>
+                <div className="text-[11px] text-muted-foreground">Reports with active benchmark targets</div>
               </div>
               <div>
-                <div className="text-xs font-medium text-muted-foreground">Category Benchmark Target</div>
-                <div className="text-2xl font-bold tracking-tight text-amber-600 dark:text-amber-400">
-                  {cumulativeTarget > 0 ? `${cumulativeTarget} Students / Day` : "—"}
-                </div>
-                <div className="text-[11px] text-muted-foreground">Target benchmark threshold</div>
-              </div>
-              <div>
-                <div className="text-xs font-medium text-muted-foreground">Cumulative Target Achievement</div>
+                <div className="text-xs font-medium text-muted-foreground">Category Performance Index</div>
                 <div className="text-2xl font-bold tracking-tight text-primary">
-                  {categoryAvgPct !== null ? `${categoryAvgPct}%` : "—"}
+                  {avgStatusScore !== null ? `${avgStatusScore} / 100` : "—"}
                 </div>
-                <div className="text-[11px] text-muted-foreground">Cumulative outcome performance score</div>
+                <div className="text-[11px] text-muted-foreground">Combined status performance score</div>
               </div>
             </div>
           </CardContent>

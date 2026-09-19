@@ -39,57 +39,54 @@ export interface DepartmentOutcomeSummary {
   }[];
 }
 
-function getCategoryOutcomeSummary(department: DepartmentOutcomeSummary) {
-  const evaluatedReports = department.reports.filter(
-    (r) => r.studentCount !== null && r.studentCount !== undefined && r.outcomeBenchmark?.targetBenchmark !== undefined
-  );
+function getReportStatus(
+  val: number,
+  benchmark: { exceptional?: number; good?: number; average?: number; bad?: number; terrible?: number }
+) {
+  const { exceptional, good, average, bad, terrible } = benchmark;
 
-  if (evaluatedReports.length === 0) {
-    const reportsWithValues = department.reports.filter((r) => r.studentCount !== null && r.studentCount !== undefined);
-    if (reportsWithValues.length > 0) {
-      const avgVal = Math.round(reportsWithValues.reduce((sum, r) => sum + (r.studentCount ?? 0), 0) / reportsWithValues.length);
-      return {
-        label: "Outcome Data Active",
-        badgeClass: "bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/20",
-        detailText: `Average Volume: ${avgVal} per report across category`,
-      };
-    }
+  if (exceptional !== undefined && val >= exceptional) return { key: "exceptional", label: "Exceptional", score: 100 };
+  if (good !== undefined && val >= good) return { key: "good", label: "Good Performance", score: 85 };
+  if (average !== undefined && val >= average) return { key: "average", label: "Average", score: 70 };
+  if (bad !== undefined && val >= bad) return { key: "bad", label: "Below Target", score: 50 };
+  if (terrible !== undefined && val <= terrible) return { key: "terrible", label: "Needs Improvement", score: 30 };
+
+  return null;
+}
+
+function getCategoryOutcomeSummary(department: DepartmentOutcomeSummary) {
+  const reportStatuses = department.reports
+    .map((r) => {
+      const val = r.studentCount;
+      const bench = r.outcomeBenchmark;
+      if (val === null || val === undefined || !bench) return null;
+      return getReportStatus(val, bench);
+    })
+    .filter((s): s is NonNullable<typeof s> => s !== null);
+
+  if (reportStatuses.length === 0) {
     return {
       label: "Pending Benchmarks",
       badgeClass: "bg-muted text-muted-foreground border-border",
-      detailText: "Awaiting outcome data & benchmark configuration for this category",
+      detailText: "No evaluated report outcome statuses available yet for this category",
     };
   }
 
-  let totalPct = 0;
-  let totalActual = 0;
-  let totalTarget = 0;
-
-  for (const r of evaluatedReports) {
-    const actual = r.studentCount!;
-    const target = r.outcomeBenchmark!.targetBenchmark!;
-    totalActual += actual;
-    totalTarget += target;
-    totalPct += (actual / target) * 100;
-  }
-
-  const avgPct = Math.round(totalPct / evaluatedReports.length);
-  const avgActual = Math.round(totalActual / evaluatedReports.length);
-  const avgTarget = Math.round(totalTarget / evaluatedReports.length);
+  const avgScore = Math.round(reportStatuses.reduce((sum, s) => sum + s.score, 0) / reportStatuses.length);
 
   let label = "Average";
   let badgeClass = "bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/20";
 
-  if (avgPct >= 115) {
+  if (avgScore >= 92) {
     label = "Exceptional";
     badgeClass = "bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-500/20";
-  } else if (avgPct >= 100) {
+  } else if (avgScore >= 80) {
     label = "Good Performance";
     badgeClass = "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20";
-  } else if (avgPct >= 85) {
+  } else if (avgScore >= 65) {
     label = "Average";
     badgeClass = "bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/20";
-  } else if (avgPct >= 65) {
+  } else if (avgScore >= 45) {
     label = "Below Target";
     badgeClass = "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20";
   } else {
@@ -97,10 +94,12 @@ function getCategoryOutcomeSummary(department: DepartmentOutcomeSummary) {
     badgeClass = "bg-red-500/10 text-red-700 dark:text-red-400 border-red-500/20";
   }
 
+  const statusSummaryText = reportStatuses.map((s) => s.label).join(", ");
+
   return {
     label,
     badgeClass,
-    detailText: `Category Avg Outcome: ${avgActual} vs Target: ${avgTarget} (${avgPct}% Target Achievement)`,
+    detailText: `Category Status: ${label} (Evaluated Reports: ${statusSummaryText})`,
   };
 }
 
