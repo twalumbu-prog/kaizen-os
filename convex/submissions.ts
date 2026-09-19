@@ -5,7 +5,7 @@ import type { MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { CHECKLIST_STATUS, FILE_TYPE } from "./schema";
 import { requireProfile, requireRole } from "./lib/roles";
-import { boundsForDueAt, currentPeriod, nextPeriod, periodContaining } from "./lib/periods";
+import { boundsForDueAt, currentPeriod, isExcludedDay, nextPeriod, periodContaining } from "./lib/periods";
 import type { PeriodBounds } from "./lib/periods";
 import { finalReportScore, submissionScore as computeSubmissionScore } from "./lib/scoring";
 import { getMaxPossibleScore } from "./validators/registry";
@@ -76,7 +76,7 @@ async function backfillMissingPeriods(
   let guard = 0;
 
   while (cursor.dueAt < now && guard < 366) {
-    if (!existingLabels.has(cursor.periodLabel)) {
+    if (!existingLabels.has(cursor.periodLabel) && !isExcludedDay(new Date(cursor.periodStart), template)) {
       await ctx.db.insert("submissions", {
         templateId: template._id,
         userId,
@@ -1180,28 +1180,36 @@ export const reportTimeline = query({
                 (s) => s.status === "submitted" || s.status === "late",
               );
 
-              let state: DueState;
-              if (expectedCount === 0) {
-                state = "unassigned";
-              } else if (done.length >= expectedCount) {
-                state = "complete";
-              } else if (done.length > 0) {
-                state = "partial";
-              } else if (cursor.dueAt < now) {
-                state = "overdue";
-              } else {
-                state = "upcoming";
-              }
+              const isExcluded =
+                isExcludedDay(new Date(cursor.periodStart), template) ||
+                isExcludedDay(new Date(cursor.dueAt), template);
 
-              due.push({
-                dueAt: cursor.dueAt,
-                /** UTC midnight of the due day — the timeline's column key. */
-                day: Date.parse(`${new Date(cursor.dueAt).toISOString().slice(0, 10)}T00:00:00Z`),
-                periodLabel: cursor.periodLabel,
-                state,
-                submitted: done.length,
-                expected: expectedCount,
-              });
+              if (isExcluded && done.length === 0) {
+                // Categorized as skipped with no submission — omit dot completely from timeline
+              } else {
+                let state: DueState;
+                if (expectedCount === 0) {
+                  state = "unassigned";
+                } else if (done.length >= expectedCount) {
+                  state = "complete";
+                } else if (done.length > 0) {
+                  state = "partial";
+                } else if (cursor.dueAt < now) {
+                  state = "overdue";
+                } else {
+                  state = "upcoming";
+                }
+
+                due.push({
+                  dueAt: cursor.dueAt,
+                  /** UTC midnight of the due day — the timeline's column key. */
+                  day: Date.parse(`${new Date(cursor.dueAt).toISOString().slice(0, 10)}T00:00:00Z`),
+                  periodLabel: cursor.periodLabel,
+                  state,
+                  submitted: done.length,
+                  expected: expectedCount,
+                });
+              }
             }
             cursor = nextPeriod(template, cursor);
             guard++;

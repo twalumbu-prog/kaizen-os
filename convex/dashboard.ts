@@ -2,6 +2,7 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 import { query } from "./_generated/server";
 import { requireProfile } from "./lib/roles";
+import { isExcludedDay } from "./lib/periods";
 import { statusForScore } from "./lib/scoring";
 
 const TREND_POINTS = 12;
@@ -229,11 +230,19 @@ export const reportDetail = query({
       const dept = await ctx.db.get(template.departmentId);
       if (!dept || dept.orgId !== profile.orgId) return null;
       
-      const submissions = await ctx.db
+      const allSubmissions = await ctx.db
         .query("submissions")
         .withIndex("by_templateId", (q) => q.eq("templateId", templateId))
         .order("desc")
         .take(52);
+
+      const submissions = allSubmissions.filter(
+        (s) =>
+          !(
+            (s.status === "missing" || s.status === "pending") &&
+            isExcludedDay(new Date(s.periodStart), template)
+          ),
+      );
 
       const timeline = await Promise.all(
         submissions.map(async (s) => {
