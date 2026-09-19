@@ -294,6 +294,105 @@ function ReferenceFileControl({
     </div>
   );
 }
+const DAYS_OF_WEEK = [
+  { day: 0, label: "Sunday" },
+  { day: 1, label: "Monday" },
+  { day: 2, label: "Tuesday" },
+  { day: 3, label: "Wednesday" },
+  { day: 4, label: "Thursday" },
+  { day: 5, label: "Friday" },
+  { day: 6, label: "Saturday" },
+];
+
+function ExceptionRulesCard({
+  templateId,
+  excludedDaysOfWeek = [],
+  excludedDates = [],
+}: {
+  templateId: Id<"reportTemplates">;
+  excludedDaysOfWeek?: number[];
+  excludedDates?: string[];
+}) {
+  const updateTemplate = useMutation(api.reportTemplates.update);
+  const [days, setDays] = useState<number[]>(excludedDaysOfWeek ?? []);
+  const [datesStr, setDatesStr] = useState<string>((excludedDates ?? []).join(", "));
+
+  const toggleDay = (day: number) => {
+    setDays((prev) =>
+      prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day].sort()
+    );
+  };
+
+  const handleSave = () => {
+    const dates = datesStr
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => /^\d{4}-\d{2}-\d{2}$/.test(s));
+
+    updateTemplate({
+      templateId,
+      excludedDaysOfWeek: days,
+      excludedDates: dates,
+    });
+    toast.success("Exception rules updated");
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Reporting Exceptions &amp; Excluded Days</CardTitle>
+        <CardDescription>
+          Exclude specific days of the week or dates from generating missing report alerts or requiring submissions.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        <div className="flex flex-col gap-2">
+          <Label>Excluded Days of the Week</Label>
+          <div className="flex flex-wrap gap-2">
+            {DAYS_OF_WEEK.map(({ day, label }) => {
+              const active = days.includes(day);
+              return (
+                <Button
+                  key={day}
+                  type="button"
+                  size="sm"
+                  variant={active ? "default" : "outline"}
+                  onClick={() => toggleDay(day)}
+                  className={cn("h-8 text-xs", active && "bg-destructive text-destructive-foreground hover:bg-destructive/90")}
+                >
+                  {label}
+                </Button>
+              );
+            })}
+          </div>
+          <p className="text-xs text-muted-foreground mt-1">
+            {days.length > 0
+              ? `Excluded: ${days.map((d) => DAYS_OF_WEEK.find((w) => w.day === d)?.label).join(", ")}`
+              : "No days excluded — reports are expected every calendar period."}
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <Label>Excluded Dates (Holidays / Public Closures)</Label>
+          <Input
+            placeholder="YYYY-MM-DD, e.g. 2026-12-25, 2026-01-01"
+            value={datesStr}
+            onChange={(e) => setDatesStr(e.target.value)}
+          />
+          <p className="text-xs text-muted-foreground">
+            Comma-separated ISO dates (YYYY-MM-DD) that should be skipped.
+          </p>
+        </div>
+
+        <div>
+          <Button size="sm" onClick={handleSave}>
+            Save Exception Rules
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 export default function ReportConfigPage({
   params,
@@ -492,6 +591,12 @@ export default function ReportConfigPage({
         {template.cadence === "cycle" && template.cycle && (
           <CycleSettingsCard templateId={templateId} cycle={template.cycle} />
         )}
+
+        <ExceptionRulesCard
+          templateId={templateId}
+          excludedDaysOfWeek={template.excludedDaysOfWeek}
+          excludedDates={template.excludedDates}
+        />
 
         <Card>
           <CardHeader>

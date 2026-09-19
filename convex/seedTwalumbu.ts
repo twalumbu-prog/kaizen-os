@@ -59,6 +59,8 @@ interface ReportSpec {
   cadence: Cadence;
   cycle?: CycleConfig;
   sharingMode?: "individual" | "shared";
+  excludedDaysOfWeek?: number[];
+  excludedDates?: string[];
   /** Defaults to documentSubmission. */
   validatorKey?: string;
   /** Defaults to the document rules. */
@@ -197,6 +199,7 @@ const PLAN: DepartmentSpec[] = [
         name: "Canteen Daily Sales Report",
         cadence: "daily",
         sharingMode: "shared",
+        excludedDaysOfWeek: [0, 1, 6], // Saturday, Sunday, Monday excluded
         validatorKey: "canteenSalesRecon",
         validationRules: CANTEEN_RECON_RULES,
         files: [
@@ -208,11 +211,13 @@ const PLAN: DepartmentSpec[] = [
       {
         name: "Canteen Inventory Stock Usage Report",
         cadence: "daily",
+        excludedDaysOfWeek: [0, 1, 6], // Saturday, Sunday, Monday excluded
         files: [{ label: "Inventory Stock Usage Report" }],
       },
       {
         name: "Canteen Daily Cost Per Plate Valuation Report",
         cadence: "daily",
+        excludedDaysOfWeek: [0, 1, 6], // Saturday, Sunday, Monday excluded
         files: [{ label: "Cost Per Plate Valuation" }],
       },
     ],
@@ -276,6 +281,8 @@ export const seedReports = internalMutation({
           cadence: report.cadence,
           ...(report.cycle ? { cycle: report.cycle } : {}),
           ...(report.sharingMode ? { sharingMode: report.sharingMode } : {}),
+          ...(report.excludedDaysOfWeek ? { excludedDaysOfWeek: report.excludedDaysOfWeek } : {}),
+          ...(report.excludedDates ? { excludedDates: report.excludedDates } : {}),
           validatorKey: report.validatorKey ?? "documentSubmission",
           weight: 1,
           requiredFiles: report.files.map((f) => ({

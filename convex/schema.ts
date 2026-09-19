@@ -129,6 +129,13 @@ export default defineSchema({
     sharingMode: v.optional(v.union(v.literal("individual"), v.literal("shared"))),
     /** Admin-entered opening balance for the first-ever period, when there's no prior period to roll forward from. */
     startingBalance: v.optional(v.number()),
+    /**
+     * Days of the week (0 = Sunday, 1 = Monday ... 6 = Saturday) on which reporting is excluded.
+     * e.g. [0, 1, 6] for Sunday, Monday, Saturday.
+     */
+    excludedDaysOfWeek: v.optional(v.array(v.number())),
+    /** Explicit YYYY-MM-DD date strings to exclude from reporting (e.g. holidays). */
+    excludedDates: v.optional(v.array(v.string())),
     requiredFiles: v.array(
       v.object({
         label: v.string(),

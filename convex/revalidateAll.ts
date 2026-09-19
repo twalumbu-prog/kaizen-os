@@ -41,20 +41,47 @@ export const run = internalAction({
   },
 });
 
+import { isExcludedDay } from "./lib/periods";
+
 export const fixSharedTemplatesAndDups = internalMutation({
   args: {},
   handler: async (ctx) => {
     const templates = await ctx.db.query("reportTemplates").collect();
     let updatedTemplates = 0;
     for (const t of templates) {
-      if (
+      const isCanteen =
         t.validatorKey === "canteenSalesRecon" ||
-        t.name.toLowerCase().includes("canteen daily sales") ||
-        t.name.toLowerCase().includes("statutory return")
-      ) {
-        if (t.sharingMode !== "shared") {
-          await ctx.db.patch(t._id, { sharingMode: "shared" });
-          updatedTemplates++;
+        t.name.toLowerCase().includes("canteen");
+      const isStatutory = t.name.toLowerCase().includes("statutory return");
+
+      let patch: Record<string, any> = {};
+      if ((isCanteen || isStatutory) && t.sharingMode !== "shared") {
+        patch.sharingMode = "shared";
+      }
+      if (isCanteen && (!t.excludedDaysOfWeek || t.excludedDaysOfWeek.length === 0)) {
+        patch.excludedDaysOfWeek = [0, 1, 6]; // Sunday, Monday, Saturday
+      }
+
+      if (Object.keys(patch).length > 0) {
+        await ctx.db.patch(t._id, patch);
+        updatedTemplates++;
+      }
+    }
+
+    // Purge missing/pending submission rows that land on excluded days
+    let purgedExcludedRows = 0;
+    const allTemplates = await ctx.db.query("reportTemplates").collect();
+    for (const t of allTemplates) {
+      if (t.excludedDaysOfWeek?.length || t.excludedDates?.length) {
+        const subs = await ctx.db
+          .query("submissions")
+          .withIndex("by_templateId", (q) => q.eq("templateId", t._id))
+          .collect();
+        for (const s of subs) {
+          if ((s.status === "missing" || s.status === "pending") && isExcludedDay(new Date(s.periodStart), t)) {
+            await ctx.db.delete(s._id);
+            purgedExcludedRows++;
+          }
         }
       }
     }
@@ -125,7 +152,7 @@ export const fixSharedTemplatesAndDups = internalMutation({
       }
     }
 
-    return { updatedTemplates, removedDups };
+    return { updatedTemplates, purgedExcludedRows, removedDups };
   },
 });
 
@@ -133,7 +160,7 @@ export const revalidateAllSubmissions = action({
   args: {},
   handler: async (ctx: ActionCtx): Promise<string> => {
     const cleanupRes = await ctx.runMutation(internal.revalidateAll.fixSharedTemplatesAndDups, {});
-    console.log(`[RevalidateAll] Cleanup finished: updated ${cleanupRes.updatedTemplates} templates, removed ${cleanupRes.removedDups} duplicate submissions.`);
+    console.log(`[RevalidateAll] Cleanup finished: updated ${cleanupRes.updatedTemplates} templates, purged ${cleanupRes.purgedExcludedRows} excluded-day rows, removed ${cleanupRes.removedDups} duplicate submissions.`);
 
     const ids = (await ctx.runQuery(internal.revalidateAll.getAllSubmissionIds, {})) as Id<"submissions">[];
     console.log(`[RevalidateAll] Revalidating and extracting data for ${ids.length} submissions...`);
@@ -146,7 +173,7 @@ export const revalidateAllSubmissions = action({
         console.error(`[RevalidateAll] Error processing submission ${id}:`, err);
       }
     }
-    return `Cleaned ${cleanupRes.removedDups} dups & updated ${cleanupRes.updatedTemplates} templates. Successfully revalidated and extracted data for ${count} of ${ids.length} submissions.`;
+    return `Cleaned ${cleanupRes.removedDups} dups, purged ${cleanupRes.purgedExcludedRows} excluded rows & updated ${cleanupRes.updatedTemplates} templates. Successfully revalidated and extracted data for ${count} of ${ids.length} submissions.`;
   },
 });
 

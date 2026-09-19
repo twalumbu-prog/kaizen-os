@@ -236,3 +236,51 @@ describe("boundsForDueAt", () => {
     expect(recovered.periodLabel).toBe(original.periodLabel);
   });
 });
+
+describe("excluded days of week and exception rules (e.g. Canteen Sat/Sun/Mon exclusion)", () => {
+  const canteenSchedule = {
+    cadence: "daily" as const,
+    excludedDaysOfWeek: [0, 1, 6], // Sunday (0), Monday (1), Saturday (6) excluded
+  };
+
+  it("snaps a weekend or Monday timestamp back to the preceding Friday", () => {
+    // Friday 2026-09-18
+    const fri = periodContaining(canteenSchedule, Date.parse("2026-09-18T10:00:00Z"));
+    expect(fri.periodLabel).toBe("2026-09-18");
+
+    // Saturday 2026-09-19 -> snaps back to Friday
+    const sat = periodContaining(canteenSchedule, Date.parse("2026-09-19T10:00:00Z"));
+    expect(sat.periodLabel).toBe("2026-09-18");
+
+    // Sunday 2026-09-20 -> snaps back to Friday
+    const sun = periodContaining(canteenSchedule, Date.parse("2026-09-20T10:00:00Z"));
+    expect(sun.periodLabel).toBe("2026-09-18");
+
+    // Monday 2026-09-21 -> snaps back to Friday
+    const mon = periodContaining(canteenSchedule, Date.parse("2026-09-21T10:00:00Z"));
+    expect(mon.periodLabel).toBe("2026-09-18");
+  });
+
+  it("makes Friday's report due on Tuesday (the next operational day)", () => {
+    const fri = periodContaining(canteenSchedule, Date.parse("2026-09-18T10:00:00Z"));
+    const due = new Date(fri.dueAt);
+    expect(due.getUTCDay()).toBe(2); // Tuesday
+    expect(due.toISOString().slice(0, 10)).toBe("2026-09-22");
+  });
+
+  it("steps Friday directly to Tuesday with nextPeriod", () => {
+    const fri = periodContaining(canteenSchedule, Date.parse("2026-09-18T10:00:00Z"));
+    const next = nextPeriod(canteenSchedule, fri);
+    expect(next.periodLabel).toBe("2026-09-22"); // Tuesday
+  });
+
+  it("skips custom excluded holiday dates", () => {
+    const holidaySchedule = {
+      cadence: "daily" as const,
+      excludedDates: ["2026-12-25"],
+    };
+    const dec24 = periodContaining(holidaySchedule, Date.parse("2026-12-24T10:00:00Z"));
+    const next = nextPeriod(holidaySchedule, dec24);
+    expect(next.periodLabel).toBe("2026-12-26");
+  });
+});

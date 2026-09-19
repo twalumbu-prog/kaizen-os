@@ -22,19 +22,17 @@ export interface CycleConfig {
   label?: string;
 }
 
-/** What a report's periods are driven by. A bare cadence string is also accepted. */
 export interface Schedule {
   cadence: Cadence;
   cycle?: CycleConfig | null;
-  /**
-   * Monthly only: the day of the following month the report falls due, instead
-   * of the 1st. For statutory filings whose own payment deadline is later in
-   * the month (e.g. ZRA/NAPSA/NHIMA are due the 5th) — due on the 1st would
-   * make the report impossible to submit on time, since the thing it's
-   * evidence of hasn't happened yet. Clamped to the following month's last
-   * day if it doesn't have that many days. Defaults to 1.
-   */
   dueDayOfMonth?: number | null;
+  /**
+   * Days of the week (0 = Sunday, 1 = Monday ... 6 = Saturday) on which reporting is excluded.
+   * e.g. [0, 1, 6] for Sunday, Monday, Saturday.
+   */
+  excludedDaysOfWeek?: number[] | null;
+  /** Explicit YYYY-MM-DD date strings to exclude from reporting (e.g. holidays). */
+  excludedDates?: string[] | null;
 }
 
 export type ScheduleInput = Cadence | Schedule;
@@ -78,6 +76,43 @@ function atDueHour(date: Date): Date {
 function isWeekend(date: Date): boolean {
   const day = date.getUTCDay();
   return day === 0 || day === 6;
+}
+
+export function isExcludedDay(date: Date, schedule: Schedule): boolean {
+  const day = date.getUTCDay();
+  if (schedule.cadence === "weekday" && (day === 0 || day === 6)) {
+    return true;
+  }
+  if (schedule.excludedDaysOfWeek && schedule.excludedDaysOfWeek.includes(day)) {
+    return true;
+  }
+  if (schedule.excludedDates && schedule.excludedDates.length > 0) {
+    const iso = date.toISOString().slice(0, 10);
+    if (schedule.excludedDates.includes(iso)) return true;
+  }
+  return false;
+}
+
+/** Snap back from `date` to the most recent non-excluded day. */
+function snapBackToValidDay(date: Date, schedule: Schedule): Date {
+  const d = startOfUTCDay(date);
+  let guard = 0;
+  while (isExcludedDay(d, schedule) && guard < 366) {
+    d.setUTCDate(d.getUTCDate() - 1);
+    guard++;
+  }
+  return d;
+}
+
+/** Step forward from `date` to the next non-excluded day. */
+function nextValidDay(date: Date, schedule: Schedule): Date {
+  const d = startOfUTCDay(date);
+  let guard = 0;
+  do {
+    d.setUTCDate(d.getUTCDate() + 1);
+    guard++;
+  } while (isExcludedDay(d, schedule) && guard < 366);
+  return d;
 }
 
 /** The most recent Monday–Friday on or before `date`. */
@@ -173,8 +208,9 @@ function cycleBounds(cycle: CycleConfig, index: number): PeriodBounds {
 
 // ─── Period construction ──────────────────────────────────────────────────────
 
-function periodStartFor(cadence: Cadence, date: Date): Date {
-  if (cadence === "daily") return startOfUTCDay(date);
+function periodStartFor(schedule: Schedule, date: Date): Date {
+  const { cadence } = schedule;
+  if (cadence === "daily") return snapBackToValidDay(date, schedule);
   if (cadence === "weekday") return snapBackToWeekday(date);
   if (cadence === "weekly") return weekStart(date);
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
@@ -195,8 +231,7 @@ function boundsFromStart(schedule: Schedule, start: Date): PeriodBounds {
   if (cadence === "daily") {
     end = endOfUTCDay(start);
     periodLabel = start.toISOString().slice(0, 10);
-    due = new Date(start);
-    due.setUTCDate(due.getUTCDate() + 1);
+    due = nextValidDay(start, schedule);
   } else if (cadence === "weekday") {
     end = endOfUTCDay(start);
     periodLabel = start.toISOString().slice(0, 10);
@@ -241,7 +276,7 @@ export function periodContaining(schedule: ScheduleInput, timestamp: number): Pe
     const cycle = requireCycle(normalized);
     return cycleBounds(cycle, cycleIndexAt(cycle, timestamp));
   }
-  return boundsFromStart(normalized, periodStartFor(normalized.cadence, new Date(timestamp)));
+  return boundsFromStart(normalized, periodStartFor(normalized, new Date(timestamp)));
 }
 
 /** The period immediately following `bounds`. */
@@ -261,8 +296,7 @@ export function nextPeriod(schedule: ScheduleInput, bounds: PeriodBounds): Perio
   let nextStart: Date;
 
   if (cadence === "daily") {
-    nextStart = new Date(start);
-    nextStart.setUTCDate(nextStart.getUTCDate() + 1);
+    nextStart = nextValidDay(start, normalized);
   } else if (cadence === "weekday") {
     nextStart = nextWeekday(start);
   } else if (cadence === "weekly") {
