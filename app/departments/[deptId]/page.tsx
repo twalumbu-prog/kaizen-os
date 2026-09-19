@@ -62,24 +62,80 @@ export default function DepartmentPage({
     );
   }
 
+  // Cumulative Outcome Summary for Department
+  const reportsWithBench = data.reports.filter(
+    (r) => (r as any).avgStudentCount !== null && (r as any).avgStudentCount !== undefined && r.template.outcomeBenchmark?.targetBenchmark !== undefined
+  );
+
+  let cumulativeVal = 0;
+  let cumulativeTarget = 0;
+  let totalPct = 0;
+
+  for (const r of reportsWithBench) {
+    const avgVal = (r as any).avgStudentCount as number;
+    const target = r.template.outcomeBenchmark!.targetBenchmark!;
+    cumulativeVal += avgVal;
+    cumulativeTarget += target;
+    totalPct += (avgVal / target) * 100;
+  }
+
+  const categoryAvgPct = reportsWithBench.length > 0 ? Math.round(totalPct / reportsWithBench.length) : null;
+  const categoryRating = categoryAvgPct !== null ? (() => {
+    if (categoryAvgPct >= 115) return { label: "Exceptional", badgeClass: "bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-500/20" };
+    if (categoryAvgPct >= 100) return { label: "Good Performance", badgeClass: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20" };
+    if (categoryAvgPct >= 85) return { label: "Average", badgeClass: "bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/20" };
+    if (categoryAvgPct >= 65) return { label: "Below Target", badgeClass: "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20" };
+    return { label: "Needs Improvement", badgeClass: "bg-red-500/10 text-red-700 dark:text-red-400 border-red-500/20" };
+  })() : null;
+
   return (
     <AppShell>
       <div className="flex flex-col gap-6">
         {/* Header Summary */}
         <Card className="border">
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <div>
+          <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between pb-3">
+            <div>
+              <div className="flex items-center gap-3">
                 <CardTitle className="text-xl">{data.department.name} Department</CardTitle>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Key Outcomes &amp; Extracted Performance Reports
-                </p>
+                {categoryRating && (
+                  <Badge variant="outline" className={`font-medium text-xs px-2.5 py-0.5 ${categoryRating.badgeClass}`}>
+                    Cumulative Rating: {categoryRating.label}
+                  </Badge>
+                )}
               </div>
-              <Badge variant="outline" className="text-xs font-semibold px-3 py-1">
-                {data.reports.length} Outcome {data.reports.length === 1 ? "Report" : "Reports"}
-              </Badge>
+              <p className="text-xs text-muted-foreground mt-1">
+                Cumulative Extracted Outcomes &amp; Performance Benchmarks
+              </p>
             </div>
+            <Badge variant="outline" className="text-xs font-semibold px-3 py-1 self-start sm:self-auto">
+              {data.reports.length} Outcome {data.reports.length === 1 ? "Report" : "Reports"}
+            </Badge>
           </CardHeader>
+          <CardContent className="pt-0">
+            <div className="grid gap-4 sm:grid-cols-3 border-t pt-4">
+              <div>
+                <div className="text-xs font-medium text-muted-foreground">Category Average Daily Outcome</div>
+                <div className="text-2xl font-bold tracking-tight text-emerald-600 dark:text-emerald-400">
+                  {cumulativeVal > 0 ? `${cumulativeVal} Students / Day` : "—"}
+                </div>
+                <div className="text-[11px] text-muted-foreground">Average daily volume across reports</div>
+              </div>
+              <div>
+                <div className="text-xs font-medium text-muted-foreground">Category Benchmark Target</div>
+                <div className="text-2xl font-bold tracking-tight text-amber-600 dark:text-amber-400">
+                  {cumulativeTarget > 0 ? `${cumulativeTarget} Students / Day` : "—"}
+                </div>
+                <div className="text-[11px] text-muted-foreground">Target benchmark threshold</div>
+              </div>
+              <div>
+                <div className="text-xs font-medium text-muted-foreground">Cumulative Target Achievement</div>
+                <div className="text-2xl font-bold tracking-tight text-primary">
+                  {categoryAvgPct !== null ? `${categoryAvgPct}%` : "—"}
+                </div>
+                <div className="text-[11px] text-muted-foreground">Cumulative outcome performance score</div>
+              </div>
+            </div>
+          </CardContent>
         </Card>
 
         {/* Outcome Reports List View */}
