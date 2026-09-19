@@ -92,7 +92,7 @@ export const manualSubmit = internalAction({
   args: { orgId: v.id("organizations") },
   handler: async (ctx, { orgId }) => {
     const targets = await ctx.runQuery(internal.adReports.findTargets, {});
-    const target = targets.find((t) => t.orgId === orgId);
+    const target = targets.find((t: any) => t.orgId === orgId);
     if (!target) throw new Error("No adPerformance template + active Meta integration found for this org.");
     await submitForTarget(ctx, target);
   },

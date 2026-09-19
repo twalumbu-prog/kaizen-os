@@ -1,4 +1,4 @@
-import { internalAction, internalMutation, internalQuery } from "./_generated/server";
+import { action, internalAction, internalMutation, internalQuery } from "./_generated/server";
 import type { ActionCtx } from "./_generated/server";
 import { extractAccountRows } from "./lib/qbExtract";
 
@@ -38,6 +38,24 @@ export const run = internalAction({
     for (const id of ids) {
       await ctx.runAction(internal.validationRunner.runValidation, { submissionId: id });
     }
+  },
+});
+
+export const revalidateAllSubmissions = action({
+  args: {},
+  handler: async (ctx: ActionCtx): Promise<string> => {
+    const ids = (await ctx.runQuery(internal.revalidateAll.getAllSubmissionIds, {})) as Id<"submissions">[];
+    console.log(`[RevalidateAll] Revalidating and extracting data for ${ids.length} submissions...`);
+    let count = 0;
+    for (const id of ids) {
+      try {
+        await ctx.runAction(internal.validationRunner.runValidation, { submissionId: id });
+        count++;
+      } catch (err) {
+        console.error(`[RevalidateAll] Error processing submission ${id}:`, err);
+      }
+    }
+    return `Successfully revalidated and extracted data for ${count} of ${ids.length} submissions.`;
   },
 });
 

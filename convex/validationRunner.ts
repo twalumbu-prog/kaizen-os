@@ -93,6 +93,7 @@ export const runValidation = internalAction({
       const buffer = await response.arrayBuffer();
 
       if (reviewsRawDocument) {
+        const fileSizeKb = (buffer.byteLength / 1024).toFixed(1);
         parsedFiles.push({
           label: file.label,
           fileType: file.fileType,
@@ -102,6 +103,17 @@ export const runValidation = internalAction({
             mimeType: MIME_TYPES[file.fileType] ?? "application/octet-stream",
             fileName: file.fileName,
             byteLength: buffer.byteLength,
+          },
+        });
+        extractedUpdates.push({
+          fileId: file._id,
+          extracted: {
+            transactionCount: 0,
+            metadata: {
+              fileName: file.fileName,
+              fileType: file.fileType.toUpperCase(),
+              fileSize: `${fileSizeKb} KB`,
+            },
           },
         });
         console.log(`[ValidationRunner] Attached ${file.label} for document review (${buffer.byteLength} bytes).`);
@@ -125,10 +137,6 @@ export const runValidation = internalAction({
       console.log(`[ValidationRunner] Successfully parsed ${file.label}.`);
     }
 
-    if (extractedUpdates.length > 0) {
-      await ctx.runMutation(internal.submissions.saveExtractedFileData, { updates: extractedUpdates });
-    }
-
     console.log(`[ValidationRunner] All files parsed. Initializing validator: ${template.validatorKey}`);
     const context: ValidationContext = {
       periodStart: submission.periodStart,
@@ -136,7 +144,7 @@ export const runValidation = internalAction({
       expectedOpeningBalance,
       templateName: template.name,
       periodLabel: submission.periodLabel,
-      requiredFiles: template.requiredFiles.map((f) => ({ label: f.label, required: f.required })),
+      requiredFiles: template.requiredFiles.map((f: { label: string; required: boolean }) => ({ label: f.label, required: f.required })),
       ai: reviewsRawDocument ? await loadAiConfig(ctx, orgId) : undefined,
     };
 
@@ -144,6 +152,18 @@ export const runValidation = internalAction({
     const validator = getValidator(template.validatorKey);
     const result = await validator(parsedFiles, template.validationRules, context);
     console.log(`[ValidationRunner] Validation complete! Score: ${result.score}%`);
+
+    if (reviewsRawDocument && result.summary) {
+      for (const update of extractedUpdates) {
+        if (update.extracted.metadata) {
+          update.extracted.metadata.aiReview = result.summary;
+        }
+      }
+    }
+
+    if (extractedUpdates.length > 0) {
+      await ctx.runMutation(internal.submissions.saveExtractedFileData, { updates: extractedUpdates });
+    }
 
     await ctx.runMutation(internal.submissions.saveValidationResult, {
       submissionId,
