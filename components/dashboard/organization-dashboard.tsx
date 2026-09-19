@@ -7,7 +7,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { StatusBadge } from "@/components/dashboard/status-badge";
 import { TrendSparkline } from "@/components/dashboard/trend-sparkline";
-import { LeadingMeasuresCard } from "@/components/dashboard/leading-measures-card";
+import { LeadingMeasuresList } from "@/components/dashboard/leading-measures-card";
 import { KeyOutcomesCard } from "@/components/dashboard/key-outcomes-card";
 import { KeyOutcomesList } from "@/components/dashboard/key-outcomes-list";
 import { WorkCalendar } from "@/components/calendar/work-calendar";
@@ -81,26 +81,13 @@ export function OrganizationDashboard({ orgId }: { orgId: Id<"organizations"> })
 
         <TabsContent value="leading" className="space-y-4">
           <div className="rounded-md border bg-muted/30 px-4 py-3 text-xs text-muted-foreground">
-            <span className="font-semibold text-foreground">Leading Measures:</span> Tracks submission expectations, timeliness, and whether report requirements are submitted on time or missing. Arranged by department.
+            <span className="font-semibold text-foreground">Leading Measures:</span> Tracks submission expectations, timeliness, and compliance across departments in a list format.
           </div>
 
           {data.departments.length === 0 ? (
             <p className="text-sm text-muted-foreground">No departments yet.</p>
           ) : (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {data.departments.map((d) => (
-                <LeadingMeasuresCard
-                  key={d.department._id}
-                  department={d.department}
-                  submissionRate={d.submissionRate}
-                  submittedCount={d.submittedCount ?? 0}
-                  lateCount={d.lateCount}
-                  missingCount={d.missingCount}
-                  pendingCount={d.pendingCount ?? 0}
-                  reports={d.reports ?? []}
-                />
-              ))}
-            </div>
+            <LeadingMeasuresList departments={data.departments} />
           )}
         </TabsContent>
 

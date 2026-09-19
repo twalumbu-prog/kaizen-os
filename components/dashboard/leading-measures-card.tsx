@@ -1,9 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Clock, AlertTriangle, XCircle, CheckCircle2, FileText, ChevronRight } from "lucide-react";
+import { StatusBadge } from "@/components/dashboard/status-badge";
+import { TrendSparkline } from "@/components/dashboard/trend-sparkline";
+import { Button } from "@/components/ui/button";
+import { ChevronRight } from "lucide-react";
 import type { Doc } from "@/convex/_generated/dataModel";
 
 export interface ReportStatusSummary {
@@ -18,120 +21,58 @@ export interface ReportStatusSummary {
   qualityScore?: number | null;
 }
 
-export function LeadingMeasuresCard({
-  department,
-  submissionRate,
-  submittedCount,
-  lateCount,
-  missingCount,
-  pendingCount,
-  reports,
-}: {
+export interface DepartmentLeadingSummary {
   department: Doc<"departments">;
   submissionRate: number;
   submittedCount: number;
   lateCount: number;
   missingCount: number;
   pendingCount: number;
-  reports: ReportStatusSummary[];
-}) {
+  hasData?: boolean;
+  healthScore: number;
+  trend: { periodLabel: string; score: number }[];
+}
+
+export function LeadingMeasuresList({ departments }: { departments: DepartmentLeadingSummary[] }) {
   return (
-    <Card className="flex flex-col justify-between transition-all hover:shadow-md border">
-      <div>
-        <CardHeader className="flex flex-row items-start justify-between gap-2 pb-3">
-          <div>
-            <CardTitle className="text-base font-semibold">{department.name}</CardTitle>
-            <CardDescription className="text-xs">
-              {reports.length} expected report{reports.length === 1 ? "" : "s"}
-            </CardDescription>
-          </div>
-          <Badge
-            variant={submissionRate >= 80 ? "default" : submissionRate >= 50 ? "outline" : "destructive"}
-            className="text-xs"
-          >
-            {submissionRate}% Compliance
-          </Badge>
-        </CardHeader>
-
-        <CardContent className="space-y-4">
-          {/* Summary Stat Grid */}
-          <div className="grid grid-cols-4 gap-2 rounded-lg bg-muted/50 p-2 text-center text-xs">
-            <div>
-              <div className="text-muted-foreground">Submitted</div>
-              <div className="font-semibold text-green-600 dark:text-green-400">{submittedCount}</div>
-            </div>
-            <div>
-              <div className="text-muted-foreground">Late</div>
-              <div className="font-semibold text-amber-600 dark:text-amber-400">{lateCount}</div>
-            </div>
-            <div>
-              <div className="text-muted-foreground">Missing</div>
-              <div className="font-semibold text-red-600 dark:text-red-400">{missingCount}</div>
-            </div>
-            <div>
-              <div className="text-muted-foreground">Pending</div>
-              <div className="font-semibold text-blue-600 dark:text-blue-400">{pendingCount}</div>
-            </div>
-          </div>
-
-          {/* Submission Expectations List */}
-          <div className="space-y-2">
-            <div className="text-xs font-medium text-muted-foreground">Submission Expectations & Status</div>
-            {reports.length === 0 ? (
-              <p className="text-xs text-muted-foreground italic">No required reports set up.</p>
-            ) : (
-              <div className="divide-y rounded-md border text-xs">
-                {reports.slice(0, 5).map((r) => (
-                  <div key={r._id} className="flex items-center justify-between px-3 py-2">
-                    <div className="flex items-center gap-2 truncate pr-2">
-                      <FileText className="size-3.5 shrink-0 text-muted-foreground" />
-                      <span className="truncate font-medium">{r.name}</span>
-                      <span className="text-[10px] text-muted-foreground capitalize">({r.cadence})</span>
-                    </div>
-
-                    <div>
-                      {r.latestStatus === "submitted" && (
-                        <span className="inline-flex items-center gap-1 rounded bg-green-50 px-1.5 py-0.5 text-[11px] font-medium text-green-700 dark:bg-green-950 dark:text-green-300">
-                          <CheckCircle2 className="size-3" /> Submitted
-                        </span>
-                      )}
-                      {r.latestStatus === "late" && (
-                        <span className="inline-flex items-center gap-1 rounded bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-300">
-                          <AlertTriangle className="size-3" /> Submitted Late
-                        </span>
-                      )}
-                      {r.latestStatus === "missing" && (
-                        <span className="inline-flex items-center gap-1 rounded bg-red-50 px-1.5 py-0.5 text-[11px] font-medium text-red-700 dark:bg-red-950 dark:text-red-300">
-                          <XCircle className="size-3" /> Missing
-                        </span>
-                      )}
-                      {r.latestStatus === "pending" && (
-                        <span className="inline-flex items-center gap-1 rounded bg-blue-50 px-1.5 py-0.5 text-[11px] font-medium text-blue-700 dark:bg-blue-950 dark:text-blue-300">
-                          <Clock className="size-3" /> Pending
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                ))}
-                {reports.length > 5 && (
-                  <div className="px-3 py-1.5 text-center text-[11px] text-muted-foreground">
-                    +{reports.length - 5} more report requirements
-                  </div>
-                )}
+    <div className="flex flex-col gap-4">
+      {departments.map((d) => (
+        <Card key={d.department._id} className="transition-all hover:shadow-sm border">
+          <CardHeader className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center gap-3">
+                <CardTitle className="text-base font-semibold">{d.department.name}</CardTitle>
+                <Badge
+                  variant={d.submissionRate >= 80 ? "default" : d.submissionRate >= 50 ? "outline" : "destructive"}
+                  className="text-xs font-medium"
+                >
+                  {d.submissionRate}% Compliance
+                </Badge>
               </div>
-            )}
-          </div>
-        </CardContent>
-      </div>
-
-      <div className="p-4 pt-0">
-        <Link
-          href={`/departments/${department._id}`}
-          className="inline-flex w-full items-center justify-center gap-1 text-xs font-medium text-primary hover:underline pt-2 border-t"
-        >
-          View Department Submissions <ChevronRight className="size-3" />
-        </Link>
-      </div>
-    </Card>
+              <div className="flex flex-wrap items-center gap-2.5 text-xs text-muted-foreground">
+                <span className="text-green-600 dark:text-green-400 font-medium">{d.submittedCount} Submitted</span>
+                <span>•</span>
+                <span className="text-amber-600 dark:text-amber-400 font-medium">{d.lateCount} Late</span>
+                <span>•</span>
+                <span className="text-red-600 dark:text-red-400 font-medium">{d.missingCount} Missing</span>
+                <span>•</span>
+                <span className="text-blue-600 dark:text-blue-400 font-medium">{d.pendingCount} Pending</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-4">
+              <div className="hidden h-10 w-28 sm:block">
+                <TrendSparkline data={d.trend} height={40} />
+              </div>
+              <StatusBadge score={d.healthScore} hasData={d.hasData} />
+              <Link href={`/departments/${d.department._id}`}>
+                <Button variant="outline" size="sm">
+                  View Department Submissions <ChevronRight className="ml-1 size-3.5" />
+                </Button>
+              </Link>
+            </div>
+          </CardHeader>
+        </Card>
+      ))}
+    </div>
   );
 }
