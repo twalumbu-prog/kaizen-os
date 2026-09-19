@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { CHECKLIST_STATUS, FILE_TYPE } from "./schema";
@@ -552,6 +552,14 @@ export const saveExtractedFileData = internalMutation({
     for (const { fileId, extracted } of updates) {
       await ctx.db.patch(fileId, { extracted });
     }
+  },
+});
+
+export const revalidateSubmission = action({
+  args: { submissionId: v.id("submissions") },
+  handler: async (ctx, { submissionId }) => {
+    await ctx.runAction(internal.validationRunner.runValidation, { submissionId });
+    return true;
   },
 });
 

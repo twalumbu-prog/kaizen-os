@@ -1,9 +1,9 @@
 "use client";
 
-import { useQuery, useMutation } from "convex/react";
+import { useQuery, useMutation, useAction } from "convex/react";
 import { Fragment, use, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { ArrowLeft, CheckCircle2, XCircle, AlertTriangle, FileText, Upload, Loader2, Trash2, UserCog, ExternalLink } from "lucide-react";
+import { ArrowLeft, CheckCircle2, XCircle, AlertTriangle, FileText, Upload, Loader2, Trash2, UserCog, ExternalLink, RefreshCw } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { AppShell } from "@/components/layout/app-shell";
@@ -236,18 +236,38 @@ function ExtractedData({ extracted }: { extracted: ExtractedFileData }) {
 
 /** "Open" on a file — a modal with the document itself on one tab and whatever was extracted from it on the other. */
 function FileViewerDialog({
+  submissionId,
   fileName,
   label,
   fileType,
   url,
   extracted,
 }: {
+  submissionId?: Id<"submissions">;
   fileName: string;
   label: string;
   fileType: string;
   url: string | null;
   extracted?: ExtractedFileData;
 }) {
+  const revalidate = useAction(api.submissions.revalidateSubmission);
+  const [isExtracting, setIsExtracting] = useState(false);
+
+  async function handleExtract() {
+    if (!submissionId) return;
+    try {
+      setIsExtracting(true);
+      toast.loading("Processing document & extracting data from storage...", { id: "extract" });
+      await revalidate({ submissionId });
+      toast.success("Data extracted successfully!", { id: "extract" });
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to extract data.", { id: "extract" });
+    } finally {
+      setIsExtracting(false);
+    }
+  }
+
   return (
     <Dialog>
       <DialogTrigger render={<Button variant="outline" size="sm" />}>Open</DialogTrigger>
@@ -272,10 +292,30 @@ function FileViewerDialog({
             {extracted ? (
               <ExtractedData extracted={extracted} />
             ) : (
-              <p className="py-12 text-center text-sm text-muted-foreground">
-                Nothing extracted yet — this appears once validation has run on this file.
-                Re-uploading it will trigger that.
-              </p>
+              <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
+                <p className="text-sm text-muted-foreground">
+                  Data has not been extracted from this file yet.
+                </p>
+                {submissionId && (
+                  <Button
+                    size="sm"
+                    disabled={isExtracting}
+                    onClick={handleExtract}
+                  >
+                    {isExtracting ? (
+                      <>
+                        <Loader2 className="mr-2 size-4 animate-spin" />
+                        Processing Document…
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="mr-2 size-4" />
+                        Extract Data From Document Now
+                      </>
+                    )}
+                  </Button>
+                )}
+              </div>
             )}
           </TabsContent>
         </Tabs>
@@ -451,6 +491,32 @@ export default function SubmissionDetailPage({
   }
 
   const { submission, template, employeeName, files, validationResult, checklist } = data;
+  const revalidateSubmission = useAction(api.submissions.revalidateSubmission);
+  const [autoRevalidated, setAutoRevalidated] = useState(false);
+  const [isProcessingStorage, setIsProcessingStorage] = useState(false);
+
+  useEffect(() => {
+    if (!submission || !files || autoRevalidated) return;
+    const needsExtraction = files.some((f) => !f.extracted);
+    if (needsExtraction && (submission.status === "submitted" || submission.status === "late")) {
+      setAutoRevalidated(true);
+      revalidateSubmission({ submissionId }).catch(console.error);
+    }
+  }, [submission, files, submissionId, autoRevalidated, revalidateSubmission]);
+
+  async function handleReprocessStorage() {
+    try {
+      setIsProcessingStorage(true);
+      toast.loading("Processing stored files & extracting data...", { id: "reprocess-storage" });
+      await revalidateSubmission({ submissionId });
+      toast.success("Files processed & data extracted from storage!", { id: "reprocess-storage" });
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to process files from storage.", { id: "reprocess-storage" });
+    } finally {
+      setIsProcessingStorage(false);
+    }
+  }
 
   return (
     <AppShell>
@@ -494,8 +560,20 @@ export default function SubmissionDetailPage({
           </Card>
 
           <Card>
-            <CardHeader>
+            <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-base">Uploaded Documents</CardTitle>
+              {files.length > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={isProcessingStorage}
+                  onClick={handleReprocessStorage}
+                  title="Extract data directly from stored files"
+                >
+                  <RefreshCw className={`size-3.5 mr-1.5 ${isProcessingStorage ? "animate-spin" : ""}`} />
+                  Process Data From Storage
+                </Button>
+              )}
             </CardHeader>
             <CardContent className="flex flex-col gap-2">
               {files.length === 0 ? (
@@ -514,6 +592,7 @@ export default function SubmissionDetailPage({
                       </Badge>
                     </div>
                     <FileViewerDialog
+                      submissionId={submissionId}
                       fileName={f.fileName}
                       label={f.label}
                       fileType={f.fileType}
