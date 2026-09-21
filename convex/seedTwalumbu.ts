@@ -45,6 +45,21 @@ const DOCUMENT_RULES = [
   { key: "documentRelevant", label: "Document matches the report requested", enabled: true },
 ];
 
+const BANK_RECON_RULES = [
+  { key: "openingBalance", label: "Opening balances match", enabled: true },
+  { key: "closingBalance", label: "Closing balances match", enabled: true },
+  { key: "openingBalanceContinuity", label: "Opening balance carries forward from prior period", enabled: true },
+  { key: "debitsReconcile", label: "Total debits equal bank credits", enabled: true },
+  { key: "creditsReconcile", label: "Total credits equal bank debits", enabled: true },
+  { key: "duplicates", label: "No duplicate ledger entries", enabled: true },
+  { key: "missingEntries", label: "All bank transactions recorded in ledger", enabled: true },
+  { key: "outstandingCheques", label: "Outstanding cheques noted", enabled: true },
+  { key: "depositsInTransit", label: "Deposits in transit noted", enabled: true },
+  { key: "bankCharges", label: "Bank charges accounted for", enabled: true },
+  { key: "interest", label: "Interest accounted for", enabled: true },
+  { key: "unknownTransactions", label: "No unexplained stale ledger entries", enabled: true },
+];
+
 const CANTEEN_RECON_RULES = [
   { key: "datesMatch", label: "Recon and inventory cover the same day", enabled: true },
   { key: "timeliness", label: "Documents generated on the report date", enabled: true },
@@ -76,7 +91,7 @@ interface ReportSpec {
   validatorKey?: string;
   /** Defaults to the document rules. */
   validationRules?: { key: string; label: string; enabled: boolean }[];
-  files: { label: string; fileType?: FileType; required?: boolean }[];
+  files: { label: string; fileType?: FileType; fileTypes?: FileType[]; required?: boolean }[];
 }
 
 interface DepartmentSpec {
@@ -243,6 +258,35 @@ const PLAN: DepartmentSpec[] = [
       },
     ],
   },
+  {
+    name: "Finance",
+    slug: "finance",
+    reports: [
+      "Zanaco",
+      "Natsave",
+      "Airtel Money",
+      "Masterfees",
+      "Moneywise",
+    ].map((account) => ({
+      name: `Bank Reconciliation – ${account}`,
+      cadence: "monthly" as Cadence,
+      sharingMode: "shared" as const,
+      validatorKey: "bankReconciliation",
+      validationRules: BANK_RECON_RULES,
+      files: [
+        {
+          label: `${account} Bank Statement`,
+          fileTypes: ["pdf", "csv"] as FileType[],
+          required: true,
+        },
+        {
+          label: "QuickBooks Ledger Export",
+          fileTypes: ["csv", "xlsx"] as FileType[],
+          required: true,
+        },
+      ],
+    })),
+  },
 ];
 
 export const seedReports = internalMutation({
@@ -344,7 +388,7 @@ export const seedReports = internalMutation({
           weight: 1,
           requiredFiles: report.files.map((f) => ({
             label: f.label,
-            fileTypes: [f.fileType ?? ("pdf" as const)],
+            fileTypes: f.fileTypes ?? [f.fileType ?? ("pdf" as const)],
             required: f.required ?? true,
           })),
           validationRules: report.validationRules ?? DOCUMENT_RULES,
