@@ -68,10 +68,10 @@ http.route({
   method: "GET",
   handler: httpAction(async (ctx, request) => {
     const url = new URL(request.url);
-    // Composio sends the param as snake_case; accept both forms defensively
     const connectedAccountId =
       url.searchParams.get("connected_account_id") ?? url.searchParams.get("connectedAccountId");
     const orgId = url.searchParams.get("orgId");
+    const realmId = url.searchParams.get("realmId") ?? url.searchParams.get("realm_id");
 
     if (!connectedAccountId || !orgId) {
       return new Response("Missing connectedAccountId or orgId", { status: 400 });
@@ -81,6 +81,7 @@ http.route({
       connectedAccountId,
       // Convex IDs are typed strings; cast is safe because we encoded a real orgId when building the URL
       orgId: orgId as any,
+      realmId: realmId ?? undefined,
     });
 
     const appUrl = process.env.SITE_URL;

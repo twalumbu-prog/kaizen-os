@@ -18,6 +18,7 @@ import type * as crons from "../crons.js";
 import type * as dashboard from "../dashboard.js";
 import type * as departments from "../departments.js";
 import type * as drive from "../drive.js";
+import type * as fixDuplicateMissingSubmissions from "../fixDuplicateMissingSubmissions.js";
 import type * as http from "../http.js";
 import type * as integrations from "../integrations.js";
 import type * as leaderboard from "../leaderboard.js";
@@ -83,6 +84,7 @@ declare const fullApi: ApiFromModules<{
   dashboard: typeof dashboard;
   departments: typeof departments;
   drive: typeof drive;
+  fixDuplicateMissingSubmissions: typeof fixDuplicateMissingSubmissions;
   http: typeof http;
   integrations: typeof integrations;
   leaderboard: typeof leaderboard;

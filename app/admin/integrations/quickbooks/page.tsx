@@ -2,6 +2,7 @@
 
 import { useQuery, useAction, useMutation } from "convex/react";
 import { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
@@ -12,6 +13,7 @@ import { AppShell } from "@/components/layout/app-shell";
 import { IntegrationHeader } from "@/components/integrations/integration-header";
 
 export default function QuickBooksIntegrationPage() {
+  const searchParams = useSearchParams();
   const org = useQuery(api.organizations.getPrimary);
   const integration = useQuery(
     api.integrations.getIntegration,
@@ -31,6 +33,16 @@ export default function QuickBooksIntegrationPage() {
   const isActive = integration?.status === "active";
 
   useEffect(() => {
+    const connected = searchParams.get("connected");
+    const error = searchParams.get("error");
+    if (connected === "quickbooks") {
+      toast.success("QuickBooks connected successfully!");
+    } else if (error === "quickbooks") {
+      toast.error("Failed to connect to QuickBooks.");
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
     if (isActive) {
       setLoadingAccounts(true);
       getAccounts()
@@ -46,7 +58,11 @@ export default function QuickBooksIntegrationPage() {
   const handleConnect = async () => {
     if (!org) return;
     try {
-      const redirectUri = `${process.env.NEXT_PUBLIC_CONVEX_SITE_URL}/api/quickbooks/callback`;
+      const siteUrl =
+        process.env.NEXT_PUBLIC_CONVEX_SITE_URL ||
+        process.env.NEXT_PUBLIC_CONVEX_URL?.replace(".convex.cloud", ".convex.site") ||
+        window.location.origin;
+      const redirectUri = `${siteUrl}/api/quickbooks/callback`;
       const url = await getAuthUrl({ redirectUri });
       window.location.href = url;
     } catch (e) {
