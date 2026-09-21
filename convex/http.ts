@@ -68,7 +68,9 @@ http.route({
   method: "GET",
   handler: httpAction(async (ctx, request) => {
     const url = new URL(request.url);
-    const connectedAccountId = url.searchParams.get("connectedAccountId");
+    // Composio sends the param as snake_case; accept both forms defensively
+    const connectedAccountId =
+      url.searchParams.get("connected_account_id") ?? url.searchParams.get("connectedAccountId");
     const orgId = url.searchParams.get("orgId");
 
     if (!connectedAccountId || !orgId) {
