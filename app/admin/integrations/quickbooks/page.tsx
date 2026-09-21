@@ -46,14 +46,16 @@ export default function QuickBooksIntegrationPage() {
     if (isActive) {
       setLoadingAccounts(true);
       getAccounts()
-        .then((data) => setQbAccounts(data))
+        .then((data) => setQbAccounts(data ?? []))
         .catch((e) => {
           console.error(e);
-          toast.error("Failed to load QuickBooks accounts for mapping");
+          setQbAccounts([]);
         })
         .finally(() => setLoadingAccounts(false));
+    } else {
+      setQbAccounts(null);
     }
-  }, [isActive, getAccounts]);
+  }, [isActive]);
 
   const handleConnect = async () => {
     if (!org) return;

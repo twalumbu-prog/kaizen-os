@@ -584,11 +584,16 @@ export default function ReportConfigPage({
     if (isQbActive) {
       setLoadingAccounts(true);
       getAccounts()
-        .then((data) => setQbAccounts(data))
-        .catch((e) => console.error("Failed to load QuickBooks accounts", e))
+        .then((data) => setQbAccounts(data ?? []))
+        .catch((e) => {
+          console.error("Failed to load QuickBooks accounts", e);
+          setQbAccounts([]);
+        })
         .finally(() => setLoadingAccounts(false));
+    } else {
+      setQbAccounts(null);
     }
-  }, [isQbActive, getAccounts]);
+  }, [isQbActive]);
 
   if (template === undefined || assignments === undefined || users === undefined) {
     return (

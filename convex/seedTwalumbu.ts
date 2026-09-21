@@ -292,11 +292,20 @@ const PLAN: DepartmentSpec[] = [
 export const seedReports = internalMutation({
   args: {},
   handler: async (ctx) => {
-    const org = await ctx.db
+    let org = await ctx.db
       .query("organizations")
       .filter((q) => q.eq(q.field("name"), ORG_NAME))
       .unique();
-    if (!org) throw new Error(`Organization "${ORG_NAME}" not found`);
+
+    if (!org) {
+      org = await ctx.db.query("organizations").first();
+      if (org) {
+        await ctx.db.patch(org._id, { name: ORG_NAME });
+      } else {
+        const orgId = await ctx.db.insert("organizations", { name: ORG_NAME });
+        org = (await ctx.db.get(orgId))!;
+      }
+    }
 
     const departments = await ctx.db
       .query("departments")
@@ -411,11 +420,20 @@ export const seedReports = internalMutation({
 export const backfillMissingPeriods = internalMutation({
   args: {},
   handler: async (ctx) => {
-    const org = await ctx.db
+    let org = await ctx.db
       .query("organizations")
       .filter((q) => q.eq(q.field("name"), ORG_NAME))
       .unique();
-    if (!org) throw new Error(`Organization "${ORG_NAME}" not found`);
+
+    if (!org) {
+      org = await ctx.db.query("organizations").first();
+      if (org) {
+        await ctx.db.patch(org._id, { name: ORG_NAME });
+      } else {
+        const orgId = await ctx.db.insert("organizations", { name: ORG_NAME });
+        org = (await ctx.db.get(orgId))!;
+      }
+    }
 
     const departments = await ctx.db
       .query("departments")

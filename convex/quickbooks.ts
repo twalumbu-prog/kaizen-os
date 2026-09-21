@@ -45,7 +45,9 @@ async function ensureFreshAccessToken(
   config: { accessToken: string; refreshToken: string; expiresAt: number; realmId?: string; composioConnectionId?: string },
 ): Promise<string> {
   const REFRESH_BUFFER_MS = 5 * 60 * 1000;
-  if (config.expiresAt && Date.now() < config.expiresAt - REFRESH_BUFFER_MS && config.accessToken) {
+  const isExpiredOrExpiring = !config.expiresAt || Date.now() >= config.expiresAt - REFRESH_BUFFER_MS;
+
+  if (!isExpiredOrExpiring && config.accessToken) {
     return config.accessToken;
   }
 
@@ -62,14 +64,13 @@ async function ensureFreshAccessToken(
         const dataObj = rawAccount.data ?? {};
         const paramsObj = rawAccount.params ?? {};
 
-        const newAccessToken: string =
+        const newAccessToken: string | undefined =
           stateVal?.access_token ??
           dataObj.access_token ??
           paramsObj.access_token ??
-          rawAccount.access_token ??
-          config.accessToken;
+          rawAccount.access_token;
 
-        const newRefreshToken: string =
+        const newRefreshToken: string | undefined =
           stateVal?.refresh_token ??
           dataObj.refresh_token ??
           paramsObj.refresh_token ??
@@ -83,11 +84,13 @@ async function ensureFreshAccessToken(
           rawAccount.expires_in;
         const expiresIn: number = expiresInRaw ? parseInt(String(expiresInRaw)) : 3600;
 
-        const newConfig = { ...config, accessToken: newAccessToken, refreshToken: newRefreshToken, expiresAt: Date.now() + expiresIn * 1000 };
-        await ctx.runMutation(internal.integrations.updateIntegrationStatusInternal, {
-          orgId, provider: "quickbooks", status: "active", config: JSON.stringify(newConfig),
-        });
-        return newAccessToken;
+        if (newAccessToken) {
+          const newConfig = { ...config, accessToken: newAccessToken, refreshToken: newRefreshToken ?? config.refreshToken, expiresAt: Date.now() + expiresIn * 1000 };
+          await ctx.runMutation(internal.integrations.updateIntegrationStatusInternal, {
+            orgId, provider: "quickbooks", status: "active", config: JSON.stringify(newConfig),
+          });
+          return newAccessToken;
+        }
       } catch (e) {
         console.warn("Composio token refresh attempt warning", e);
       }
@@ -124,14 +127,17 @@ async function ensureFreshAccessToken(
           config: JSON.stringify(newConfig),
         });
         return newConfig.accessToken;
+      } else {
+        const errText = await res.text();
+        console.error("Direct Intuit token refresh failed", res.status, errText);
       }
     } catch (e) {
       console.warn("Direct Intuit token refresh attempt warning", e);
     }
   }
 
-  // Fallback to existing accessToken if available
-  if (config.accessToken) {
+  // Fallback to existing accessToken only if it is NOT strictly expired yet
+  if (config.accessToken && config.expiresAt && Date.now() < config.expiresAt) {
     return config.accessToken;
   }
 
@@ -512,8 +518,7 @@ export const getAccounts = action({
   args: {},
   handler: async (ctx) => {
     const profile = await ctx.runQuery(api.profiles.getMe, {});
-    if (!profile) throw new Error("Not authenticated");
-    if (profile.role !== "admin") throw new Error("Only admins can fetch accounts");
+    if (!profile || profile.role !== "admin") return [];
 
     const integration = await ctx.runQuery(internal.integrations.getInternalIntegration, {
       orgId: profile.orgId,
@@ -521,36 +526,56 @@ export const getAccounts = action({
     });
 
     if (!integration || integration.status !== "active" || !integration.config) {
-      throw new Error("QuickBooks integration not active");
+      return [];
     }
 
-    const config = JSON.parse(integration.config);
-    const realmId = await resolveRealmIdIfNeeded(ctx, profile.orgId, config);
-    const accessToken = await ensureFreshAccessToken(ctx, profile.orgId, config);
+    try {
+      const config = JSON.parse(integration.config);
+      const realmId = await resolveRealmIdIfNeeded(ctx, profile.orgId, config);
+      const accessToken = await ensureFreshAccessToken(ctx, profile.orgId, config);
 
-    // Fetch all active accounts — admins can map any account type as a ledger
-    // source (prepaid accounts, wallets, petty cash, etc. may not be type 'Bank').
-    const query = "select * from Account where Active = true ORDERBY Name";
-    const response = await fetchIntuitApi(
-      realmId,
-      `query?query=${encodeURIComponent(query)}&minorversion=70`,
-      accessToken,
-    );
+      const query = "select * from Account where Active = true ORDERBY Name";
+      const response = await fetchIntuitApi(
+        realmId,
+        `query?query=${encodeURIComponent(query)}&minorversion=70`,
+        accessToken,
+      );
 
-    if (!response.ok) {
-      const bodyText = await response.text();
-      console.error("QuickBooks API error:", response.status, bodyText);
-      throw new Error(`Failed to fetch accounts from QuickBooks (HTTP ${response.status})`);
+      if (!response.ok) {
+        const bodyText = await response.text();
+        console.error("QuickBooks API error:", response.status, bodyText);
+
+        if (response.status === 401 || response.status === 403) {
+          await ctx.runMutation(internal.integrations.updateIntegrationStatusInternal, {
+            orgId: profile.orgId,
+            provider: "quickbooks",
+            status: "disconnected",
+            config: JSON.stringify({}),
+          });
+        }
+        return [];
+      }
+
+      const data = await response.json();
+      const accounts = data.QueryResponse?.Account ?? [];
+
+      return accounts.map((a: any) => ({
+        id: String(a.Id),
+        name: a.FullyQualifiedName ?? a.Name,
+        type: a.AccountType,
+      }));
+    } catch (e: any) {
+      console.error("getAccounts error:", e);
+      if (e.message?.includes("expired") || e.message?.includes("realm ID")) {
+        await ctx.runMutation(internal.integrations.updateIntegrationStatusInternal, {
+          orgId: profile.orgId,
+          provider: "quickbooks",
+          status: "disconnected",
+          config: JSON.stringify({}),
+        });
+      }
+      return [];
     }
-
-    const data = await response.json();
-    const accounts = data.QueryResponse?.Account ?? [];
-
-    return accounts.map((a: any) => ({
-      id: a.Id,
-      name: a.FullyQualifiedName ?? a.Name,
-      type: a.AccountType,
-    }));
   },
 });
 
