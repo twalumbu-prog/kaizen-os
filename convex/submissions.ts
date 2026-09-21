@@ -963,6 +963,47 @@ export const myCalendar = query({
         }
       }
 
+      // Surface any submitted/late report whose own due date falls on this day
+      // but whose period the current schedule no longer generates (e.g. a
+      // schedule change retired that day of the week) — a schedule fix should
+      // never make already-completed work disappear from the calendar.
+      const addedKeys = new Set(items.map((i) => `${i.templateId}:${i.periodLabel}`));
+      for (const template of templates) {
+        const periodSubmissions = submissionsByTemplate.get(template._id) ?? [];
+        for (const s of periodSubmissions) {
+          if (s.status !== "submitted" && s.status !== "late") continue;
+          if (new Date(s.dueAt).toISOString().slice(0, 10) !== dayKey) continue;
+          const key = `${template._id}:${s.periodLabel}`;
+          if (addedKeys.has(key)) continue;
+          addedKeys.add(key);
+
+          const responsible = owners.get(template._id) ?? [];
+          const shared = isShared(template);
+          const isMine = shared ? responsible.includes(profile.userId) : s.userId === profile.userId;
+
+          items.push({
+            templateId: template._id,
+            templateName: template.name,
+            periodLabel: s.periodLabel,
+            dueAt: s.dueAt,
+            submissionId: s._id,
+            status: s.status,
+            completed: true,
+            score: s.finalScore ?? null,
+            assigneeName: shared
+              ? overseeing && !isMine
+                ? sharedAssigneeLabel(responsible, nameByUserId)
+                : null
+              : overseeing && !isMine
+                ? (nameByUserId.get(s.userId) ?? "Unknown")
+                : null,
+            shared,
+            unassigned: false,
+            canSubmit: isMine,
+          });
+        }
+      }
+
       days.push({ date: day.getTime(), items });
     }
 
@@ -1216,6 +1257,34 @@ export const reportTimeline = query({
           }
         } catch {
           // Leave `due` empty for a report whose schedule cannot be computed.
+        }
+
+        // A schedule change (e.g. newly excluding a day of the week) can retire
+        // a period the cursor above no longer walks through — if real work was
+        // actually submitted against that retired period, surface it anyway
+        // rather than letting a completed report vanish from the timeline.
+        const visitedLabels = new Set(due.map((d) => d.periodLabel));
+        const orphanLabels = new Set(
+          submissions
+            .filter((s) => !visitedLabels.has(s.periodLabel))
+            .map((s) => s.periodLabel),
+        );
+        for (const label of orphanLabels) {
+          const forPeriod = submissions.filter((s) => s.periodLabel === label);
+          const done = forPeriod.filter((s) => s.status === "submitted" || s.status === "late");
+          if (done.length === 0) continue;
+
+          const anchorDueAt = Math.max(...forPeriod.map((s) => s.dueAt));
+          if (anchorDueAt < from.getTime() || anchorDueAt > to.getTime()) continue;
+
+          due.push({
+            dueAt: anchorDueAt,
+            day: Date.parse(`${new Date(anchorDueAt).toISOString().slice(0, 10)}T00:00:00Z`),
+            periodLabel: label,
+            state: done.length >= expectedCount ? "complete" : "partial",
+            submitted: done.length,
+            expected: expectedCount,
+          });
         }
 
         reports.push({
