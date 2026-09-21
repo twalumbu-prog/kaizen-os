@@ -48,17 +48,17 @@ async function backfillMissingPeriods(
     .take(400);
   const relevant = shared ? existing : existing.filter((s) => s.userId === userId);
 
-  let anchorEnd: number;
-  if (relevant.length > 0) {
-    anchorEnd = Math.max(...relevant.map((s) => s.periodEnd));
-  } else if (shared) {
+  // Anchor to the *earliest* thing that could owe a period — an assignment or
+  // an existing submission — so the walk below can fill a gap sitting between
+  // two existing submissions, not just extend forward from the most recent one.
+  let anchorStart: number;
+  if (shared) {
     const assignments = await ctx.db
       .query("reportAssignments")
       .withIndex("by_templateId", (q) => q.eq("templateId", template._id))
       .collect();
     if (assignments.length === 0) return false; // nobody assigned, nothing to backfill
-    const earliest = Math.min(...assignments.map((a) => a._creationTime));
-    anchorEnd = periodContaining(template, earliest).periodEnd;
+    anchorStart = Math.min(...assignments.map((a) => a._creationTime));
   } else {
     const assignment = await ctx.db
       .query("reportAssignments")
@@ -66,27 +66,42 @@ async function backfillMissingPeriods(
       .filter((q) => q.eq(q.field("userId"), userId))
       .unique();
     if (!assignment) return false; // not assigned, nothing to backfill
-    anchorEnd = periodContaining(template, assignment._creationTime).periodEnd;
+    anchorStart = assignment._creationTime;
+  }
+  if (relevant.length > 0) {
+    anchorStart = Math.min(anchorStart, Math.min(...relevant.map((s) => s.periodStart)));
   }
 
   const existingLabels = new Set(relevant.map((s) => s.periodLabel));
-  let cursor = nextPeriod(template, periodContaining(template, anchorEnd));
+  let cursor = periodContaining(template, anchorStart);
   const now = Date.now();
   let inserted = false;
   let guard = 0;
 
   while (cursor.dueAt < now && guard < 366) {
     if (!existingLabels.has(cursor.periodLabel) && !isExcludedDay(new Date(cursor.periodStart), template)) {
-      await ctx.db.insert("submissions", {
-        templateId: template._id,
-        userId,
-        periodLabel: cursor.periodLabel,
-        periodStart: cursor.periodStart,
-        periodEnd: cursor.periodEnd,
-        dueAt: cursor.dueAt,
-        status: "missing",
-      });
-      inserted = true;
+      // Point-check immediately before inserting, on the exact (template, period)
+      // index — closes the race window where two concurrent callers (e.g. two
+      // assignees opening the report around the same time) both see the period
+      // as missing and would otherwise both insert a placeholder for it.
+      const alreadyExists = await ctx.db
+        .query("submissions")
+        .withIndex("by_templateId_periodLabel", (q) =>
+          q.eq("templateId", template._id).eq("periodLabel", cursor.periodLabel),
+        )
+        .first();
+      if (!alreadyExists) {
+        await ctx.db.insert("submissions", {
+          templateId: template._id,
+          userId,
+          periodLabel: cursor.periodLabel,
+          periodStart: cursor.periodStart,
+          periodEnd: cursor.periodEnd,
+          dueAt: cursor.dueAt,
+          status: "missing",
+        });
+        inserted = true;
+      }
     }
     cursor = nextPeriod(template, cursor);
     guard++;
