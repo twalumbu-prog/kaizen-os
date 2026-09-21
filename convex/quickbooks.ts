@@ -56,10 +56,12 @@ async function ensureFreshAccessToken(
     const composio = getComposioClient();
     await composio.connectedAccounts.refresh(config.composioConnectionId);
     const account = await composio.connectedAccounts.get(config.composioConnectionId);
-    const params = (account as any).params ?? {};
-    const newAccessToken: string = params.access_token ?? params.accessToken ?? config.accessToken;
-    const newRefreshToken: string = params.refresh_token ?? params.refreshToken ?? config.refreshToken;
-    const expiresIn: number = params.expires_in ? parseInt(params.expires_in) : 3600;
+    // `state` is the canonical field (replaces the deprecated `params`).
+    // For QB OAuth2, state = { authScheme: "OAUTH2", val: { status: "ACTIVE", access_token, ... } }
+    const stateVal = account.state?.authScheme === "OAUTH2" ? (account.state.val as any) : undefined;
+    const newAccessToken: string = stateVal?.access_token ?? config.accessToken;
+    const newRefreshToken: string = stateVal?.refresh_token ?? config.refreshToken;
+    const expiresIn: number = stateVal?.expires_in ? parseInt(String(stateVal.expires_in)) : 3600;
     const newConfig = { ...config, accessToken: newAccessToken, refreshToken: newRefreshToken, expiresAt: Date.now() + expiresIn * 1000 };
     await ctx.runMutation(internal.integrations.updateIntegrationStatusInternal, {
       orgId, provider: "quickbooks", status: "active", config: JSON.stringify(newConfig),
@@ -303,25 +305,29 @@ export const handleComposioCallback = internalAction({
     try {
       const composio = getComposioClient();
 
-      // Refresh so we have the latest tokens, then fetch connection details.
-      // `params` is marked deprecated but is still the field that carries the raw
-      // OAuth credential data (access_token, refresh_token, realmId, etc.).
+      // Refresh so Composio has the latest tokens, then fetch connection details.
+      // `state` is the canonical field (replaces the deprecated `params`/`data`).
+      // For QB OAuth2 it is: { authScheme: "OAUTH2", val: { status: "ACTIVE", access_token, ... } }
+      // QB-specific extras (realmId, etc.) that Composio captures from the callback are
+      // stored in val via the schema's catchall.
       await composio.connectedAccounts.refresh(args.connectedAccountId);
       const account = await composio.connectedAccounts.get(args.connectedAccountId);
 
-      const params = account.params ?? {};
-      const accessToken: string | undefined =
-        (params.access_token as string | undefined) ?? (params.accessToken as string | undefined);
-      const refreshToken: string | undefined =
-        (params.refresh_token as string | undefined) ?? (params.refreshToken as string | undefined);
+      const stateVal = account.state?.authScheme === "OAUTH2" ? (account.state.val as any) : undefined;
+
+      const accessToken: string | undefined = stateVal?.access_token;
+      const refreshToken: string | undefined = stateVal?.refresh_token ?? undefined;
       const realmId: string | undefined =
-        (params.realmId as string | undefined) ?? (params.realm_id as string | undefined);
+        stateVal?.realmId ?? stateVal?.realm_id;
       const expiresIn: number =
-        params.expires_in ? parseInt(params.expires_in as string) : 3600;
+        stateVal?.expires_in ? parseInt(String(stateVal.expires_in)) : 3600;
 
       if (!accessToken || !realmId) {
-        console.error("Composio QB callback: missing access_token or realmId in params", {
-          paramKeys: Object.keys(params),
+        console.error("Composio QB callback: missing access_token or realmId in state", {
+          accountStatus: account.status,
+          stateAuthScheme: account.state?.authScheme,
+          stateStatus: stateVal?.status,
+          stateKeys: stateVal ? Object.keys(stateVal) : [],
         });
         return { success: false };
       }
