@@ -45,85 +45,97 @@ async function ensureFreshAccessToken(
   config: { accessToken: string; refreshToken: string; expiresAt: number; realmId?: string; composioConnectionId?: string },
 ): Promise<string> {
   const REFRESH_BUFFER_MS = 5 * 60 * 1000;
-  if (config.expiresAt && Date.now() < config.expiresAt - REFRESH_BUFFER_MS) {
+  if (config.expiresAt && Date.now() < config.expiresAt - REFRESH_BUFFER_MS && config.accessToken) {
     return config.accessToken;
   }
 
-  // When connected via Composio, delegate refresh to Composio
+  // When connected via Composio, try delegating refresh to Composio
   if (config.composioConnectionId) {
     const composioKey = process.env.COMPOSIO_API_KEY;
-    if (!composioKey) throw new Error("Composio API key not configured — cannot refresh QuickBooks token");
-    const composio = getComposioClient();
-    try {
-      await composio.connectedAccounts.refresh(config.composioConnectionId);
-    } catch (e) {
-      console.warn("Composio connectedAccounts.refresh warning during token refresh", e);
+    if (composioKey) {
+      try {
+        const composio = getComposioClient();
+        await composio.connectedAccounts.refresh(config.composioConnectionId);
+        const account = await composio.connectedAccounts.get(config.composioConnectionId);
+        const rawAccount = account as any;
+        const stateVal = account.state?.authScheme === "OAUTH2" ? (account.state.val as any) : undefined;
+        const dataObj = rawAccount.data ?? {};
+        const paramsObj = rawAccount.params ?? {};
+
+        const newAccessToken: string =
+          stateVal?.access_token ??
+          dataObj.access_token ??
+          paramsObj.access_token ??
+          rawAccount.access_token ??
+          config.accessToken;
+
+        const newRefreshToken: string =
+          stateVal?.refresh_token ??
+          dataObj.refresh_token ??
+          paramsObj.refresh_token ??
+          rawAccount.refresh_token ??
+          config.refreshToken;
+
+        const expiresInRaw =
+          stateVal?.expires_in ??
+          dataObj.expires_in ??
+          paramsObj.expires_in ??
+          rawAccount.expires_in;
+        const expiresIn: number = expiresInRaw ? parseInt(String(expiresInRaw)) : 3600;
+
+        const newConfig = { ...config, accessToken: newAccessToken, refreshToken: newRefreshToken, expiresAt: Date.now() + expiresIn * 1000 };
+        await ctx.runMutation(internal.integrations.updateIntegrationStatusInternal, {
+          orgId, provider: "quickbooks", status: "active", config: JSON.stringify(newConfig),
+        });
+        return newAccessToken;
+      } catch (e) {
+        console.warn("Composio token refresh attempt warning", e);
+      }
     }
-    const account = await composio.connectedAccounts.get(config.composioConnectionId);
-    const rawAccount = account as any;
-    const stateVal = account.state?.authScheme === "OAUTH2" ? (account.state.val as any) : undefined;
-    const dataObj = rawAccount.data ?? {};
-    const paramsObj = rawAccount.params ?? {};
-
-    const newAccessToken: string =
-      stateVal?.access_token ??
-      dataObj.access_token ??
-      paramsObj.access_token ??
-      rawAccount.access_token ??
-      config.accessToken;
-
-    const newRefreshToken: string =
-      stateVal?.refresh_token ??
-      dataObj.refresh_token ??
-      paramsObj.refresh_token ??
-      rawAccount.refresh_token ??
-      config.refreshToken;
-
-    const expiresInRaw =
-      stateVal?.expires_in ??
-      dataObj.expires_in ??
-      paramsObj.expires_in ??
-      rawAccount.expires_in;
-    const expiresIn: number = expiresInRaw ? parseInt(String(expiresInRaw)) : 3600;
-
-    const newConfig = { ...config, accessToken: newAccessToken, refreshToken: newRefreshToken, expiresAt: Date.now() + expiresIn * 1000 };
-    await ctx.runMutation(internal.integrations.updateIntegrationStatusInternal, {
-      orgId, provider: "quickbooks", status: "active", config: JSON.stringify(newConfig),
-    });
-    return newAccessToken;
   }
 
+  // Direct Intuit OAuth refresh fallback
   const clientId = process.env.QUICKBOOKS_CLIENT_ID;
   const clientSecret = process.env.QUICKBOOKS_CLIENT_SECRET;
-  if (!clientId || !clientSecret) throw new Error("QuickBooks credentials not configured");
+  if (clientId && clientSecret && config.refreshToken) {
+    try {
+      const res = await fetch("https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer", {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/x-www-form-urlencoded",
+          Authorization: `Basic ${btoa(`${clientId}:${clientSecret}`)}`,
+        },
+        body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: config.refreshToken }),
+      });
 
-  const res = await fetch("https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer", {
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/x-www-form-urlencoded",
-      Authorization: `Basic ${btoa(`${clientId}:${clientSecret}`)}`,
-    },
-    body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: config.refreshToken }),
-  });
-  if (!res.ok) {
-    console.error("QuickBooks token refresh failed", await res.text());
-    throw new Error("QuickBooks connection expired — please reconnect it from the Integrations Hub.");
+      if (res.ok) {
+        const tokens = await res.json();
+        const newConfig = {
+          ...config,
+          accessToken: tokens.access_token,
+          refreshToken: tokens.refresh_token ?? config.refreshToken,
+          expiresAt: Date.now() + tokens.expires_in * 1000,
+        };
+        await ctx.runMutation(internal.integrations.updateIntegrationStatusInternal, {
+          orgId,
+          provider: "quickbooks",
+          status: "active",
+          config: JSON.stringify(newConfig),
+        });
+        return newConfig.accessToken;
+      }
+    } catch (e) {
+      console.warn("Direct Intuit token refresh attempt warning", e);
+    }
   }
-  const tokens = await res.json();
-  const newConfig = {
-    ...config,
-    accessToken: tokens.access_token,
-    refreshToken: tokens.refresh_token ?? config.refreshToken,
-    expiresAt: Date.now() + tokens.expires_in * 1000,
-  };
-  await ctx.runMutation(internal.integrations.updateIntegrationStatusInternal, {
-    orgId,
-    provider: "quickbooks",
-    status: "active",
-    config: JSON.stringify(newConfig),
-  });
-  return newConfig.accessToken;
+
+  // Fallback to existing accessToken if available
+  if (config.accessToken) {
+    return config.accessToken;
+  }
+
+  throw new Error("QuickBooks connection expired — please reconnect it from the Integrations Hub.");
 }
 
 // A background job to periodically sync data
