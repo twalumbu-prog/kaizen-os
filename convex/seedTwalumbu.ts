@@ -260,6 +260,7 @@ export const seedReports = internalMutation({
 
     const created: string[] = [];
     const skipped: string[] = [];
+    const patched: string[] = [];
 
     for (const spec of PLAN) {
       // ── Department ──────────────────────────────────────────────────────
@@ -290,8 +291,42 @@ export const seedReports = internalMutation({
         .collect();
 
       for (const report of spec.reports) {
-        if (existing.some((t) => t.name === report.name)) {
-          skipped.push(`${spec.name} / ${report.name}`);
+        const match = existing.find((t) => t.name === report.name);
+
+        if (match) {
+          // Patch schedule fields that control when periods are generated — these
+          // may have been added to the spec after the template was first created.
+          // requiredFiles, validationRules, weight, and validatorKey are left
+          // untouched so admin customizations are preserved.
+          const sortedExcluded = (days: number[] | null | undefined) =>
+            days ? [...days].sort((a, b) => a - b).join(",") : null;
+          const sortedDates = (dates: string[] | null | undefined) =>
+            dates ? [...dates].sort().join(",") : null;
+
+          const changes: string[] = [];
+
+          if (match.cadence !== report.cadence) {
+            await ctx.db.patch(match._id, { cadence: report.cadence });
+            changes.push("cadence");
+          }
+          if (sortedExcluded(report.excludedDaysOfWeek) !== sortedExcluded(match.excludedDaysOfWeek)) {
+            await ctx.db.patch(match._id, { excludedDaysOfWeek: report.excludedDaysOfWeek });
+            changes.push("excludedDaysOfWeek");
+          }
+          if (sortedDates(report.excludedDates) !== sortedDates(match.excludedDates)) {
+            await ctx.db.patch(match._id, { excludedDates: report.excludedDates });
+            changes.push("excludedDates");
+          }
+          if (report.sharingMode !== undefined && match.sharingMode !== report.sharingMode) {
+            await ctx.db.patch(match._id, { sharingMode: report.sharingMode });
+            changes.push("sharingMode");
+          }
+
+          if (changes.length > 0) {
+            patched.push(`${spec.name} / ${report.name}: ${changes.join(", ")}`);
+          } else {
+            skipped.push(`${spec.name} / ${report.name}`);
+          }
           continue;
         }
 
@@ -317,6 +352,6 @@ export const seedReports = internalMutation({
       }
     }
 
-    return { orgId: org._id, created, skipped };
+    return { orgId: org._id, created, patched, skipped };
   },
 });
