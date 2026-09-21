@@ -496,11 +496,14 @@ async function resolveRealmIdIfNeeded(
       const paramsObj = rawAccount.params ?? {};
       const connectionParams = rawAccount.connectionParams ?? {};
 
+      const extraTokenData = (stateVal?.extra_token_data as Record<string, unknown>) ?? {};
       const resolvedRealmId: string | undefined =
         stateVal?.realmId ??
         stateVal?.realm_id ??
         stateVal?.full?.realmId ??
         stateVal?.full?.realm_id ??
+        (extraTokenData.realmId as string | undefined) ??
+        (extraTokenData.realm_id as string | undefined) ??
         dataObj.realmId ??
         dataObj.realm_id ??
         paramsObj.realmId ??
@@ -509,6 +512,16 @@ async function resolveRealmIdIfNeeded(
         connectionParams.realm_id ??
         rawAccount.realmId ??
         rawAccount.realm_id;
+
+      console.log("resolveRealmIdIfNeeded Composio lookup", {
+        found: !!resolvedRealmId,
+        stateAuthScheme: account.state?.authScheme,
+        stateStatus: stateVal?.status,
+        stateKeys: stateVal ? Object.keys(stateVal) : [],
+        extraTokenDataKeys: Object.keys(extraTokenData),
+        dataKeys: Object.keys(dataObj),
+        rawAccountTopKeys: Object.keys(rawAccount).filter(k => !["state", "data", "params"].includes(k)),
+      });
 
       if (resolvedRealmId) {
         config.realmId = resolvedRealmId;
@@ -590,6 +603,69 @@ export const getAccounts = action({
       }
       return [];
     }
+  },
+});
+
+/**
+ * Returns non-sensitive diagnostic info about the stored QB connection config.
+ * Useful for debugging realmId / token issues without exposing credentials.
+ */
+export const debugConnection = action({
+  args: {},
+  handler: async (ctx) => {
+    const profile = await ctx.runQuery(api.profiles.getMe, {});
+    if (!profile || profile.role !== "admin") throw new Error("Unauthorized");
+
+    const integration = await ctx.runQuery(internal.integrations.getInternalIntegration, {
+      orgId: profile.orgId,
+      provider: "quickbooks",
+    });
+
+    if (!integration) return { status: "no_integration" };
+
+    let configDiag: Record<string, unknown> = { status: integration.status };
+    if (integration.config) {
+      try {
+        const c = JSON.parse(integration.config);
+        configDiag = {
+          status: integration.status,
+          hasAccessToken: !!c.accessToken,
+          hasRefreshToken: !!c.refreshToken,
+          realmId: c.realmId || "(empty)",
+          expiresAt: c.expiresAt ? new Date(c.expiresAt).toISOString() : null,
+          expired: c.expiresAt ? Date.now() > c.expiresAt : null,
+          composioConnectionId: c.composioConnectionId || null,
+        };
+      } catch {
+        configDiag = { status: integration.status, configParseError: true };
+      }
+    }
+
+    // If we have a Composio connection, also dump what Composio returns
+    if (integration.config) {
+      try {
+        const c = JSON.parse(integration.config);
+        if (c.composioConnectionId && process.env.COMPOSIO_API_KEY) {
+          const composio = getComposioClient();
+          const account = await composio.connectedAccounts.get(c.composioConnectionId);
+          const rawAccount = account as any;
+          const stateVal = account.state?.authScheme === "OAUTH2" ? (account.state.val as any) : undefined;
+          configDiag.composio = {
+            accountStatus: account.status,
+            stateAuthScheme: account.state?.authScheme,
+            stateStatus: stateVal?.status,
+            stateKeys: stateVal ? Object.keys(stateVal) : [],
+            extraTokenDataKeys: stateVal?.extra_token_data ? Object.keys(stateVal.extra_token_data) : [],
+            dataKeys: rawAccount.data ? Object.keys(rawAccount.data) : [],
+            rawTopKeys: Object.keys(rawAccount).filter(k => !["state", "data", "params"].includes(k)),
+          };
+        }
+      } catch (e: any) {
+        configDiag.composioError = e?.message;
+      }
+    }
+
+    return configDiag;
   },
 });
 
