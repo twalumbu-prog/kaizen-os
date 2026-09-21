@@ -2,6 +2,7 @@ import { internalMutation } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import type { Infer } from "convex/values";
 import { CADENCE, CYCLE_CONFIG, FILE_TYPE } from "./schema";
+import { isExcludedDay, nextPeriod, periodContaining } from "./lib/periods";
 
 /**
  * Creates Twalumbu Education Centre's department reports.
@@ -353,5 +354,106 @@ export const seedReports = internalMutation({
     }
 
     return { orgId: org._id, created, patched, skipped };
+  },
+});
+
+/**
+ * Inserts "missing" submission rows for every past period that has no
+ * submission yet, across all Twalumbu report templates and all assignees.
+ * Skips periods that fall on excludedDaysOfWeek. Safe to re-run.
+ *
+ * Run with: npx convex run seedTwalumbu:backfillMissingPeriods
+ */
+export const backfillMissingPeriods = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const org = await ctx.db
+      .query("organizations")
+      .filter((q) => q.eq(q.field("name"), ORG_NAME))
+      .unique();
+    if (!org) throw new Error(`Organization "${ORG_NAME}" not found`);
+
+    const departments = await ctx.db
+      .query("departments")
+      .withIndex("by_orgId", (q) => q.eq("orgId", org._id))
+      .collect();
+
+    const now = Date.now();
+    let totalInserted = 0;
+    const report: string[] = [];
+
+    for (const dept of departments) {
+      const templates = await ctx.db
+        .query("reportTemplates")
+        .withIndex("by_departmentId", (q) => q.eq("departmentId", dept._id))
+        .collect();
+
+      for (const template of templates) {
+        const shared = template.sharingMode === "shared";
+
+        const assignments = await ctx.db
+          .query("reportAssignments")
+          .withIndex("by_templateId", (q) => q.eq("templateId", template._id))
+          .collect();
+
+        if (assignments.length === 0) continue;
+
+        // For shared reports one submission covers everyone — treat as a single
+        // user backfill keyed on the earliest assignment.
+        const userIds: Id<"users">[] = shared
+          ? [assignments.sort((a, b) => a._creationTime - b._creationTime)[0].userId]
+          : assignments.map((a) => a.userId);
+
+        for (const userId of userIds) {
+          const existing = await ctx.db
+            .query("submissions")
+            .withIndex("by_templateId", (q) => q.eq("templateId", template._id))
+            .order("desc")
+            .take(400);
+
+          const relevant = shared ? existing : existing.filter((s) => s.userId === userId);
+
+          let anchorEnd: number;
+          if (relevant.length > 0) {
+            anchorEnd = Math.max(...relevant.map((s) => s.periodEnd));
+          } else {
+            const assignment = assignments.find((a) => a.userId === userId) ?? assignments[0];
+            anchorEnd = periodContaining(template, assignment._creationTime).periodEnd;
+          }
+
+          const existingLabels = new Set(relevant.map((s) => s.periodLabel));
+          let cursor = nextPeriod(template, periodContaining(template, anchorEnd));
+          let guard = 0;
+          let inserted = 0;
+
+          while (cursor.dueAt < now && guard < 366) {
+            if (
+              !existingLabels.has(cursor.periodLabel) &&
+              !isExcludedDay(new Date(cursor.periodStart), template)
+            ) {
+              await ctx.db.insert("submissions", {
+                templateId: template._id,
+                userId,
+                periodLabel: cursor.periodLabel,
+                periodStart: cursor.periodStart,
+                periodEnd: cursor.periodEnd,
+                dueAt: cursor.dueAt,
+                status: "missing",
+              });
+              inserted++;
+            }
+            cursor = nextPeriod(template, cursor);
+            guard++;
+          }
+
+          if (inserted > 0) {
+            totalInserted += inserted;
+            report.push(`${dept.name} / ${template.name}: +${inserted}`);
+          }
+        }
+      }
+    }
+
+    return { totalInserted, report };
   },
 });
