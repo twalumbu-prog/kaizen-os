@@ -356,67 +356,77 @@ export const handleComposioCallback = internalAction({
     try {
       const composio = getComposioClient();
 
-      try {
-        await composio.connectedAccounts.refresh(args.connectedAccountId);
-      } catch (e) {
-        console.warn("Composio connectedAccounts.refresh warning in handleComposioCallback", e);
+      let account = await composio.connectedAccounts.get(args.connectedAccountId);
+      let attempts = 0;
+      let accessToken: string | undefined;
+      let refreshToken: string | undefined;
+      let realmId: string | undefined;
+      let expiresIn: number = 3600;
+
+      while (attempts < 4) {
+        const rawAccount = account as any;
+        const stateVal = account.state?.authScheme === "OAUTH2" ? (account.state.val as any) : undefined;
+        const dataObj = rawAccount.data ?? {};
+        const paramsObj = rawAccount.params ?? {};
+        const connectionParams = rawAccount.connectionParams ?? {};
+
+        accessToken =
+          stateVal?.access_token ??
+          dataObj.access_token ??
+          paramsObj.access_token ??
+          rawAccount.access_token;
+
+        refreshToken =
+          stateVal?.refresh_token ??
+          dataObj.refresh_token ??
+          paramsObj.refresh_token ??
+          rawAccount.refresh_token ??
+          undefined;
+
+        realmId =
+          stateVal?.realmId ??
+          stateVal?.realm_id ??
+          stateVal?.full?.realmId ??
+          stateVal?.full?.realm_id ??
+          dataObj.realmId ??
+          dataObj.realm_id ??
+          paramsObj.realmId ??
+          paramsObj.realm_id ??
+          connectionParams.realmId ??
+          connectionParams.realm_id ??
+          rawAccount.realmId ??
+          rawAccount.realm_id ??
+          args.realmId;
+
+        const expiresInRaw =
+          stateVal?.expires_in ??
+          dataObj.expires_in ??
+          paramsObj.expires_in ??
+          rawAccount.expires_in;
+        if (expiresInRaw) expiresIn = parseInt(String(expiresInRaw));
+
+        if (accessToken && realmId) {
+          break;
+        }
+
+        attempts++;
+        if (attempts < 4) {
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+          try {
+            await composio.connectedAccounts.refresh(args.connectedAccountId);
+          } catch {}
+          account = await composio.connectedAccounts.get(args.connectedAccountId);
+        }
       }
 
-      const account = await composio.connectedAccounts.get(args.connectedAccountId);
-      const rawAccount = account as any;
-
-      const stateVal = account.state?.authScheme === "OAUTH2" ? (account.state.val as any) : undefined;
-      const dataObj = rawAccount.data ?? {};
-      const paramsObj = rawAccount.params ?? {};
-      const connectionParams = rawAccount.connectionParams ?? {};
-
-      const accessToken: string | undefined =
-        stateVal?.access_token ??
-        dataObj.access_token ??
-        paramsObj.access_token ??
-        rawAccount.access_token;
-
-      const refreshToken: string | undefined =
-        stateVal?.refresh_token ??
-        dataObj.refresh_token ??
-        paramsObj.refresh_token ??
-        rawAccount.refresh_token ??
-        undefined;
-
-      const realmId: string | undefined =
-        stateVal?.realmId ??
-        stateVal?.realm_id ??
-        dataObj.realmId ??
-        dataObj.realm_id ??
-        paramsObj.realmId ??
-        paramsObj.realm_id ??
-        connectionParams.realmId ??
-        connectionParams.realm_id ??
-        rawAccount.realmId ??
-        rawAccount.realm_id ??
-        args.realmId;
-
-      const expiresInRaw =
-        stateVal?.expires_in ??
-        dataObj.expires_in ??
-        paramsObj.expires_in ??
-        rawAccount.expires_in;
-      const expiresIn: number = expiresInRaw ? parseInt(String(expiresInRaw)) : 3600;
-
       if (!accessToken || !realmId) {
-        console.error("Composio QB callback: missing access_token or realmId", {
+        console.error("Composio QB callback: failed to resolve access_token or realmId after retries", {
           accountStatus: account.status,
           hasAccessToken: !!accessToken,
           hasRealmId: !!realmId,
-          stateAuthScheme: account.state?.authScheme,
-          stateStatus: stateVal?.status,
-          stateKeys: stateVal ? Object.keys(stateVal) : [],
-          dataKeys: Object.keys(dataObj),
-          paramsKeys: Object.keys(paramsObj),
           argsRealmId: args.realmId,
         });
 
-        // If connection is active in Composio, still save connection ID so user is active
         if (account.status !== "ACTIVE" && !accessToken) {
           return { success: false };
         }
@@ -489,6 +499,8 @@ async function resolveRealmIdIfNeeded(
       const resolvedRealmId: string | undefined =
         stateVal?.realmId ??
         stateVal?.realm_id ??
+        stateVal?.full?.realmId ??
+        stateVal?.full?.realm_id ??
         dataObj.realmId ??
         dataObj.realm_id ??
         paramsObj.realmId ??
@@ -568,7 +580,7 @@ export const getAccounts = action({
       }));
     } catch (e: any) {
       console.error("getAccounts error:", e);
-      if (e.message?.includes("expired") || e.message?.includes("realm ID")) {
+      if (e.message?.includes("expired")) {
         await ctx.runMutation(internal.integrations.updateIntegrationStatusInternal, {
           orgId: profile.orgId,
           provider: "quickbooks",
