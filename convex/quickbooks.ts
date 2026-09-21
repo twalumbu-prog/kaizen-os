@@ -187,9 +187,37 @@ export const getAuthUrl = action({
     if (!profile) throw new Error("Not authenticated");
     if (profile.role !== "admin") throw new Error("Only admins can connect integrations");
 
+    // Composio-managed OAuth flow (Preferred)
+    const composioKey = process.env.COMPOSIO_API_KEY;
+    if (composioKey) {
+      const composio = getComposioClient();
+      const existingConfigs = await composio.authConfigs.list({ toolkit: "quickbooks" });
+      // Only reuse a Composio-managed config — custom configs may have been created
+      // with placeholder credentials (e.g. "your_value") and will fail at Intuit.
+      const managedConfig = existingConfigs.items.find((c) => c.isComposioManaged);
+      const authConfigId =
+        managedConfig?.id ?? (await composio.authConfigs.create("quickbooks")).id;
+
+      // Use a separate callback URL so the handler knows this came from Composio.
+      // Encode the orgId in the URL so the callback can resolve it without needing
+      // it from the Composio response (ConnectedAccountRetrieveResponse has no userId).
+      const composioCallbackUrl =
+        args.redirectUri.replace("/api/quickbooks/callback", "/api/quickbooks/composio-callback") +
+        `?orgId=${profile.orgId}`;
+
+      const connectionRequest = await composio.connectedAccounts.link(
+        profile.orgId,
+        authConfigId,
+        { callbackUrl: composioCallbackUrl, allowMultiple: true },
+      );
+
+      if (!connectionRequest.redirectUrl) throw new Error("Composio did not return an OAuth URL");
+      return connectionRequest.redirectUrl;
+    }
+
+    // Direct Intuit OAuth fallback
     const clientId = process.env.QUICKBOOKS_CLIENT_ID;
     if (clientId) {
-      // Direct Intuit OAuth flow
       const state = await ctx.runMutation(internal.lib.oauthState.createState, {
         orgId: profile.orgId,
         provider: "quickbooks",
@@ -203,33 +231,7 @@ export const getAuthUrl = action({
       return url.toString();
     }
 
-    // Composio-managed OAuth fallback
-    const composioKey = process.env.COMPOSIO_API_KEY;
-    if (!composioKey) throw new Error("QuickBooks Client ID not configured");
-
-    const composio = getComposioClient();
-    const existingConfigs = await composio.authConfigs.list({ toolkit: "quickbooks" });
-    // Only reuse a Composio-managed config — custom configs may have been created
-    // with placeholder credentials (e.g. "your_value") and will fail at Intuit.
-    const managedConfig = existingConfigs.items.find((c) => c.isComposioManaged);
-    const authConfigId =
-      managedConfig?.id ?? (await composio.authConfigs.create("quickbooks")).id;
-
-    // Use a separate callback URL so the handler knows this came from Composio.
-    // Encode the orgId in the URL so the callback can resolve it without needing
-    // it from the Composio response (ConnectedAccountRetrieveResponse has no userId).
-    const composioCallbackUrl =
-      args.redirectUri.replace("/api/quickbooks/callback", "/api/quickbooks/composio-callback") +
-      `?orgId=${profile.orgId}`;
-
-    const connectionRequest = await composio.connectedAccounts.link(
-      profile.orgId,
-      authConfigId,
-      { callbackUrl: composioCallbackUrl, allowMultiple: true },
-    );
-
-    if (!connectionRequest.redirectUrl) throw new Error("Composio did not return an OAuth URL");
-    return connectionRequest.redirectUrl;
+    throw new Error("QuickBooks integration not configured (missing COMPOSIO_API_KEY)");
   }
 });
 
