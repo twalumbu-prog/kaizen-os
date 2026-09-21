@@ -423,6 +423,79 @@ export const handleComposioCallback = internalAction({
   },
 });
 
+/**
+ * Helper to execute an Intuit API request with automatic production/sandbox endpoint fallback.
+ */
+async function fetchIntuitApi(
+  realmId: string,
+  pathAndQuery: string,
+  accessToken: string,
+): Promise<Response> {
+  const headers = { Authorization: `Bearer ${accessToken}`, Accept: "application/json" };
+  const prodUrl = `https://quickbooks.api.intuit.com/v3/company/${realmId}/${pathAndQuery}`;
+  let res = await fetch(prodUrl, { headers });
+
+  if (!res.ok && (res.status === 401 || res.status === 400 || res.status === 403)) {
+    const sandboxUrl = `https://sandbox-quickbooks.api.intuit.com/v3/company/${realmId}/${pathAndQuery}`;
+    const sandboxRes = await fetch(sandboxUrl, { headers });
+    if (sandboxRes.ok) {
+      return sandboxRes;
+    }
+  }
+
+  return res;
+}
+
+/**
+ * Resolves (and persists) the organization's QuickBooks realmId if missing from config.
+ */
+async function resolveRealmIdIfNeeded(
+  ctx: ActionCtx,
+  orgId: Id<"organizations">,
+  config: any,
+): Promise<string> {
+  if (config.realmId) return config.realmId;
+
+  if (config.composioConnectionId && process.env.COMPOSIO_API_KEY) {
+    try {
+      const composio = getComposioClient();
+      const account = await composio.connectedAccounts.get(config.composioConnectionId);
+      const rawAccount = account as any;
+      const stateVal = account.state?.authScheme === "OAUTH2" ? (account.state.val as any) : undefined;
+      const dataObj = rawAccount.data ?? {};
+      const paramsObj = rawAccount.params ?? {};
+      const connectionParams = rawAccount.connectionParams ?? {};
+
+      const resolvedRealmId: string | undefined =
+        stateVal?.realmId ??
+        stateVal?.realm_id ??
+        dataObj.realmId ??
+        dataObj.realm_id ??
+        paramsObj.realmId ??
+        paramsObj.realm_id ??
+        connectionParams.realmId ??
+        connectionParams.realm_id ??
+        rawAccount.realmId ??
+        rawAccount.realm_id;
+
+      if (resolvedRealmId) {
+        config.realmId = resolvedRealmId;
+        await ctx.runMutation(internal.integrations.updateIntegrationStatusInternal, {
+          orgId,
+          provider: "quickbooks",
+          status: "active",
+          config: JSON.stringify(config),
+        });
+        return resolvedRealmId;
+      }
+    } catch (e) {
+      console.warn("Failed to resolve missing realmId from Composio", e);
+    }
+  }
+
+  throw new Error("Missing QuickBooks realm ID — please reconnect QuickBooks from the Integrations Hub.");
+}
+
 export const getAccounts = action({
   args: {},
   handler: async (ctx) => {
@@ -440,20 +513,22 @@ export const getAccounts = action({
     }
 
     const config = JSON.parse(integration.config);
-    if (!config.realmId) throw new Error("Missing QuickBooks realm");
+    const realmId = await resolveRealmIdIfNeeded(ctx, profile.orgId, config);
     const accessToken = await ensureFreshAccessToken(ctx, profile.orgId, config);
 
     // Fetch all active accounts — admins can map any account type as a ledger
     // source (prepaid accounts, wallets, petty cash, etc. may not be type 'Bank').
     const query = "select * from Account where Active = true ORDERBY Name";
-    const response = await fetch(
-      `https://quickbooks.api.intuit.com/v3/company/${config.realmId}/query?query=${encodeURIComponent(query)}&minorversion=70`,
-      { headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" } },
+    const response = await fetchIntuitApi(
+      realmId,
+      `query?query=${encodeURIComponent(query)}&minorversion=70`,
+      accessToken,
     );
 
     if (!response.ok) {
-      console.error("QuickBooks API error:", await response.text());
-      throw new Error("Failed to fetch accounts from QuickBooks");
+      const bodyText = await response.text();
+      console.error("QuickBooks API error:", response.status, bodyText);
+      throw new Error(`Failed to fetch accounts from QuickBooks (HTTP ${response.status})`);
     }
 
     const data = await response.json();
@@ -492,6 +567,7 @@ export const fetchLedgerForPeriod = action({
       throw new Error("QuickBooks integration not active");
     }
     const config = JSON.parse(integration.config);
+    const realmId = await resolveRealmIdIfNeeded(ctx, profile.orgId, config);
     const accessToken = await ensureFreshAccessToken(ctx, profile.orgId, config);
     const headers = { Authorization: `Bearer ${accessToken}`, Accept: "application/json" };
 
@@ -500,9 +576,10 @@ export const fetchLedgerForPeriod = action({
     // reliably filter server-side (confirmed empirically: it still returns
     // unrelated rows, e.g. Receivables, alongside the ones for this account).
     const acctQuery = `select Name, FullyQualifiedName from Account where Id = '${template.quickbooksAccountId}'`;
-    const acctRes = await fetch(
-      `https://quickbooks.api.intuit.com/v3/company/${config.realmId}/query?query=${encodeURIComponent(acctQuery)}&minorversion=70`,
-      { headers },
+    const acctRes = await fetchIntuitApi(
+      realmId,
+      `query?query=${encodeURIComponent(acctQuery)}&minorversion=70`,
+      accessToken,
     );
     if (!acctRes.ok) {
       console.error("QuickBooks account lookup failed", await acctRes.text());
@@ -524,10 +601,10 @@ export const fetchLedgerForPeriod = action({
     // always returns today's balance — the only way to get a historical
     // point-in-time balance is `start_date`/`end_date` with end_date as the
     // as-of date (confirmed empirically).
-    const bsRes = await fetch(
-      `https://quickbooks.api.intuit.com/v3/company/${config.realmId}/reports/BalanceSheet` +
-        `?start_date=2000-01-01&end_date=${dayBefore}&minorversion=70`,
-      { headers },
+    const bsRes = await fetchIntuitApi(
+      realmId,
+      `reports/BalanceSheet?start_date=2000-01-01&end_date=${dayBefore}&minorversion=70`,
+      accessToken,
     );
     let openingBalance = 0;
     if (bsRes.ok) {
@@ -538,11 +615,10 @@ export const fetchLedgerForPeriod = action({
       console.warn("QB BalanceSheet fetch failed — opening balance will default to 0", await bsRes.text());
     }
 
-    const reportRes = await fetch(
-      `https://quickbooks.api.intuit.com/v3/company/${config.realmId}/reports/TransactionList` +
-        `?start_date=${toDateStr(periodStart)}&end_date=${toDateStr(periodEnd)}` +
-        `&account=${template.quickbooksAccountId}&minorversion=70`,
-      { headers },
+    const reportRes = await fetchIntuitApi(
+      realmId,
+      `reports/TransactionList?start_date=${toDateStr(periodStart)}&end_date=${toDateStr(periodEnd)}&account=${template.quickbooksAccountId}&minorversion=70`,
+      accessToken,
     );
     if (!reportRes.ok) {
       console.error("QuickBooks report error", await reportRes.text());
@@ -607,8 +683,8 @@ export const fetchPayrollJournalEntries = action({
       throw new Error("QuickBooks integration not active");
     }
     const config = JSON.parse(integration.config);
+    const realmId = await resolveRealmIdIfNeeded(ctx, profile.orgId, config);
     const accessToken = await ensureFreshAccessToken(ctx, profile.orgId, config);
-    const headers = { Authorization: `Bearer ${accessToken}`, Accept: "application/json" };
 
     const toDateStr = (ms: number) => new Date(ms).toISOString().slice(0, 10);
     const startDate = toDateStr(periodStart);
@@ -616,9 +692,10 @@ export const fetchPayrollJournalEntries = action({
 
     // Fetch all JournalEntry objects for the period.
     const query = `select * from JournalEntry where TxnDate >= '${startDate}' and TxnDate <= '${endDate}'`;
-    const res = await fetch(
-      `https://quickbooks.api.intuit.com/v3/company/${config.realmId}/query?query=${encodeURIComponent(query)}&minorversion=70`,
-      { headers },
+    const res = await fetchIntuitApi(
+      realmId,
+      `query?query=${encodeURIComponent(query)}&minorversion=70`,
+      accessToken,
     );
     if (!res.ok) {
       const body = await res.text();
