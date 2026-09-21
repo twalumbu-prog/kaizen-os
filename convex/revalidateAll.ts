@@ -269,7 +269,7 @@ export const upsertInternalLedger = internalMutation({
       .query("submissionFiles")
       .withIndex("by_submissionId", (q) => q.eq("submissionId", submissionId))
       .collect();
-    const ledger = files.find((f) => f.label.toLowerCase() === "internal ledger");
+    const ledger = files.find((f) => f.label.toLowerCase() === "internal ledger" || f.label.toLowerCase().includes("ledger"));
     if (ledger) {
       await ctx.db.patch(ledger._id, {
         storageId,
@@ -280,7 +280,7 @@ export const upsertInternalLedger = internalMutation({
       await ctx.db.insert("submissionFiles", {
         submissionId,
         storageId,
-        label: "Internal Ledger",
+        label: (ledger as any)?.label ?? "Internal Ledger",
         fileType: "csv",
         fileName: "quickbooks_ledger.csv",
       });

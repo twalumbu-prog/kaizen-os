@@ -767,7 +767,7 @@ export default function ReportConfigPage({
           </CardHeader>
           <CardContent className="flex flex-col gap-2">
             {template.requiredFiles.map((f, idx) => {
-              const isInternalLedger = f.label.toLowerCase() === "internal ledger";
+              const isInternalLedger = f.label.toLowerCase().includes("ledger") || template.validatorKey === "bankReconciliation";
               
               return (
                 <div key={f.label} className="flex flex-col gap-2 rounded-md border p-3 text-sm">
@@ -891,7 +891,7 @@ export default function ReportConfigPage({
                               const newAccountId = accountId === "none" ? undefined : accountId;
                               
                               const requiredFiles = template.requiredFiles.map((rf) =>
-                                rf.label.toLowerCase() === "internal ledger"
+                                rf.label.toLowerCase().includes("ledger") || template.validatorKey === "bankReconciliation"
                                   ? { ...normalizeRequiredFile(rf), required: newAccountId ? false : rf.required }
                                   : normalizeRequiredFile(rf)
                               );

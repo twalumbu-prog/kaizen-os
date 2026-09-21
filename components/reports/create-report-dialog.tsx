@@ -1,7 +1,7 @@
 "use client";
 
-import { useMutation } from "convex/react";
-import { useState } from "react";
+import { useMutation, useQuery, useAction } from "convex/react";
+import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -150,6 +150,12 @@ export function CreateReportDialog({
   departments: { _id: Id<"departments">; name: string }[];
 }) {
   const createTemplate = useMutation(api.reportTemplates.create);
+  const org = useQuery(api.organizations.getPrimary);
+  const qbIntegration = useQuery(
+    api.integrations.getIntegration,
+    org ? { orgId: org._id, provider: "quickbooks" } : "skip"
+  );
+  const getAccounts = useAction(api.quickbooks.getAccounts);
 
   const [name, setName] = useState("");
   const [departmentId, setDepartmentId] = useState<string>("");
@@ -158,6 +164,18 @@ export function CreateReportDialog({
   const [weight, setWeight] = useState("1");
   const [sharingMode, setSharingMode] = useState<"individual" | "shared">("individual");
   const [saving, setSaving] = useState(false);
+  const [qbAccounts, setQbAccounts] = useState<{ id: string; name: string; type: string }[] | null>(null);
+  const [quickbooksAccountId, setQuickbooksAccountId] = useState<string>("none");
+
+  const isQbActive = qbIntegration?.status === "active";
+
+  useEffect(() => {
+    if (isQbActive && open) {
+      getAccounts()
+        .then((data) => setQbAccounts(data))
+        .catch((e) => console.error("Failed to load QuickBooks accounts", e));
+    }
+  }, [isQbActive, open, getAccounts]);
 
   const preset = validatorKey ? VALIDATOR_PRESETS[validatorKey] : null;
 
@@ -178,6 +196,7 @@ export function CreateReportDialog({
     setCadence("monthly");
     setWeight("1");
     setSharingMode("individual");
+    setQuickbooksAccountId("none");
   }
 
   async function handleCreate() {
@@ -186,19 +205,24 @@ export function CreateReportDialog({
 
     setSaving(true);
     try {
+      const selectedQbAccount = quickbooksAccountId === "none" ? undefined : quickbooksAccountId;
+      const requiredFiles = preset.requiredFiles.map((rf) =>
+        selectedQbAccount && (rf.label.toLowerCase().includes("ledger") || validatorKey === "bankReconciliation")
+          ? { ...rf, required: false }
+          : rf
+      );
+
       await createTemplate({
         departmentId: departmentId as Id<"departments">,
         name,
         cadence,
-        // A "cycle" report is meaningless without cycle settings, so it is
-        // never created without them — the defaults are edited afterwards on
-        // the report's own page.
         cycle: cadence === "cycle" ? defaultCycleConfig() : undefined,
         validatorKey,
         weight: parseFloat(weight) || 1,
         sharingMode,
-        requiredFiles: preset.requiredFiles,
+        requiredFiles,
         validationRules: preset.validationRules,
+        quickbooksAccountId: selectedQbAccount,
       });
       toast.success(`"${name}" report created.`);
       reset();
@@ -323,6 +347,39 @@ export function CreateReportDialog({
                 : "Each assignee owes their own submission — e.g. individual sales targets."}
             </p>
           </div>
+
+          {isQbActive && (validatorKey === "bankReconciliation" || preset?.requiredFiles.some(f => f.label.toLowerCase().includes("ledger"))) && (
+            <div className="flex flex-col gap-1.5">
+              <Label className="flex items-center gap-2">
+                <span>Designate QuickBooks Account</span>
+                <span className="text-[10px] bg-[#2CA01C] text-white px-1.5 py-0.5 rounded font-medium">QuickBooks</span>
+              </Label>
+              <Select value={quickbooksAccountId} onValueChange={(v) => v && setQuickbooksAccountId(v)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a QuickBooks account…">
+                    {(val: string) =>
+                      val === "none"
+                        ? "Not mapped (Manual upload)"
+                        : qbAccounts?.find((a) => a.id === val)
+                        ? `${qbAccounts.find((a) => a.id === val)?.name} (${qbAccounts.find((a) => a.id === val)?.type})`
+                        : "Select a QuickBooks account…"
+                    }
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Not mapped (Manual upload)</SelectItem>
+                  {qbAccounts?.map((acc) => (
+                    <SelectItem key={acc.id} value={acc.id}>
+                      {acc.name} ({acc.type})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Automatically fetches live transactions from this account for bank reconciliation.
+              </p>
+            </div>
+          )}
 
           {/* Preview what will be created */}
           {preset && (

@@ -82,7 +82,7 @@ export default function UploadReportPage({
 
   // For payroll: hide the QB CSV upload slot — it's filled by the sync button.
   const visibleRequirements = template.requiredFiles.filter((f) => {
-    if (isQuickbooksMapped && f.label.toLowerCase() === "internal ledger") return false;
+    if (isQuickbooksMapped && (f.label.toLowerCase().includes("ledger") || template.validatorKey === "bankReconciliation")) return false;
     if (isPayroll && f.label.toLowerCase() === "quickbooks payroll data") return false;
     return true;
   });
@@ -117,9 +117,10 @@ export default function UploadReportPage({
         toast.loading("Syncing Quickbooks Ledger...", { id: "qb-sync" });
         try {
           const qbStorageId = await fetchLedgerForPeriod({ templateId, submissionId });
+          const ledgerLabel = template?.requiredFiles.find((f) => f.label.toLowerCase().includes("ledger"))?.label ?? "Internal Ledger";
           uploaded.push({
             storageId: qbStorageId as Id<"_storage">,
-            label: "Internal Ledger",
+            label: ledgerLabel,
             fileType: "csv" as const,
             fileName: "quickbooks_ledger.csv",
           });
