@@ -44,12 +44,12 @@ export const getAppConnectUrl = action({
 
     const composio = getClient();
 
-    // Composio-managed connections require an auth config per toolkit —
-    // reuse one if it already exists, otherwise create it on the fly.
+    // Only reuse a Composio-managed auth config — custom configs may have
+    // been created with placeholder credentials and will fail.
     const existingConfigs = await composio.authConfigs.list({ toolkit: args.appName });
+    const managedConfig = existingConfigs.items.find((c) => c.isComposioManaged);
     const authConfigId =
-      existingConfigs.items[0]?.id ??
-      (await composio.authConfigs.create(args.appName)).id;
+      managedConfig?.id ?? (await composio.authConfigs.create(args.appName)).id;
 
     const connectionRequest = await composio.connectedAccounts.link(args.orgId, authConfigId, {
       callbackUrl: args.redirectUri,

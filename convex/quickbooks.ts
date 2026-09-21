@@ -165,9 +165,11 @@ export const getAuthUrl = action({
 
     const composio = getComposioClient();
     const existingConfigs = await composio.authConfigs.list({ toolkit: "quickbooks" });
+    // Only reuse a Composio-managed config — custom configs may have been created
+    // with placeholder credentials (e.g. "your_value") and will fail at Intuit.
+    const managedConfig = existingConfigs.items.find((c) => c.isComposioManaged);
     const authConfigId =
-      existingConfigs.items[0]?.id ??
-      (await composio.authConfigs.create("quickbooks")).id;
+      managedConfig?.id ?? (await composio.authConfigs.create("quickbooks")).id;
 
     // Use a separate callback URL so the handler knows this came from Composio.
     // Encode the orgId in the URL so the callback can resolve it without needing
