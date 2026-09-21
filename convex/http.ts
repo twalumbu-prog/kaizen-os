@@ -64,6 +64,39 @@ http.route({
 });
 
 http.route({
+  path: "/api/quickbooks/composio-callback",
+  method: "GET",
+  handler: httpAction(async (ctx, request) => {
+    const url = new URL(request.url);
+    const connectedAccountId = url.searchParams.get("connectedAccountId");
+    const orgId = url.searchParams.get("orgId");
+
+    if (!connectedAccountId || !orgId) {
+      return new Response("Missing connectedAccountId or orgId", { status: 400 });
+    }
+
+    const result = await ctx.runAction(internal.quickbooks.handleComposioCallback, {
+      connectedAccountId,
+      // Convex IDs are typed strings; cast is safe because we encoded a real orgId when building the URL
+      orgId: orgId as any,
+    });
+
+    const appUrl = process.env.SITE_URL;
+    if (appUrl) {
+      const dest = new URL("/admin/integrations/quickbooks", appUrl);
+      dest.searchParams.set(result.success ? "connected" : "error", "quickbooks");
+      return Response.redirect(dest.toString(), 302);
+    }
+
+    if (result.success) {
+      return new Response("QuickBooks connected via Composio! You can close this window.", { status: 200 });
+    } else {
+      return new Response("Failed to connect QuickBooks via Composio.", { status: 500 });
+    }
+  }),
+});
+
+http.route({
   path: "/api/drive/callback",
   method: "GET",
   handler: httpAction(async (ctx, request) => {

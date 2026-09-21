@@ -1,9 +1,16 @@
+"use node";
+
 import { action, internalAction, internalMutation, mutation, query } from "./_generated/server";
 import type { ActionCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { extractAccountRows } from "./lib/qbExtract";
+import { Composio } from "@composio/core";
+
+function getComposioClient() {
+  return new Composio({ apiKey: process.env.COMPOSIO_API_KEY ?? "" });
+}
 
 type CallbackResult = { success: true; orgId: Id<"organizations"> } | { success: false };
 
@@ -35,11 +42,29 @@ function findAccountBalanceInReport(rows: any[], accountId: string): number | nu
 async function ensureFreshAccessToken(
   ctx: ActionCtx,
   orgId: Id<"organizations">,
-  config: { accessToken: string; refreshToken: string; expiresAt: number; realmId?: string },
+  config: { accessToken: string; refreshToken: string; expiresAt: number; realmId?: string; composioConnectionId?: string },
 ): Promise<string> {
   const REFRESH_BUFFER_MS = 5 * 60 * 1000;
   if (config.expiresAt && Date.now() < config.expiresAt - REFRESH_BUFFER_MS) {
     return config.accessToken;
+  }
+
+  // When connected via Composio, delegate refresh to Composio
+  if (config.composioConnectionId) {
+    const composioKey = process.env.COMPOSIO_API_KEY;
+    if (!composioKey) throw new Error("Composio API key not configured — cannot refresh QuickBooks token");
+    const composio = getComposioClient();
+    await composio.connectedAccounts.refresh(config.composioConnectionId);
+    const account = await composio.connectedAccounts.get(config.composioConnectionId);
+    const params = (account as any).params ?? {};
+    const newAccessToken: string = params.access_token ?? params.accessToken ?? config.accessToken;
+    const newRefreshToken: string = params.refresh_token ?? params.refreshToken ?? config.refreshToken;
+    const expiresIn: number = params.expires_in ? parseInt(params.expires_in) : 3600;
+    const newConfig = { ...config, accessToken: newAccessToken, refreshToken: newRefreshToken, expiresAt: Date.now() + expiresIn * 1000 };
+    await ctx.runMutation(internal.integrations.updateIntegrationStatusInternal, {
+      orgId, provider: "quickbooks", status: "active", config: JSON.stringify(newConfig),
+    });
+    return newAccessToken;
   }
 
   const clientId = process.env.QUICKBOOKS_CLIENT_ID;
@@ -114,27 +139,51 @@ export const syncTransactions = action({
 export const getAuthUrl = action({
   args: { redirectUri: v.string() },
   handler: async (ctx, args) => {
-    const clientId = process.env.QUICKBOOKS_CLIENT_ID;
-    if (!clientId) throw new Error("QuickBooks Client ID not configured in .env.local");
-
-    // Derive the org from the caller's own profile — never trust a client-supplied
-    // orgId here, or anyone could mint a connect URL for an org they don't belong to.
     const profile = await ctx.runQuery(api.profiles.getMe, {});
     if (!profile) throw new Error("Not authenticated");
     if (profile.role !== "admin") throw new Error("Only admins can connect integrations");
 
-    const state = await ctx.runMutation(internal.lib.oauthState.createState, {
-      orgId: profile.orgId,
-      provider: "quickbooks",
-    });
+    const clientId = process.env.QUICKBOOKS_CLIENT_ID;
+    if (clientId) {
+      // Direct Intuit OAuth flow
+      const state = await ctx.runMutation(internal.lib.oauthState.createState, {
+        orgId: profile.orgId,
+        provider: "quickbooks",
+      });
+      const url = new URL("https://appcenter.intuit.com/connect/oauth2");
+      url.searchParams.append("client_id", clientId);
+      url.searchParams.append("response_type", "code");
+      url.searchParams.append("scope", "com.intuit.quickbooks.accounting");
+      url.searchParams.append("redirect_uri", args.redirectUri);
+      url.searchParams.append("state", state);
+      return url.toString();
+    }
 
-    const url = new URL("https://appcenter.intuit.com/connect/oauth2");
-    url.searchParams.append("client_id", clientId);
-    url.searchParams.append("response_type", "code");
-    url.searchParams.append("scope", "com.intuit.quickbooks.accounting");
-    url.searchParams.append("redirect_uri", args.redirectUri);
-    url.searchParams.append("state", state);
-    return url.toString();
+    // Composio-managed OAuth fallback
+    const composioKey = process.env.COMPOSIO_API_KEY;
+    if (!composioKey) throw new Error("QuickBooks Client ID not configured");
+
+    const composio = getComposioClient();
+    const existingConfigs = await composio.authConfigs.list({ toolkit: "quickbooks" });
+    const authConfigId =
+      existingConfigs.items[0]?.id ??
+      (await composio.authConfigs.create("quickbooks")).id;
+
+    // Use a separate callback URL so the handler knows this came from Composio.
+    // Encode the orgId in the URL so the callback can resolve it without needing
+    // it from the Composio response (ConnectedAccountRetrieveResponse has no userId).
+    const composioCallbackUrl =
+      args.redirectUri.replace("/api/quickbooks/callback", "/api/quickbooks/composio-callback") +
+      `?orgId=${profile.orgId}`;
+
+    const connectionRequest = await composio.connectedAccounts.link(
+      profile.orgId,
+      authConfigId,
+      { callbackUrl: composioCallbackUrl, allowMultiple: true },
+    );
+
+    if (!connectionRequest.redirectUrl) throw new Error("Composio did not return an OAuth URL");
+    return connectionRequest.redirectUrl;
   }
 });
 
@@ -241,6 +290,59 @@ export const handleCallback = internalAction({
       return { success: false };
     }
   }
+});
+
+export const handleComposioCallback = internalAction({
+  args: { connectedAccountId: v.string(), orgId: v.id("organizations") },
+  handler: async (ctx, args): Promise<CallbackResult> => {
+    const composioKey = process.env.COMPOSIO_API_KEY;
+    if (!composioKey) return { success: false };
+
+    try {
+      const composio = getComposioClient();
+
+      // Refresh so we have the latest tokens, then fetch connection details.
+      // `params` is marked deprecated but is still the field that carries the raw
+      // OAuth credential data (access_token, refresh_token, realmId, etc.).
+      await composio.connectedAccounts.refresh(args.connectedAccountId);
+      const account = await composio.connectedAccounts.get(args.connectedAccountId);
+
+      const params = account.params ?? {};
+      const accessToken: string | undefined =
+        (params.access_token as string | undefined) ?? (params.accessToken as string | undefined);
+      const refreshToken: string | undefined =
+        (params.refresh_token as string | undefined) ?? (params.refreshToken as string | undefined);
+      const realmId: string | undefined =
+        (params.realmId as string | undefined) ?? (params.realm_id as string | undefined);
+      const expiresIn: number =
+        params.expires_in ? parseInt(params.expires_in as string) : 3600;
+
+      if (!accessToken || !realmId) {
+        console.error("Composio QB callback: missing access_token or realmId in params", {
+          paramKeys: Object.keys(params),
+        });
+        return { success: false };
+      }
+
+      await ctx.runMutation(internal.integrations.updateIntegrationStatusInternal, {
+        orgId: args.orgId,
+        provider: "quickbooks",
+        status: "active",
+        config: JSON.stringify({
+          accessToken,
+          refreshToken: refreshToken ?? "",
+          realmId,
+          expiresAt: Date.now() + expiresIn * 1000,
+          composioConnectionId: args.connectedAccountId,
+        }),
+      });
+
+      return { success: true, orgId: args.orgId };
+    } catch (e) {
+      console.error("Composio QB callback error", e);
+      return { success: false };
+    }
+  },
 });
 
 export const getAccounts = action({
