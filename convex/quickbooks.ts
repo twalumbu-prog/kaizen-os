@@ -558,6 +558,39 @@ export const getAccounts = action({
 
     try {
       const config = JSON.parse(integration.config);
+
+      // If we have a Composio connection, fetch accounts via Composio's CDC tool.
+      // Composio manages the realmId internally, so we don't need it here.
+      if (config.composioConnectionId && process.env.COMPOSIO_API_KEY) {
+        try {
+          const composio = getComposioClient();
+          // Use changedSince epoch to get all accounts (CDC returns all records changed after this date).
+          const result = await (composio as any).tools.execute("QUICKBOOKS_GET_CHANGED_ENTITIES", {
+            userId: profile.orgId,
+            arguments: { entities: "Account", changedSince: "2000-01-01T00:00:00Z" },
+            dangerouslySkipVersionCheck: true,
+          });
+          if (result?.successful) {
+            // CDCResponse is an array; QueryResponse within each item is also an array.
+            const queryResponses: any[] = result.data?.CDCResponse?.flatMap((cr: any) =>
+              Array.isArray(cr.QueryResponse) ? cr.QueryResponse : [cr.QueryResponse]
+            ) ?? [];
+            const accounts: any[] = queryResponses.flatMap((qr: any) => qr?.Account ?? []);
+            const activeAccounts = accounts.filter((a: any) => a.Active !== false);
+            activeAccounts.sort((a: any, b: any) => (a.FullyQualifiedName ?? a.Name).localeCompare(b.FullyQualifiedName ?? b.Name));
+            return activeAccounts.map((a: any) => ({
+              id: String(a.Id),
+              name: a.FullyQualifiedName ?? a.Name,
+              type: a.AccountType,
+            }));
+          }
+          console.warn("Composio QUICKBOOKS_GET_CHANGED_ENTITIES failed:", result?.error);
+        } catch (composioErr) {
+          console.warn("Composio getAccounts fallback failed:", composioErr);
+        }
+      }
+
+      // Direct Intuit API path (requires realmId stored in config).
       const realmId = await resolveRealmIdIfNeeded(ctx, profile.orgId, config);
       const accessToken = await ensureFreshAccessToken(ctx, profile.orgId, config);
 

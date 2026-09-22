@@ -53,6 +53,30 @@ export const getIntegration = query({
   }
 });
 
+export const listQbIntegrations = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db.query("integrations")
+      .withIndex("by_orgId_provider")
+      .filter(q => q.eq(q.field("provider"), "quickbooks"))
+      .collect();
+    return rows.map(r => {
+      let cfg: Record<string, unknown> = {};
+      try { cfg = JSON.parse(r.config ?? "{}"); } catch {}
+      return {
+        _id: r._id,
+        orgId: r.orgId,
+        status: r.status,
+        hasAccessToken: !!cfg.accessToken,
+        hasRefreshToken: !!cfg.refreshToken,
+        realmId: cfg.realmId || "(empty)",
+        composioConnectionId: cfg.composioConnectionId || null,
+        expiresAt: cfg.expiresAt ? new Date(cfg.expiresAt as number).toISOString() : null,
+      };
+    });
+  },
+});
+
 export const getInternalIntegration = internalQuery({
   args: {
     orgId: v.id("organizations"),
