@@ -89,6 +89,7 @@ export const getInternalIntegration = internalQuery({
   }
 });
 
+
 export const updateIntegrationStatus = mutation({
   args: {
     orgId: v.id("organizations"),

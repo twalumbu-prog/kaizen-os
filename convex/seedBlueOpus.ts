@@ -1,6 +1,6 @@
 import { internalMutation } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
-import type { Infer } from "convex/values";
+import { Infer, v } from "convex/values";
 import { FILE_TYPE } from "./schema";
 
 /**
@@ -136,11 +136,15 @@ const DEPARTMENTS: DepartmentSpec[] = [
 export const seedReports = internalMutation({
   args: {},
   handler: async (ctx) => {
-    const org = await ctx.db
+    let org = await ctx.db
       .query("organizations")
       .filter((q) => q.eq(q.field("name"), ORG_NAME))
       .unique();
-    if (!org) throw new Error(`Organization "${ORG_NAME}" not found`);
+
+    if (!org) {
+      const orgId = await ctx.db.insert("organizations", { name: ORG_NAME });
+      org = (await ctx.db.get(orgId))!;
+    }
 
     const existingDepartments = await ctx.db
       .query("departments")
@@ -196,5 +200,55 @@ export const seedReports = internalMutation({
     }
 
     return { orgId: org._id, created, skipped };
+  },
+});
+
+export const configureMetaIntegration = internalMutation({
+  args: {
+    accessToken: v.string(),
+    adAccountId: v.optional(v.string()),
+    appId: v.optional(v.string()),
+    appSecret: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    let org = await ctx.db
+      .query("organizations")
+      .filter((q) => q.eq(q.field("name"), ORG_NAME))
+      .unique();
+
+    if (!org) {
+      const orgId = await ctx.db.insert("organizations", { name: ORG_NAME });
+      org = (await ctx.db.get(orgId))!;
+    }
+
+    const config = JSON.stringify({
+      accessToken: args.accessToken,
+      adAccountId: args.adAccountId ?? "",
+      appId: args.appId ?? "",
+      appSecret: args.appSecret ?? "",
+    });
+
+    const existing = await ctx.db
+      .query("integrations")
+      .withIndex("by_orgId_provider", (q) =>
+        q.eq("orgId", org._id).eq("provider", "meta")
+      )
+      .first();
+
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        status: "active",
+        config,
+      });
+      return { orgId: org._id, integrationId: existing._id, status: "updated" };
+    } else {
+      const id = await ctx.db.insert("integrations", {
+        orgId: org._id,
+        provider: "meta",
+        status: "active",
+        config,
+      });
+      return { orgId: org._id, integrationId: id, status: "created" };
+    }
   },
 });
