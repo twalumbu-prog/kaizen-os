@@ -564,6 +564,12 @@ export const syncTokenFromComposio = internalAction({
     if (!config.composioConnectionId || !process.env.COMPOSIO_API_KEY) return null;
     try {
       const composio = getComposioClient();
+      // Trigger a fresh token from Composio before reading the state.
+      try {
+        await (composio.connectedAccounts as any).refresh(config.composioConnectionId);
+      } catch (refreshErr) {
+        console.warn("[syncTokenFromComposio] Composio refresh call failed:", refreshErr);
+      }
       const account = await composio.connectedAccounts.get(config.composioConnectionId);
       const raw = account as any;
       const state = raw.state ?? {};
@@ -621,6 +627,105 @@ export const dumpComposioState = internalAction({
       extraTokenData: stateVal.extra_token_data ?? null,
       data: raw.data ?? null,
     };
+  },
+});
+
+/** Returns all active QB accounts via Composio CDC (no direct token needed). */
+export const fetchChangedEntities = internalAction({
+  args: { orgId: v.id("organizations") },
+  handler: async (ctx, { orgId }) => {
+    const composio = getComposioClient();
+    const result = await (composio as any).tools.execute(
+      "QUICKBOOKS_GET_CHANGED_ENTITIES",
+      {
+        userId: orgId,
+        arguments: { entities: "Account", changedSince: "2000-01-01T00:00:00Z" },
+        dangerouslySkipVersionCheck: true,
+      },
+    );
+    if (!result?.successful) return [];
+    const queryResponses: any[] = result.data?.CDCResponse?.flatMap((cr: any) =>
+      Array.isArray(cr.QueryResponse) ? cr.QueryResponse : [cr.QueryResponse]
+    ) ?? [];
+    const accounts: any[] = queryResponses.flatMap((qr: any) => qr?.Account ?? []);
+    return accounts.filter((a: any) => a.Active !== false);
+  },
+});
+
+/** Fetches a QB TransactionList report for an account + date range via Composio. */
+export const fetchTransactionListReport = internalAction({
+  args: {
+    orgId: v.id("organizations"),
+    accountId: v.string(),
+    startDate: v.string(),
+    endDate: v.string(),
+  },
+  handler: async (ctx, { orgId, accountId, startDate, endDate }) => {
+    const composio = getComposioClient();
+    const result = await (composio as any).tools.execute(
+      "QUICKBOOKS_GET_TRANSACTION_LIST_REPORT",
+      {
+        userId: orgId,
+        arguments: { account_ids: [accountId], start_date: startDate, end_date: endDate },
+        dangerouslySkipVersionCheck: true,
+      },
+    );
+    if (!result?.successful) throw new Error(`QB TransactionList failed: ${JSON.stringify(result?.error ?? result)}`);
+    return result.data ?? result;
+  },
+});
+
+/** Fetches a QB BalanceSheet report for a given date via Composio. */
+export const fetchBalanceSheetReport = internalAction({
+  args: {
+    orgId: v.id("organizations"),
+    reportDate: v.string(),
+  },
+  handler: async (ctx, { orgId, reportDate }) => {
+    const composio = getComposioClient();
+    const result = await (composio as any).tools.execute(
+      "QUICKBOOKS_GET_BALANCE_SHEET_REPORT",
+      {
+        userId: orgId,
+        arguments: { report_date: reportDate },
+        dangerouslySkipVersionCheck: true,
+      },
+    );
+    if (!result?.successful) throw new Error(`QB BalanceSheet failed: ${JSON.stringify(result?.error ?? result)}`);
+    return result.data ?? result;
+  },
+});
+
+/** Runs a QB API call against prod then sandbox, returning the parsed JSON. */
+export const fetchQbJson = internalAction({
+  args: { orgId: v.id("organizations"), pathAndQuery: v.string() },
+  handler: async (ctx, { orgId, pathAndQuery }) => {
+    const integration = await ctx.runQuery(internal.integrations.getInternalIntegration, {
+      orgId, provider: "quickbooks",
+    });
+    if (!integration?.config) throw new Error("QB integration not found");
+    const config = JSON.parse(integration.config);
+    if (!config.realmId) {
+      config.realmId = await resolveRealmIdIfNeeded(ctx, orgId, config);
+    }
+    const accessToken = await ensureFreshAccessToken(ctx, orgId, config);
+    const res = await fetchIntuitApi(config.realmId, pathAndQuery, accessToken);
+    const text = await res.text();
+    if (!res.ok) throw new Error(`QB API error: ${text}`);
+    return JSON.parse(text);
+  },
+});
+
+/** Gets a fresh QB access token for an org (used by backfillQbLedgers). */
+export const getFreshToken = internalAction({
+  args: { orgId: v.id("organizations") },
+  handler: async (ctx, { orgId }) => {
+    const integration = await ctx.runQuery(internal.integrations.getInternalIntegration, {
+      orgId, provider: "quickbooks",
+    });
+    if (!integration?.config) throw new Error("QB integration not found");
+    const config = JSON.parse(integration.config);
+    return await ensureFreshAccessToken(ctx, orgId, config);
   },
 });
 

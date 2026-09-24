@@ -313,33 +313,22 @@ export const backfillQbLedgers = internalAction({
       throw new Error("QuickBooks integration is not active for this org");
     }
 
-    // Sync the latest tokens from Composio before attempting direct API access.
-    await ctx.runAction(internal.quickbooks.syncTokenFromComposio, { orgId });
+    // Resolve account name via Composio CDC (no direct token needed).
+    const cdcResult = await ctx.runAction(internal.quickbooks.fetchTransactionListReport, {
+      orgId,
+      accountId: quickbooksAccountId,
+      startDate: "2000-01-01",
+      endDate: "2000-01-01", // minimal date range just to warm up / verify connection
+    }).catch(() => null);
 
-    const freshIntegration = await ctx.runQuery(internal.integrations.getInternalIntegration, {
-      orgId, provider: "quickbooks",
+    // Separately get the account name from CDC.
+    const allAccountsResult = await ctx.runAction(internal.quickbooks.fetchChangedEntities, {
+      orgId,
     });
-    const config = JSON.parse(freshIntegration!.config!);
-    if (!config.realmId) {
-      config.realmId = await ctx.runAction(internal.quickbooks.resolveRealmId, { orgId });
-    }
-
-    const accessToken = await refreshQbTokenIfNeeded(ctx, orgId, config);
-    const headers = { Authorization: `Bearer ${accessToken}`, Accept: "application/json" };
-
-    // Resolve FullyQualifiedName for the mapped account (needed for row filtering)
-    const acctQuery = `select Name, FullyQualifiedName from Account where Id = '${quickbooksAccountId}'`;
-    const acctRes = await fetch(
-      `https://quickbooks.api.intuit.com/v3/company/${config.realmId}/query?query=${encodeURIComponent(acctQuery)}&minorversion=70`,
-      { headers },
-    );
-    if (!acctRes.ok) {
-      throw new Error(`QB account lookup failed: ${await acctRes.text()}`);
-    }
-    const acctData = await acctRes.json();
-    const account = acctData.QueryResponse?.Account?.[0];
-    if (!account) throw new Error("The mapped QB account was not found — has it been deleted?");
-    const accountName: string = account.FullyQualifiedName ?? account.Name;
+    const allAccounts: any[] = allAccountsResult ?? [];
+    const mappedAccount = allAccounts.find((a: any) => String(a.Id) === String(quickbooksAccountId));
+    const accountName: string = mappedAccount?.FullyQualifiedName ?? mappedAccount?.Name ?? `Account ${quickbooksAccountId}`;
+    console.log(`Account name: "${accountName}"`);
 
     console.log(
       `Backfilling ${submissions.length} period(s) with QB ledger for "${accountName}" …`,
@@ -350,38 +339,36 @@ export const backfillQbLedgers = internalAction({
     for (const sub of submissions) {
       console.log(`  ${sub.periodLabel}: ${toDateStr(sub.periodStart)} – ${toDateStr(sub.periodEnd)}`);
 
-      const reportRes = await fetch(
-        `https://quickbooks.api.intuit.com/v3/company/${config.realmId}/reports/TransactionList` +
-          `?start_date=${toDateStr(sub.periodStart)}&end_date=${toDateStr(sub.periodEnd)}` +
-          `&account=${quickbooksAccountId}&minorversion=70`,
-        { headers },
-      );
-      if (!reportRes.ok) {
-        console.error(`  QB report error for ${sub.periodLabel}:`, await reportRes.text());
+      let reportData: any;
+      try {
+        reportData = await ctx.runAction(internal.quickbooks.fetchTransactionListReport, {
+          orgId,
+          accountId: quickbooksAccountId,
+          startDate: toDateStr(sub.periodStart),
+          endDate: toDateStr(sub.periodEnd),
+        });
+      } catch (e) {
+        console.error(`  QB TransactionList error for ${sub.periodLabel}:`, e);
         continue;
       }
 
-      // Fetch the account's balance as of the day before the period starts.
-      // NOTE: a bare `as_of` param is silently ignored by QuickBooks and always
-      // returns today's balance — `start_date`/`end_date` with end_date as the
-      // as-of date is what actually returns a historical point-in-time balance.
       const dayBefore = toDateStr(sub.periodStart - 86_400_000);
-      const bsRes = await fetch(
-        `https://quickbooks.api.intuit.com/v3/company/${config.realmId}/reports/BalanceSheet` +
-          `?start_date=2000-01-01&end_date=${dayBefore}&minorversion=70`,
-        { headers },
-      );
       let openingBalance = 0;
-      if (bsRes.ok) {
-        const bsData = await bsRes.json();
-        const found = findAccountBalanceInReport(bsData.Rows?.Row ?? [], quickbooksAccountId);
+      try {
+        const bsData = await ctx.runAction(internal.quickbooks.fetchBalanceSheetReport, {
+          orgId,
+          reportDate: dayBefore,
+        });
+        // Composio wraps QB response — rows may be at bsData.Rows or bsData.data.Rows
+        const bsRows = bsData?.Rows?.Row ?? bsData?.data?.Rows?.Row ?? [];
+        const found = findAccountBalanceInReport(bsRows, quickbooksAccountId);
         if (found !== null) openingBalance = found;
-      } else {
+      } catch (e) {
         console.warn(`  QB BalanceSheet failed for ${sub.periodLabel} — defaulting to 0`);
       }
 
-      const reportData = await reportRes.json();
-      const rows: any[] = reportData.Rows?.Row ?? [];
+      // Composio wraps QB response — rows may be at reportData.Rows or reportData.data.Rows
+      const rows: any[] = reportData?.Rows?.Row ?? reportData?.data?.Rows?.Row ?? [];
 
       let csvContent = "Date,Description,Debit,Credit,Balance\n";
       csvContent += `,Opening Balance,,,${openingBalance.toFixed(2)}\n`;

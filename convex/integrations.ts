@@ -89,6 +89,26 @@ export const getInternalIntegration = internalQuery({
   }
 });
 
+export const getActiveAiIntegration = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const all = await ctx.db.query("integrations").collect();
+    const active = all.find(i => i.status === "active" && (i.provider === "openrouter" || i.provider === "google_ai"));
+    if (!active || !active.config) return null;
+    try {
+      const parsed = JSON.parse(active.config) as { apiKey?: string; model?: string };
+      if (parsed.apiKey) {
+        return {
+          provider: active.provider as "openrouter" | "google_ai",
+          apiKey: parsed.apiKey,
+          model: parsed.model,
+        };
+      }
+    } catch {}
+    return null;
+  },
+});
+
 
 export const updateIntegrationStatus = mutation({
   args: {

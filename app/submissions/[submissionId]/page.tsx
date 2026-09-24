@@ -3,7 +3,7 @@
 import { useQuery, useMutation, useAction } from "convex/react";
 import { Fragment, use, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { ArrowLeft, CheckCircle2, XCircle, AlertTriangle, FileText, Upload, Loader2, Trash2, UserCog, ExternalLink, RefreshCw } from "lucide-react";
+import { ArrowLeft, CheckCircle2, XCircle, AlertTriangle, FileText, Upload, Loader2, Trash2, UserCog, ExternalLink, RefreshCw, Sparkles } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { AppShell } from "@/components/layout/app-shell";
@@ -205,42 +205,80 @@ function ExtractedData({ extracted }: { extracted: ExtractedFileData }) {
   }
 
   const summaryNotes = extracted.metadata?.summaryNotes;
-  const filteredEntries = metadataEntries.filter(([k]) => k !== "summaryNotes");
+  const validationStatus = extracted.metadata?.documentValidationStatus;
+  const docType = extracted.metadata?.extractedDocumentType;
+
+  const IGNORED_KEYS = new Set([
+    "summaryNotes", 
+    "documentValidationStatus", 
+    "aiReview", 
+    "fileName", 
+    "fileType", 
+    "fileSize",
+    "extractedDocumentType"
+  ]);
+  const metricEntries = metadataEntries.filter(([k]) => !IGNORED_KEYS.has(k));
 
   return (
     <div className="flex flex-col gap-4 py-2">
       {summaryNotes && (
-        <div className="rounded-md bg-muted/50 p-3 text-sm border">
-          <span className="font-semibold text-foreground block mb-1">AI Document Review Summary</span>
-          <p className="text-muted-foreground">{String(summaryNotes)}</p>
+        <div className="rounded-md bg-purple-500/10 border border-purple-500/20 p-3.5 text-sm">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="font-semibold text-purple-700 dark:text-purple-300 flex items-center gap-1.5">
+              <Sparkles className="size-4" /> AI Document Extraction Summary
+            </span>
+            {docType && (
+              <Badge variant="outline" className="text-xs bg-background">
+                {String(docType)}
+              </Badge>
+            )}
+          </div>
+          <p className="text-foreground/90 leading-relaxed">{String(summaryNotes)}</p>
         </div>
       )}
-      <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-3 border rounded-md p-4 bg-card">
-        {extracted.openingBalance !== undefined && (
-          <>
-            <span className="text-muted-foreground font-medium">Opening Balance</span>
-            <span className="col-span-1 sm:col-span-2 font-mono">{formatMetadataValue(extracted.openingBalance)}</span>
-          </>
-        )}
-        {extracted.closingBalance !== undefined && (
-          <>
-            <span className="text-muted-foreground font-medium">Closing Balance</span>
-            <span className="col-span-1 sm:col-span-2 font-mono">{formatMetadataValue(extracted.closingBalance)}</span>
-          </>
-        )}
-        {extracted.transactionCount > 0 && (
-          <>
-            <span className="text-muted-foreground font-medium">Transactions</span>
-            <span className="col-span-1 sm:col-span-2 font-mono">{extracted.transactionCount}</span>
-          </>
-        )}
-        {filteredEntries.map(([key, value]) => (
-          <Fragment key={key}>
-            <span className="text-muted-foreground font-medium">{prettifyKey(key)}</span>
-            <span className="col-span-1 sm:col-span-2 font-mono">{formatMetadataValue(value)}</span>
-          </Fragment>
-        ))}
-      </div>
+
+      {validationStatus && (
+        <div className="rounded-md bg-muted/40 border p-3 text-xs text-muted-foreground">
+          <span className="font-medium text-foreground">Validation Check: </span>
+          {String(validationStatus)}
+        </div>
+      )}
+
+      {metricEntries.length > 0 || hasBalances || extracted.transactionCount > 0 ? (
+        <div className="space-y-2">
+          <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Extracted Metrics & Figures</h4>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 text-sm sm:grid-cols-3 border rounded-md p-4 bg-card">
+            {extracted.openingBalance !== undefined && (
+              <>
+                <span className="text-muted-foreground font-medium">Opening Balance</span>
+                <span className="col-span-1 sm:col-span-2 font-mono font-semibold">{formatMetadataValue(extracted.openingBalance)}</span>
+              </>
+            )}
+            {extracted.closingBalance !== undefined && (
+              <>
+                <span className="text-muted-foreground font-medium">Closing Balance</span>
+                <span className="col-span-1 sm:col-span-2 font-mono font-semibold">{formatMetadataValue(extracted.closingBalance)}</span>
+              </>
+            )}
+            {extracted.transactionCount > 0 && (
+              <>
+                <span className="text-muted-foreground font-medium font-medium">Transactions</span>
+                <span className="col-span-1 sm:col-span-2 font-mono font-semibold">{extracted.transactionCount}</span>
+              </>
+            )}
+            {metricEntries.map(([key, value]) => (
+              <Fragment key={key}>
+                <span className="text-muted-foreground font-medium">{prettifyKey(key)}</span>
+                <span className="col-span-1 sm:col-span-2 font-mono font-semibold">{formatMetadataValue(value)}</span>
+              </Fragment>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="rounded-md border p-4 text-center text-sm text-muted-foreground">
+          No key numerical metric figures found in the document.
+        </div>
+      )}
     </div>
   );
 }

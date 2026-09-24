@@ -38,7 +38,7 @@ async function loadAiConfig(
   orgId: Id<"organizations"> | null,
 ): Promise<AiConfig | undefined> {
   if (orgId) {
-    // 1. Check OpenRouter Integration
+    // 1. Check OpenRouter Integration for this org
     const openrouterInteg = await ctx.runQuery(internal.integrations.getInternalIntegration, {
       orgId,
       provider: "openrouter",
@@ -58,7 +58,7 @@ async function loadAiConfig(
       }
     }
 
-    // 2. Check Google AI Integration
+    // 2. Check Google AI Integration for this org
     const googleInteg = await ctx.runQuery(internal.integrations.getInternalIntegration, {
       orgId,
       provider: "google_ai",
@@ -79,7 +79,17 @@ async function loadAiConfig(
     }
   }
 
-  // 3. Environment variable fallback
+  // 3. Check ANY active AI integration saved in the database
+  const activeDbInteg = await ctx.runQuery(internal.integrations.getActiveAiIntegration);
+  if (activeDbInteg && activeDbInteg.apiKey) {
+    return {
+      apiKey: activeDbInteg.apiKey,
+      model: activeDbInteg.model || (activeDbInteg.provider === "openrouter" ? DEFAULT_OPENROUTER_MODEL : DEFAULT_GOOGLE_MODEL),
+      provider: activeDbInteg.provider,
+    };
+  }
+
+  // 4. Environment variable fallback
   if (process.env.OPENROUTER_API_KEY) {
     return {
       apiKey: process.env.OPENROUTER_API_KEY,
@@ -149,7 +159,13 @@ export const runValidation = internalAction({
       let aiTxCount = 0;
 
       if (aiConfig) {
-        console.log(`[ValidationRunner] Running Gemini AI document analysis & extraction on ${file.label}...`);
+        console.log(`[ValidationRunner] Running AI document analysis & extraction on ${file.label}...`);
+        const customFields = [
+          ...(template.aiExtractionFields ?? []),
+          ...(template.outcomeBenchmark?.metricKey
+            ? [{ key: template.outcomeBenchmark.metricKey, label: template.outcomeBenchmark.metricLabel || template.outcomeBenchmark.metricKey }]
+            : []),
+        ];
         const aiRes = await extractDataWithAi(
           buffer,
           file.fileType,
@@ -159,7 +175,7 @@ export const runValidation = internalAction({
           template.validatorKey,
           aiConfig,
           statement,
-          template.aiExtractionFields ?? undefined,
+          customFields.length > 0 ? customFields : undefined,
         );
         if (aiRes) {
           aiMetadata = aiRes.metadata ?? {};
@@ -241,7 +257,7 @@ export const runValidation = internalAction({
     if (reviewsRawDocument && result.summary) {
       for (const update of extractedUpdates) {
         if (update.extracted.metadata) {
-          update.extracted.metadata.aiReview = result.summary;
+          update.extracted.metadata.documentValidationStatus = result.summary;
         }
       }
     }
