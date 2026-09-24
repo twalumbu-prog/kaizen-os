@@ -390,12 +390,15 @@ export const handleComposioCallback = internalAction({
           stateVal?.full?.realm_id ??
           dataObj.realmId ??
           dataObj.realm_id ??
+          dataObj.generic_id ??
+          (stateVal?.generic_id as string | undefined) ??
           paramsObj.realmId ??
           paramsObj.realm_id ??
           connectionParams.realmId ??
           connectionParams.realm_id ??
           rawAccount.realmId ??
           rawAccount.realm_id ??
+          rawAccount.generic_id ??
           args.realmId;
 
         const expiresInRaw =
@@ -506,12 +509,15 @@ async function resolveRealmIdIfNeeded(
         (extraTokenData.realm_id as string | undefined) ??
         dataObj.realmId ??
         dataObj.realm_id ??
+        dataObj.generic_id ??
+        (stateVal?.generic_id as string | undefined) ??
         paramsObj.realmId ??
         paramsObj.realm_id ??
         connectionParams.realmId ??
         connectionParams.realm_id ??
         rawAccount.realmId ??
-        rawAccount.realm_id;
+        rawAccount.realm_id ??
+        rawAccount.generic_id;
 
       console.log("resolveRealmIdIfNeeded Composio lookup", {
         found: !!resolvedRealmId,
@@ -540,6 +546,98 @@ async function resolveRealmIdIfNeeded(
 
   throw new Error("Missing QuickBooks realm ID — please reconnect QuickBooks from the Integrations Hub.");
 }
+
+
+/**
+ * Syncs the latest access/refresh tokens from Composio into our integration config.
+ * Returns the fresh access token so callers can use it immediately.
+ * Falls back silently if Composio can't provide a token.
+ */
+export const syncTokenFromComposio = internalAction({
+  args: { orgId: v.id("organizations") },
+  handler: async (ctx, { orgId }) => {
+    const integration = await ctx.runQuery(internal.integrations.getInternalIntegration, {
+      orgId, provider: "quickbooks",
+    });
+    if (!integration?.config) return null;
+    const config = JSON.parse(integration.config);
+    if (!config.composioConnectionId || !process.env.COMPOSIO_API_KEY) return null;
+    try {
+      const composio = getComposioClient();
+      const account = await composio.connectedAccounts.get(config.composioConnectionId);
+      const raw = account as any;
+      const state = raw.state ?? {};
+      const stateVal = state.authScheme === "OAUTH2" ? (state.val ?? {}) : state.val ?? {};
+      const dataObj = raw.data ?? stateVal ?? {};
+
+      const freshAccessToken: string | undefined =
+        stateVal?.access_token ?? dataObj?.access_token;
+      const freshRefreshToken: string | undefined =
+        stateVal?.refresh_token ?? dataObj?.refresh_token;
+      const freshExpiresIn: number | undefined =
+        stateVal?.expires_in ?? dataObj?.expires_in;
+
+      if (!freshAccessToken) return null;
+
+      const newConfig = {
+        ...config,
+        accessToken: freshAccessToken,
+        ...(freshRefreshToken ? { refreshToken: freshRefreshToken } : {}),
+        ...(freshExpiresIn ? { expiresAt: Date.now() + Number(freshExpiresIn) * 1000 } : {}),
+      };
+      await ctx.runMutation(internal.integrations.updateIntegrationStatusInternal, {
+        orgId,
+        provider: "quickbooks",
+        status: "active",
+        config: JSON.stringify(newConfig),
+      });
+      return freshAccessToken;
+    } catch (e) {
+      console.warn("[syncTokenFromComposio] Failed:", e);
+      return null;
+    }
+  },
+});
+
+/** Dumps the raw Composio state for debugging (helps find realmId). */
+export const dumpComposioState = internalAction({
+  args: { orgId: v.id("organizations") },
+  handler: async (ctx, { orgId }) => {
+    const integration = await ctx.runQuery(internal.integrations.getInternalIntegration, {
+      orgId, provider: "quickbooks",
+    });
+    if (!integration?.config) throw new Error("QB integration not found");
+    const config = JSON.parse(integration.config);
+    if (!config.composioConnectionId) return { error: "no composioConnectionId" };
+    const composio = getComposioClient();
+    const account = await composio.connectedAccounts.get(config.composioConnectionId);
+    const raw = account as any;
+    const state = raw.state ?? {};
+    const stateVal = state.authScheme === "OAUTH2" ? (state.val ?? {}) : {};
+    return {
+      status: raw.status,
+      stateStatus: stateVal.status,
+      fullContent: stateVal.full ?? null,
+      extraTokenData: stateVal.extra_token_data ?? null,
+      data: raw.data ?? null,
+    };
+  },
+});
+
+/** Resolves and persists the realmId for an org's QB integration (used by backfillQbLedgers). */
+export const resolveRealmId = internalAction({
+  args: { orgId: v.id("organizations") },
+  handler: async (ctx, { orgId }) => {
+    const integration = await ctx.runQuery(internal.integrations.getInternalIntegration, {
+      orgId,
+      provider: "quickbooks",
+    });
+    if (!integration || !integration.config) throw new Error("QB integration not found");
+    const config = JSON.parse(integration.config);
+    if (config.realmId) return config.realmId as string;
+    return await resolveRealmIdIfNeeded(ctx, orgId, config);
+  },
+});
 
 export const getAccounts = action({
   args: {},

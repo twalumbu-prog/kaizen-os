@@ -158,3 +158,18 @@ export const updateIntegrationStatusInternal = internalMutation({
     }
   }
 });
+
+export const patchQbRealmId = internalMutation({
+  args: { orgId: v.id("organizations"), realmId: v.string() },
+  handler: async (ctx, { orgId, realmId }) => {
+    const row = await ctx.db
+      .query("integrations")
+      .withIndex("by_orgId_provider", q => q.eq("orgId", orgId).eq("provider", "quickbooks"))
+      .first();
+    if (!row) throw new Error("QB integration not found for org");
+    const cfg = JSON.parse(row.config ?? "{}");
+    cfg.realmId = realmId;
+    await ctx.db.patch(row._id, { config: JSON.stringify(cfg) });
+    return { realmId };
+  },
+});

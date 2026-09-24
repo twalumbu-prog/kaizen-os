@@ -313,8 +313,16 @@ export const backfillQbLedgers = internalAction({
       throw new Error("QuickBooks integration is not active for this org");
     }
 
-    const config = JSON.parse(integration.config);
-    if (!config.realmId) throw new Error("Missing realmId in QB config — please reconnect QuickBooks");
+    // Sync the latest tokens from Composio before attempting direct API access.
+    await ctx.runAction(internal.quickbooks.syncTokenFromComposio, { orgId });
+
+    const freshIntegration = await ctx.runQuery(internal.integrations.getInternalIntegration, {
+      orgId, provider: "quickbooks",
+    });
+    const config = JSON.parse(freshIntegration!.config!);
+    if (!config.realmId) {
+      config.realmId = await ctx.runAction(internal.quickbooks.resolveRealmId, { orgId });
+    }
 
     const accessToken = await refreshQbTokenIfNeeded(ctx, orgId, config);
     const headers = { Authorization: `Bearer ${accessToken}`, Accept: "application/json" };
