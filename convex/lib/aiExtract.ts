@@ -1,4 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
+import * as XLSX from "xlsx";
 import type { FileType, ParsedStatement } from "../validators/types";
 
 export interface AiExtractionResult {
@@ -21,6 +22,45 @@ const MIME_TYPES: Record<string, string> = {
 };
 
 /**
+ * Extracts plain text tables/content from CSV or XLSX buffers.
+ */
+function extractTextFromBuffer(
+  buffer: ArrayBuffer,
+  fileType: FileType,
+  existingStatement?: ParsedStatement
+): string {
+  if (fileType === "csv") {
+    return new TextDecoder().decode(buffer).slice(0, 40000);
+  }
+  if (fileType === "xlsx") {
+    try {
+      const workbook = XLSX.read(new Uint8Array(buffer), { type: "array" });
+      const sheetTexts: string[] = [];
+      for (const sheetName of workbook.SheetNames) {
+        const sheet = workbook.Sheets[sheetName];
+        if (sheet) {
+          const csv = XLSX.utils.sheet_to_csv(sheet);
+          if (csv.trim()) {
+            sheetTexts.push(`--- Sheet: ${sheetName} ---\n${csv}`);
+          }
+        }
+      }
+      if (sheetTexts.length > 0) {
+        return sheetTexts.join("\n\n").slice(0, 40000);
+      }
+    } catch (err) {
+      console.warn(`[AiExtract] Failed to parse XLSX workbook:`, err);
+    }
+  }
+
+  if (existingStatement) {
+    return `Parsed Transactions Count: ${existingStatement.transactions.length}\nOpening Balance: ${existingStatement.openingBalance}\nClosing Balance: ${existingStatement.closingBalance}\nMetadata: ${JSON.stringify(existingStatement.metadata ?? {})}`;
+  }
+
+  return "";
+}
+
+/**
   * Analyzes an uploaded document using OpenRouter API or Google Gemini AI
   * to extract structured metrics, balances, and outcome fields.
   */
@@ -35,11 +75,18 @@ export async function extractDataWithAi(
   existingStatement?: ParsedStatement,
 ): Promise<AiExtractionResult | null> {
   if (!aiConfig || !aiConfig.apiKey) {
+    console.warn(`[AiExtract] Skipping AI extraction for "${fileName}": No AI API key configured.`);
     return null;
   }
 
   try {
     const isOpenRouter = aiConfig.provider === "openrouter" || aiConfig.apiKey.startsWith("sk-or-");
+    const providerName = aiConfig.provider || (isOpenRouter ? "openrouter" : "google_ai");
+    const modelName = aiConfig.model || (isOpenRouter ? "~z-ai/glm-flash-latest" : "gemini-2.5-flash");
+
+    console.log(`[AiExtract] Starting AI extraction for document: "${fileName}" (Type: ${fileType}, Label: "${label}", Template: "${templateName || "N/A"}")`);
+    console.log(`[AiExtract] Provider: ${providerName} | Model: ${modelName}`);
+
     const promptText = `
 You are an expert document analysis and data extraction AI agent for an organizational intelligence system.
 Analyze the attached document/file submitted for report: "${templateName || "Business Report"}" (Type: ${validatorKey || "general"}).
@@ -80,22 +127,19 @@ Respond ONLY with a single valid JSON object in strictly this format (no markdow
     let responseText = "";
 
     if (isOpenRouter) {
-      const modelName = aiConfig.model || "~z-ai/glm-flash-latest";
       const contentParts: Array<{ type: string; text?: string; image_url?: { url: string } }> = [
         { type: "text", text: promptText },
       ];
 
-      if (fileType === "csv" || fileType === "xlsx") {
-        let textContent = "";
-        if (fileType === "csv") {
-          textContent = new TextDecoder().decode(buffer).slice(0, 30000);
-        } else if (existingStatement) {
-          textContent = `Parsed Transactions Count: ${existingStatement.transactions.length}\nOpening Balance: ${existingStatement.openingBalance}\nClosing Balance: ${existingStatement.closingBalance}\nMetadata: ${JSON.stringify(existingStatement.metadata ?? {})}`;
-        }
-        if (textContent) {
-          contentParts.push({ type: "text", text: `--- Document File: ${fileName} (${label}) ---\n${textContent}` });
-        }
+      const extractedText = extractTextFromBuffer(buffer, fileType, existingStatement);
+      if (extractedText) {
+        console.log(`[AiExtract] Extracted ${extractedText.length} chars of structured table text for "${fileName}".`);
+        contentParts.push({
+          type: "text",
+          text: `--- Document File Content: ${fileName} (${label}) ---\n${extractedText}`,
+        });
       } else if (buffer.byteLength <= MAX_INLINE_BYTES) {
+        console.log(`[AiExtract] Passing binary file payload (${buffer.byteLength} bytes) to OpenRouter.`);
         const mime = MIME_TYPES[fileType] || "application/octet-stream";
         const b64 = Buffer.from(buffer).toString("base64");
         contentParts.push({
@@ -104,6 +148,7 @@ Respond ONLY with a single valid JSON object in strictly this format (no markdow
         });
       }
 
+      console.log(`[AiExtract] Sending request to OpenRouter API (model: ${modelName})...`);
       const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: {
@@ -128,30 +173,19 @@ Respond ONLY with a single valid JSON object in strictly this format (no markdow
       responseText = data.choices?.[0]?.message?.content ?? "";
     } else {
       // GoogleGenAI SDK execution
-      const modelName = aiConfig.model || "gemini-2.5-flash";
       const ai = new GoogleGenAI({ apiKey: aiConfig.apiKey });
       const promptParts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [
         { text: promptText },
       ];
 
-      if (fileType === "csv" || fileType === "xlsx") {
-        let textContent = "";
-        if (fileType === "csv") {
-          textContent = new TextDecoder().decode(buffer).slice(0, 30000);
-        } else if (existingStatement) {
-          textContent = `Parsed Transactions Count: ${existingStatement.transactions.length}\nOpening Balance: ${existingStatement.openingBalance}\nClosing Balance: ${existingStatement.closingBalance}\nMetadata: ${JSON.stringify(existingStatement.metadata ?? {})}`;
-        }
-        if (textContent) {
-          promptParts.push({ text: `--- Document File: ${fileName} (${label}) ---\n${textContent}` });
-        } else if (buffer.byteLength <= MAX_INLINE_BYTES) {
-          promptParts.push({
-            inlineData: {
-              mimeType: MIME_TYPES[fileType] || "application/octet-stream",
-              data: Buffer.from(buffer).toString("base64"),
-            },
-          });
-        }
+      const extractedText = extractTextFromBuffer(buffer, fileType, existingStatement);
+      if (extractedText) {
+        console.log(`[AiExtract] Extracted ${extractedText.length} chars of structured table text for "${fileName}".`);
+        promptParts.push({
+          text: `--- Document File Content: ${fileName} (${label}) ---\n${extractedText}`,
+        });
       } else if (buffer.byteLength <= MAX_INLINE_BYTES) {
+        console.log(`[AiExtract] Passing binary file payload (${buffer.byteLength} bytes) to Google Gemini.`);
         promptParts.push({
           inlineData: {
             mimeType: MIME_TYPES[fileType] || "application/octet-stream",
@@ -160,6 +194,7 @@ Respond ONLY with a single valid JSON object in strictly this format (no markdow
         });
       }
 
+      console.log(`[AiExtract] Sending request to Google Gemini API (model: ${modelName})...`);
       const response = await ai.models.generateContent({
         model: modelName,
         contents: [{ role: "user", parts: promptParts }],
@@ -168,9 +203,11 @@ Respond ONLY with a single valid JSON object in strictly this format (no markdow
       responseText = response.text ?? "";
     }
 
+    console.log(`[AiExtract] Raw AI Response for "${fileName}":\n${responseText}`);
+
     const match = responseText.match(/\{[\s\S]*\}/);
     if (!match) {
-      console.warn(`[AiExtract] Could not find JSON in AI response for ${fileName}`);
+      console.warn(`[AiExtract] Could not find JSON object in AI response for ${fileName}`);
       return null;
     }
 
@@ -194,14 +231,18 @@ Respond ONLY with a single valid JSON object in strictly this format (no markdow
       }
     }
 
-    return {
+    const result: AiExtractionResult = {
       openingBalance: typeof parsed.openingBalance === "number" ? parsed.openingBalance : undefined,
       closingBalance: typeof parsed.closingBalance === "number" ? parsed.closingBalance : undefined,
       transactionCount: typeof parsed.transactionCount === "number" ? parsed.transactionCount : 0,
       metadata: cleanedMetadata,
     };
+
+    console.log(`[AiExtract] Successfully extracted data for "${fileName}":`, JSON.stringify(result, null, 2));
+
+    return result;
   } catch (error) {
-    console.error(`[AiExtract] AI Data Extraction failed for ${fileName}:`, error);
+    console.error(`[AiExtract] AI Data Extraction failed for "${fileName}":`, error);
     return null;
   }
 }

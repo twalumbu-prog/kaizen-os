@@ -204,32 +204,43 @@ function ExtractedData({ extracted }: { extracted: ExtractedFileData }) {
     return <p className="text-sm text-muted-foreground">Nothing was extracted from this file.</p>;
   }
 
+  const summaryNotes = extracted.metadata?.summaryNotes;
+  const filteredEntries = metadataEntries.filter(([k]) => k !== "summaryNotes");
+
   return (
-    <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm sm:grid-cols-3">
-      {extracted.openingBalance !== undefined && (
-        <>
-          <span className="text-muted-foreground">Opening Balance</span>
-          <span className="col-span-1 sm:col-span-2">{formatMetadataValue(extracted.openingBalance)}</span>
-        </>
+    <div className="flex flex-col gap-4 py-2">
+      {summaryNotes && (
+        <div className="rounded-md bg-muted/50 p-3 text-sm border">
+          <span className="font-semibold text-foreground block mb-1">AI Document Review Summary</span>
+          <p className="text-muted-foreground">{String(summaryNotes)}</p>
+        </div>
       )}
-      {extracted.closingBalance !== undefined && (
-        <>
-          <span className="text-muted-foreground">Closing Balance</span>
-          <span className="col-span-1 sm:col-span-2">{formatMetadataValue(extracted.closingBalance)}</span>
-        </>
-      )}
-      {extracted.transactionCount > 0 && (
-        <>
-          <span className="text-muted-foreground">Transactions</span>
-          <span className="col-span-1 sm:col-span-2">{extracted.transactionCount}</span>
-        </>
-      )}
-      {metadataEntries.map(([key, value]) => (
-        <Fragment key={key}>
-          <span className="text-muted-foreground">{prettifyKey(key)}</span>
-          <span className="col-span-1 sm:col-span-2">{formatMetadataValue(value)}</span>
-        </Fragment>
-      ))}
+      <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-3 border rounded-md p-4 bg-card">
+        {extracted.openingBalance !== undefined && (
+          <>
+            <span className="text-muted-foreground font-medium">Opening Balance</span>
+            <span className="col-span-1 sm:col-span-2 font-mono">{formatMetadataValue(extracted.openingBalance)}</span>
+          </>
+        )}
+        {extracted.closingBalance !== undefined && (
+          <>
+            <span className="text-muted-foreground font-medium">Closing Balance</span>
+            <span className="col-span-1 sm:col-span-2 font-mono">{formatMetadataValue(extracted.closingBalance)}</span>
+          </>
+        )}
+        {extracted.transactionCount > 0 && (
+          <>
+            <span className="text-muted-foreground font-medium">Transactions</span>
+            <span className="col-span-1 sm:col-span-2 font-mono">{extracted.transactionCount}</span>
+          </>
+        )}
+        {filteredEntries.map(([key, value]) => (
+          <Fragment key={key}>
+            <span className="text-muted-foreground font-medium">{prettifyKey(key)}</span>
+            <span className="col-span-1 sm:col-span-2 font-mono">{formatMetadataValue(value)}</span>
+          </Fragment>
+        ))}
+      </div>
     </div>
   );
 }
