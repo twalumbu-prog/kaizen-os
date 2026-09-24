@@ -73,6 +73,7 @@ export async function extractDataWithAi(
   validatorKey?: string,
   aiConfig?: { apiKey: string; model?: string; provider?: "google_ai" | "openrouter" },
   existingStatement?: ParsedStatement,
+  customExtractionFields?: Array<{ key: string; label: string; description?: string }>,
 ): Promise<AiExtractionResult | null> {
   if (!aiConfig || !aiConfig.apiKey) {
     console.warn(`[AiExtract] Skipping AI extraction for "${fileName}": No AI API key configured.`);
@@ -87,41 +88,35 @@ export async function extractDataWithAi(
     console.log(`[AiExtract] Starting AI extraction for document: "${fileName}" (Type: ${fileType}, Label: "${label}", Template: "${templateName || "N/A"}")`);
     console.log(`[AiExtract] Provider: ${providerName} | Model: ${modelName}`);
 
+    const hasCustomFields = customExtractionFields && customExtractionFields.length > 0;
+    const customFieldsSection = hasCustomFields
+      ? `\nThe administrator has configured these specific fields to extract from this report type:\n${customExtractionFields!.map((f) => `  - ${f.key}: ${f.label}${f.description ? ` — ${f.description}` : ""}`).join("\n")}\nPrioritize finding these fields. Use the exact key names listed above in your metadata response.\n`
+      : "";
+
     const promptText = `
 You are an expert document analysis and data extraction AI agent for an organizational intelligence system.
-Analyze the attached document/file submitted for report: "${templateName || "Business Report"}" (Type: ${validatorKey || "general"}).
-
+Analyze the document submitted for report: "${templateName || "Business Report"}" (document label: "${label}").
+${customFieldsSection}
 Your task:
-1. Examine the contents, figures, tables, text, header values, totals, and balances in the document.
-2. Extract all key outcome metrics, data points, transaction counts, and financial/operational figures.
-3. Identify relevant outcome tracking fields such as:
-   - studentCount / salesVolume / studentSales (for canteen/sales reports)
-   - staffSales / staffSalesVolume
-   - grandTotal / totalSales / totalRevenue
-   - adSpend / impressions / clicks / conversions / roas / cpc / ctr (for ad performance reports)
-   - totalGrossPay / netPay / napsaPayable / nhimaPayable / employeeCount (for payroll reports)
-   - receiptTotal / totalAmount / taxAmount / paidAmount (for receipt/tax reports)
-   - openingBalance / closingBalance / transactionCount (financial statements)
-   - Any other key numerical metrics found in the document.
+1. Carefully read ALL contents: every table row, header, total, subtotal, summary cell, and label in the document.
+2. Extract EVERY numerical metric, count, balance, or total you can find — be comprehensive.
+3. For each value found, choose a concise camelCase key that describes it (e.g. totalItems, openingStock, grandTotal).
+4. If the document has opening/closing balances, set the top-level openingBalance and closingBalance fields.
+5. Count the total number of line items / transactions / rows for transactionCount.
+6. Write a brief 1–2 sentence summaryNotes describing what type of document this is and the key figures found.
 
-Respond ONLY with a single valid JSON object in strictly this format (no markdown fences, no extra text):
+Respond ONLY with a single valid JSON object — no markdown, no explanation, just raw JSON:
 {
-  "openingBalance": number_or_null,
-  "closingBalance": number_or_null,
-  "transactionCount": integer_number,
+  "openingBalance": <number or null>,
+  "closingBalance": <number or null>,
+  "transactionCount": <integer>,
   "metadata": {
-    "studentCount": number_or_null,
-    "grandTotal": number_or_null,
-    "staffSalesVolume": number_or_null,
-    "adSpend": number_or_null,
-    "impressions": number_or_null,
-    "conversions": number_or_null,
-    "netPay": number_or_null,
-    "receiptTotal": number_or_null,
-    "extractedDocumentType": "string describing document",
-    "summaryNotes": "brief 1 sentence AI summary of findings"
+    <key>: <value>,
+    "summaryNotes": "<1-2 sentence summary of this document and its key figures>"
   }
 }
+
+IMPORTANT: Include ALL metrics you find as metadata keys, not just the ones listed above. Every significant number in the document should appear in the metadata with an appropriate descriptive key.
 `.trim();
 
     let responseText = "";

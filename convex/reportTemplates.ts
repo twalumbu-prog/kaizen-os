@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { CADENCE, CYCLE_CONFIG, FILE_TYPE, OUTCOME_BENCHMARK } from "./schema";
+import { AI_EXTRACTION_FIELD, CADENCE, CYCLE_CONFIG, FILE_TYPE, OUTCOME_BENCHMARK } from "./schema";
 const SHARING_MODE = v.union(v.literal("individual"), v.literal("shared"));
 import { requireProfile, requireRole } from "./lib/roles";
 
@@ -93,6 +93,7 @@ export const create = mutation({
     requiredFiles: REQUIRED_FILES,
     validationRules: VALIDATION_RULES,
     quickbooksAccountId: v.optional(v.string()),
+    aiExtractionFields: v.optional(v.array(AI_EXTRACTION_FIELD)),
   },
   handler: async (ctx, args) => {
     await requireRole(ctx, ["admin"]);
@@ -117,6 +118,7 @@ export const update = mutation({
     requiredFiles: v.optional(REQUIRED_FILES),
     validationRules: v.optional(VALIDATION_RULES),
     quickbooksAccountId: v.optional(v.string()),
+    aiExtractionFields: v.optional(v.array(AI_EXTRACTION_FIELD)),
   },
   handler: async (ctx, { templateId, ...patch }) => {
     await requireRole(ctx, ["admin"]);

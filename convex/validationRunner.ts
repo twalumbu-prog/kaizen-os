@@ -159,6 +159,7 @@ export const runValidation = internalAction({
           template.validatorKey,
           aiConfig,
           statement,
+          template.aiExtractionFields ?? undefined,
         );
         if (aiRes) {
           aiMetadata = aiRes.metadata ?? {};

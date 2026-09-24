@@ -55,6 +55,7 @@ import type * as scripts from "../scripts.js";
 import type * as seed from "../seed.js";
 import type * as seedBlueOpus from "../seedBlueOpus.js";
 import type * as seedTwalumbu from "../seedTwalumbu.js";
+import type * as seedZanacoBankRecon from "../seedZanacoBankRecon.js";
 import type * as seeds_adPerformanceTemplate from "../seeds/adPerformanceTemplate.js";
 import type * as seeds_addAdAccount from "../seeds/addAdAccount.js";
 import type * as submissions from "../submissions.js";
@@ -122,6 +123,7 @@ declare const fullApi: ApiFromModules<{
   seed: typeof seed;
   seedBlueOpus: typeof seedBlueOpus;
   seedTwalumbu: typeof seedTwalumbu;
+  seedZanacoBankRecon: typeof seedZanacoBankRecon;
   "seeds/adPerformanceTemplate": typeof seeds_adPerformanceTemplate;
   "seeds/addAdAccount": typeof seeds_addAdAccount;
   submissions: typeof submissions;

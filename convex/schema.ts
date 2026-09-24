@@ -35,6 +35,12 @@ export const CYCLE_CONFIG = v.object({
   label: v.optional(v.string()),
 });
 
+export const AI_EXTRACTION_FIELD = v.object({
+  key: v.string(),
+  label: v.string(),
+  description: v.optional(v.string()),
+});
+
 export const OUTCOME_BENCHMARK = v.object({
   metricKey: v.optional(v.string()),
   metricLabel: v.optional(v.string()),
@@ -182,6 +188,8 @@ export default defineSchema({
       }),
     ),
     quickbooksAccountId: v.optional(v.string()),
+    /** Admin-defined fields for AI to extract from submitted documents. */
+    aiExtractionFields: v.optional(v.array(AI_EXTRACTION_FIELD)),
   }).index("by_departmentId", ["departmentId"]),
 
   reportAssignments: defineTable({

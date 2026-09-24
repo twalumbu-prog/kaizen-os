@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useAction } from "convex/react";
 import { use, useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
+import { Plus, Trash2 } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { AppShell } from "@/components/layout/app-shell";
@@ -389,6 +390,139 @@ function ExceptionRulesCard({
             Save Exception Rules
           </Button>
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** "Opening Stock Count" → "openingStockCount" */
+function labelToKey(label: string): string {
+  return label
+    .trim()
+    .replace(/[^a-zA-Z0-9 ]/g, "")
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word, i) =>
+      i === 0
+        ? word.toLowerCase()
+        : word.charAt(0).toUpperCase() + word.slice(1).toLowerCase(),
+    )
+    .join("");
+}
+
+function AiExtractionFieldsCard({
+  templateId,
+  fields,
+}: {
+  templateId: Id<"reportTemplates">;
+  fields?: Array<{ key: string; label: string; description?: string }>;
+}) {
+  const updateTemplate = useMutation(api.reportTemplates.update);
+  const [draft, setDraft] = useState<Array<{ label: string; description: string }>>(
+    (fields ?? []).map((f) => ({ label: f.label, description: f.description ?? "" })),
+  );
+
+  function addField() {
+    setDraft((prev) => [...prev, { label: "", description: "" }]);
+  }
+
+  function removeField(idx: number) {
+    setDraft((prev) => prev.filter((_, i) => i !== idx));
+  }
+
+  function updateField(idx: number, patch: Partial<{ label: string; description: string }>) {
+    setDraft((prev) => prev.map((f, i) => (i === idx ? { ...f, ...patch } : f)));
+  }
+
+  function save() {
+    const invalid = draft.find((f) => !f.label.trim());
+    if (invalid) {
+      toast.error("Every field needs a label.");
+      return;
+    }
+    updateTemplate({
+      templateId,
+      aiExtractionFields: draft.map((f) => ({
+        key: labelToKey(f.label),
+        label: f.label.trim(),
+        ...(f.description.trim() ? { description: f.description.trim() } : {}),
+      })),
+    });
+    toast.success("AI extraction fields saved.");
+  }
+
+  const dirty = JSON.stringify(draft) !== JSON.stringify(
+    (fields ?? []).map((f) => ({ label: f.label, description: f.description ?? "" })),
+  );
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">AI Data Extraction Fields</CardTitle>
+        <CardDescription>
+          Tell the AI exactly which fields to extract from submitted documents. Each field will be
+          shown in the &ldquo;Extracted Data&rdquo; tab of every submission for this report.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        {draft.length === 0 && (
+          <p className="text-sm text-muted-foreground">
+            No custom fields defined. The AI will still extract any metrics it can find, but
+            adding fields here guides it to capture exactly what matters for this report.
+          </p>
+        )}
+        {draft.map((field, idx) => (
+          <div key={idx} className="grid grid-cols-[1fr_2fr_auto] items-end gap-2 rounded-md border p-3">
+            <div className="flex flex-col gap-1">
+              <Label className="text-xs">Field Label</Label>
+              <Input
+                className="h-8 text-xs"
+                placeholder="e.g. Total Items Counted"
+                value={field.label}
+                onChange={(e) => updateField(idx, { label: e.target.value })}
+              />
+              {field.label.trim() && (
+                <span className="text-[10px] text-muted-foreground font-mono">
+                  key: {labelToKey(field.label)}
+                </span>
+              )}
+            </div>
+            <div className="flex flex-col gap-1">
+              <Label className="text-xs">Description / Hint (optional)</Label>
+              <Input
+                className="h-8 text-xs"
+                placeholder="e.g. The grand total of all stock items in the inventory sheet"
+                value={field.description}
+                onChange={(e) => updateField(idx, { description: e.target.value })}
+              />
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-destructive hover:text-destructive"
+              onClick={() => removeField(idx)}
+            >
+              <Trash2 className="size-3.5" />
+            </Button>
+          </div>
+        ))}
+        <div className="flex items-center gap-3">
+          <Button type="button" variant="outline" size="sm" onClick={addField}>
+            <Plus className="mr-1.5 size-3.5" />
+            Add Field
+          </Button>
+          {dirty && (
+            <Button size="sm" onClick={save}>
+              Save Extraction Fields
+            </Button>
+          )}
+        </div>
+        {draft.length > 0 && (
+          <p className="text-xs text-muted-foreground">
+            The AI will also extract any other metrics it finds even if they&apos;re not listed here.
+          </p>
+        )}
       </CardContent>
     </Card>
   );
@@ -817,6 +951,11 @@ export default function ReportConfigPage({
           templateId={templateId}
           excludedDaysOfWeek={template.excludedDaysOfWeek}
           excludedDates={template.excludedDates}
+        />
+
+        <AiExtractionFieldsCard
+          templateId={templateId}
+          fields={template.aiExtractionFields}
         />
 
         <OutcomeBenchmarkCard
