@@ -1,4 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
+import * as XLSX from "xlsx";
 import type {
   ChecklistItem,
   ParsedFile,
@@ -36,6 +37,38 @@ interface Verdict {
   relevant: boolean;
   confidence: number;
   reason: string;
+}
+
+function getFileTextContent(file: ParsedFile): string | null {
+  if (!file.raw) return null;
+  if (file.fileType === "csv") {
+    try {
+      return Buffer.from(file.raw.data, "base64").toString("utf8").slice(0, 30000);
+    } catch {
+      return null;
+    }
+  }
+  if (file.fileType === "xlsx") {
+    try {
+      const buf = Buffer.from(file.raw.data, "base64");
+      const workbook = XLSX.read(buf, { type: "buffer" });
+      const sheetTexts: string[] = [];
+      for (const sheetName of workbook.SheetNames) {
+        const sheet = workbook.Sheets[sheetName];
+        if (sheet) {
+          const csv = XLSX.utils.sheet_to_csv(sheet, { blankrows: false });
+          if (csv.trim()) {
+            sheetTexts.push(`--- Sheet: ${sheetName} ---\n${csv}`);
+          }
+        }
+      }
+      return sheetTexts.length > 0 ? sheetTexts.join("\n\n").slice(0, 30000) : null;
+    } catch (err) {
+      console.warn(`[DocumentSubmission] Failed to parse XLSX file ${file.label}:`, err);
+      return null;
+    }
+  }
+  return null;
 }
 
 /**
@@ -121,15 +154,22 @@ async function reviewWithAi(
       ];
 
       for (const file of files) {
-        if (file.raw && file.raw.byteLength <= MAX_INLINE_BYTES) {
+        const textContent = getFileTextContent(file);
+        if (textContent) {
+          contentParts.push({
+            type: "text",
+            text: `--- Attached Document: ${file.label} (${file.fileType}) ---\n${textContent}`,
+          });
+          attached++;
+        } else if (
+          file.raw &&
+          file.raw.byteLength <= MAX_INLINE_BYTES &&
+          (file.raw.mimeType.startsWith("image/") || file.raw.mimeType === "application/pdf")
+        ) {
           contentParts.push({
             type: "image_url",
             image_url: { url: `data:${file.raw.mimeType};base64,${file.raw.data}` },
           });
-          attached++;
-        } else if (file.fileType === "csv" && file.raw) {
-          const text = Buffer.from(file.raw.data, "base64").toString("utf8").slice(0, 20000);
-          contentParts.push({ type: "text", text: `--- ${file.label} (csv) ---\n${text}` });
           attached++;
         }
       }
@@ -166,12 +206,18 @@ async function reviewWithAi(
       ];
 
       for (const file of files) {
-        if (file.raw && file.raw.byteLength <= MAX_INLINE_BYTES) {
-          parts.push({ inlineData: { mimeType: file.raw.mimeType, data: file.raw.data } });
+        const textContent = getFileTextContent(file);
+        if (textContent) {
+          parts.push({
+            text: `--- Attached Document: ${file.label} (${file.fileType}) ---\n${textContent}`,
+          });
           attached++;
-        } else if (file.fileType === "csv" && file.raw) {
-          const text = Buffer.from(file.raw.data, "base64").toString("utf8").slice(0, 20000);
-          parts.push({ text: `--- ${file.label} (csv) ---\n${text}` });
+        } else if (
+          file.raw &&
+          file.raw.byteLength <= MAX_INLINE_BYTES &&
+          (file.raw.mimeType.startsWith("image/") || file.raw.mimeType === "application/pdf")
+        ) {
+          parts.push({ inlineData: { mimeType: file.raw.mimeType, data: file.raw.data } });
           attached++;
         }
       }
