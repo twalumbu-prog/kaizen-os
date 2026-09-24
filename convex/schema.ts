@@ -36,6 +36,7 @@ export const CYCLE_CONFIG = v.object({
 });
 
 export const OUTCOME_BENCHMARK = v.object({
+  metricKey: v.optional(v.string()),
   metricLabel: v.optional(v.string()),
   targetBenchmark: v.optional(v.number()),
   showBenchmarkOnChart: v.optional(v.boolean()),
@@ -299,6 +300,7 @@ export default defineSchema({
       v.literal("resend"),
       v.literal("google_drive"),
       v.literal("google_ai"),
+      v.literal("openrouter"),
       v.literal("meta")
     ),
     status: v.union(v.literal("active"), v.literal("disconnected")),

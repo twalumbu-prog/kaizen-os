@@ -22,6 +22,7 @@ import type * as fixDuplicateMissingSubmissions from "../fixDuplicateMissingSubm
 import type * as http from "../http.js";
 import type * as integrations from "../integrations.js";
 import type * as leaderboard from "../leaderboard.js";
+import type * as lib_aiExtract from "../lib/aiExtract.js";
 import type * as lib_oauthState from "../lib/oauthState.js";
 import type * as lib_parsers_adPerformance from "../lib/parsers/adPerformance.js";
 import type * as lib_parsers_canteenInventory from "../lib/parsers/canteenInventory.js";
@@ -88,6 +89,7 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   integrations: typeof integrations;
   leaderboard: typeof leaderboard;
+  "lib/aiExtract": typeof lib_aiExtract;
   "lib/oauthState": typeof lib_oauthState;
   "lib/parsers/adPerformance": typeof lib_parsers_adPerformance;
   "lib/parsers/canteenInventory": typeof lib_parsers_canteenInventory;

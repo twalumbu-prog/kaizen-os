@@ -76,6 +76,7 @@ export interface RawFile {
 export interface AiConfig {
   apiKey: string;
   model: string;
+  provider?: "google_ai" | "openrouter";
 }
 
 /** The report period being validated, and what its opening balance should roll forward from. */

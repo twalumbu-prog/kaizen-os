@@ -400,6 +400,7 @@ function OutcomeBenchmarkCard({
 }: {
   templateId: Id<"reportTemplates">;
   benchmark?: {
+    metricKey?: string;
     metricLabel?: string;
     targetBenchmark?: number;
     showBenchmarkOnChart?: boolean;
@@ -411,7 +412,11 @@ function OutcomeBenchmarkCard({
   };
 }) {
   const updateTemplate = useMutation(api.reportTemplates.update);
+  const extractedFields = useQuery(api.reportTemplates.getExtractedFields, { templateId });
+
+  const [metricKey, setMetricKey] = useState(benchmark?.metricKey ?? "");
   const [metricLabel, setMetricLabel] = useState(benchmark?.metricLabel ?? "");
+  const [isCustomKey, setIsCustomKey] = useState(false);
   const [targetBenchmark, setTargetBenchmark] = useState<string>(
     benchmark?.targetBenchmark !== undefined ? String(benchmark.targetBenchmark) : ""
   );
@@ -436,6 +441,7 @@ function OutcomeBenchmarkCard({
     updateTemplate({
       templateId,
       outcomeBenchmark: {
+        metricKey: metricKey.trim() || undefined,
         metricLabel: metricLabel.trim() || undefined,
         targetBenchmark: targetBenchmark ? parseFloat(targetBenchmark) : undefined,
         showBenchmarkOnChart: showOnChart,
@@ -458,15 +464,56 @@ function OutcomeBenchmarkCard({
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-5">
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-3">
           <div className="flex flex-col gap-2">
-            <Label>Outcome Metric Name</Label>
+            <Label>Extracted Data Field to Track</Label>
+            <Select
+              value={isCustomKey ? "custom" : (metricKey || (extractedFields?.[0]?.key ?? "studentCount"))}
+              onValueChange={(val: string | null) => {
+                if (!val) return;
+                if (val === "custom") {
+                  setIsCustomKey(true);
+                } else {
+                  setIsCustomKey(false);
+                  setMetricKey(val);
+                  const matched = extractedFields?.find((f) => f.key === val);
+                  if (matched && !metricLabel) {
+                    setMetricLabel(matched.label);
+                  }
+                }
+              }}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select extracted field..." />
+              </SelectTrigger>
+              <SelectContent>
+                {extractedFields && extractedFields.length > 0 ? (
+                  extractedFields.map((f) => (
+                    <SelectItem key={f.key} value={f.key}>
+                      {f.label} ({f.key})
+                    </SelectItem>
+                  ))
+                ) : (
+                  <>
+                    <SelectItem value="studentCount">Sales Volume (studentCount)</SelectItem>
+                    <SelectItem value="closingBalance">Closing Balance (closingBalance)</SelectItem>
+                    <SelectItem value="grandTotal">Grand Total Amount (grandTotal)</SelectItem>
+                  </>
+                )}
+                <SelectItem value="custom">Custom Extracted Field Key...</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <Label>Outcome Metric Display Name</Label>
             <Input
               placeholder="e.g. Sales Volume (Students)"
               value={metricLabel}
               onChange={(e) => setMetricLabel(e.target.value)}
             />
           </div>
+
           <div className="flex flex-col gap-2">
             <Label>Primary Target Benchmark</Label>
             <Input
@@ -477,6 +524,17 @@ function OutcomeBenchmarkCard({
             />
           </div>
         </div>
+
+        {isCustomKey && (
+          <div className="flex flex-col gap-2 max-w-sm">
+            <Label>Custom Extracted Key</Label>
+            <Input
+              placeholder="e.g. adSpend, netPay, studentCount"
+              value={metricKey}
+              onChange={(e) => setMetricKey(e.target.value)}
+            />
+          </div>
+        )}
 
         <div className="flex items-center gap-3 rounded-lg border p-3 bg-muted/20">
           <Switch

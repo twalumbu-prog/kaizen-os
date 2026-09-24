@@ -9,6 +9,7 @@ import { parseUploadedFile } from "./lib/parsers";
 import type { SpreadsheetRole } from "./lib/parsers/excel";
 import { getValidator } from "./validators/registry";
 import type { AiConfig, ParsedFile, ParsedStatement, ValidationContext } from "./validators/types";
+import { extractDataWithAi } from "./lib/aiExtract";
 
 /** Validators that review the uploaded document itself instead of extracting figures from it. */
 const RAW_DOCUMENT_VALIDATORS = new Set(["documentSubmission"]);
@@ -28,29 +29,70 @@ const EMPTY_STATEMENT: ParsedStatement = {
   transactions: [],
 };
 
-const DEFAULT_AI_MODEL = "gemini-2.5-flash";
+const DEFAULT_OPENROUTER_MODEL = "~z-ai/glm-flash-latest";
+const DEFAULT_GOOGLE_MODEL = "gemini-2.5-flash";
 
-/** Reads the org's Google AI credentials, or undefined when none are usable. */
+/** Reads org AI credentials (OpenRouter / Google AI) or environment/default keys. */
 async function loadAiConfig(
   ctx: ActionCtx,
   orgId: Id<"organizations"> | null,
 ): Promise<AiConfig | undefined> {
-  if (!orgId) return undefined;
+  if (orgId) {
+    // 1. Check OpenRouter Integration
+    const openrouterInteg = await ctx.runQuery(internal.integrations.getInternalIntegration, {
+      orgId,
+      provider: "openrouter",
+    });
+    if (openrouterInteg && openrouterInteg.status === "active" && openrouterInteg.config) {
+      try {
+        const config = JSON.parse(openrouterInteg.config) as { apiKey?: string; model?: string };
+        if (config.apiKey) {
+          return {
+            apiKey: config.apiKey,
+            model: config.model || DEFAULT_OPENROUTER_MODEL,
+            provider: "openrouter",
+          };
+        }
+      } catch {
+        console.warn(`[ValidationRunner] OpenRouter config for org ${orgId} is invalid JSON.`);
+      }
+    }
 
-  const integration = await ctx.runQuery(internal.integrations.getInternalIntegration, {
-    orgId,
-    provider: "google_ai",
-  });
-  if (!integration || integration.status !== "active" || !integration.config) return undefined;
-
-  try {
-    const config = JSON.parse(integration.config) as { apiKey?: string; model?: string };
-    if (!config.apiKey) return undefined;
-    return { apiKey: config.apiKey, model: config.model || DEFAULT_AI_MODEL };
-  } catch {
-    console.warn(`[ValidationRunner] Google AI config for org ${orgId} is not valid JSON.`);
-    return undefined;
+    // 2. Check Google AI Integration
+    const googleInteg = await ctx.runQuery(internal.integrations.getInternalIntegration, {
+      orgId,
+      provider: "google_ai",
+    });
+    if (googleInteg && googleInteg.status === "active" && googleInteg.config) {
+      try {
+        const config = JSON.parse(googleInteg.config) as { apiKey?: string; model?: string };
+        if (config.apiKey) {
+          return {
+            apiKey: config.apiKey,
+            model: config.model || DEFAULT_GOOGLE_MODEL,
+            provider: "google_ai",
+          };
+        }
+      } catch {
+        console.warn(`[ValidationRunner] Google AI config for org ${orgId} is invalid JSON.`);
+      }
+    }
   }
+
+  // 3. Environment variable fallback
+  if (process.env.OPENROUTER_API_KEY) {
+    return {
+      apiKey: process.env.OPENROUTER_API_KEY,
+      model: DEFAULT_OPENROUTER_MODEL,
+      provider: "openrouter",
+    };
+  }
+
+  if (process.env.GEMINI_API_KEY) {
+    return { apiKey: process.env.GEMINI_API_KEY, model: DEFAULT_GOOGLE_MODEL, provider: "google_ai" };
+  }
+
+  return undefined;
 }
 
 export const runValidation = internalAction({
@@ -69,6 +111,7 @@ export const runValidation = internalAction({
     // Document-review reports are usually scans of paperwork: there are no
     // figures to extract, and running them through the statement parsers would
     // fail or return noise. They get the original bytes instead.
+    const aiConfig = await loadAiConfig(ctx, orgId);
     const reviewsRawDocument = RAW_DOCUMENT_VALIDATORS.has(template.validatorKey);
 
     const parsedFiles: ParsedFile[] = [];
@@ -92,6 +135,40 @@ export const runValidation = internalAction({
       const response = await fetch(url);
       const buffer = await response.arrayBuffer();
 
+      let statement: ParsedStatement = EMPTY_STATEMENT;
+      if (!reviewsRawDocument) {
+        const role: SpreadsheetRole = file.label.toLowerCase().includes("ledger") ? "ledger" : "bank";
+        console.log(`[ValidationRunner] Extracting text/data from ${file.label}...`);
+        statement = await parseUploadedFile(file.fileType, buffer, role, template.validatorKey, file.label);
+      }
+
+      // Run AI document analysis & field extraction across all report files
+      let aiMetadata: Record<string, string | number | null> = {};
+      let aiOpening: number | undefined = undefined;
+      let aiClosing: number | undefined = undefined;
+      let aiTxCount = 0;
+
+      if (aiConfig) {
+        console.log(`[ValidationRunner] Running Gemini AI document analysis & extraction on ${file.label}...`);
+        const aiRes = await extractDataWithAi(
+          buffer,
+          file.fileType,
+          file.fileName,
+          file.label,
+          template.name,
+          template.validatorKey,
+          aiConfig,
+          statement,
+        );
+        if (aiRes) {
+          aiMetadata = aiRes.metadata ?? {};
+          aiOpening = aiRes.openingBalance ?? undefined;
+          aiClosing = aiRes.closingBalance ?? undefined;
+          aiTxCount = aiRes.transactionCount ?? 0;
+          console.log(`[ValidationRunner] AI successfully extracted metrics: ${Object.keys(aiMetadata).join(", ")}`);
+        }
+      }
+
       if (reviewsRawDocument) {
         const fileSizeKb = (buffer.byteLength / 1024).toFixed(1);
         parsedFiles.push({
@@ -108,11 +185,14 @@ export const runValidation = internalAction({
         extractedUpdates.push({
           fileId: file._id,
           extracted: {
-            transactionCount: 0,
+            ...(aiOpening !== undefined ? { openingBalance: aiOpening } : {}),
+            ...(aiClosing !== undefined ? { closingBalance: aiClosing } : {}),
+            transactionCount: aiTxCount,
             metadata: {
               fileName: file.fileName,
               fileType: file.fileType.toUpperCase(),
               fileSize: `${fileSizeKb} KB`,
+              ...aiMetadata,
             },
           },
         });
@@ -120,18 +200,22 @@ export const runValidation = internalAction({
         continue;
       }
 
-      const role: SpreadsheetRole = file.label.toLowerCase().includes("ledger") ? "ledger" : "bank";
-
-      console.log(`[ValidationRunner] Extracting text/data from ${file.label}...`);
-      const statement = await parseUploadedFile(file.fileType, buffer, role, template.validatorKey, file.label);
       parsedFiles.push({ label: file.label, fileType: file.fileType, statement });
+
+      const finalOpening = statement.openingBalance !== null ? statement.openingBalance : aiOpening;
+      const finalClosing = statement.closingBalance !== null ? statement.closingBalance : aiClosing;
+      const mergedMetadata = {
+        ...(statement.metadata ? statement.metadata : {}),
+        ...aiMetadata,
+      };
+
       extractedUpdates.push({
         fileId: file._id,
         extracted: {
-          ...(statement.openingBalance !== null ? { openingBalance: statement.openingBalance } : {}),
-          ...(statement.closingBalance !== null ? { closingBalance: statement.closingBalance } : {}),
-          transactionCount: statement.transactions.length,
-          ...(statement.metadata ? { metadata: statement.metadata } : {}),
+          ...(finalOpening !== undefined && finalOpening !== null ? { openingBalance: finalOpening } : {}),
+          ...(finalClosing !== undefined && finalClosing !== null ? { closingBalance: finalClosing } : {}),
+          transactionCount: Math.max(statement.transactions.length, aiTxCount),
+          ...(Object.keys(mergedMetadata).length > 0 ? { metadata: mergedMetadata } : {}),
         },
       });
       console.log(`[ValidationRunner] Successfully parsed ${file.label}.`);
@@ -145,7 +229,7 @@ export const runValidation = internalAction({
       templateName: template.name,
       periodLabel: submission.periodLabel,
       requiredFiles: template.requiredFiles.map((f: { label: string; required: boolean }) => ({ label: f.label, required: f.required })),
-      ai: reviewsRawDocument ? await loadAiConfig(ctx, orgId) : undefined,
+      ai: aiConfig,
     };
 
     console.log(`[ValidationRunner] Running validation logic...`);

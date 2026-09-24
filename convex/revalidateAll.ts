@@ -1,6 +1,7 @@
 import { action, internalAction, internalMutation, internalQuery } from "./_generated/server";
 import type { ActionCtx } from "./_generated/server";
 import { extractAccountRows } from "./lib/qbExtract";
+import { extractDataWithAi } from "./lib/aiExtract";
 
 function findAccountBalanceInReport(rows: any[], accountId: string): number | null {
   for (const row of rows) {
@@ -413,5 +414,36 @@ export const listQbTemplates = internalQuery({
     return templates
       .filter((t) => t.quickbooksAccountId)
       .map((t) => ({ _id: t._id, name: t.name, quickbooksAccountId: t.quickbooksAccountId }));
+  },
+});
+
+export const getExtractedResultsSummary = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const files = await ctx.db.query("submissionFiles").order("desc").take(20);
+    const results = [];
+    for (const f of files) {
+      const sub = await ctx.db.get(f.submissionId);
+      const template = sub ? await ctx.db.get(sub.templateId) : null;
+      const valResult = sub
+        ? await ctx.db
+            .query("validationResults")
+            .withIndex("by_submissionId", (q) => q.eq("submissionId", sub._id))
+            .first()
+        : null;
+
+      results.push({
+        fileId: f._id,
+        label: f.label,
+        fileName: f.fileName,
+        fileType: f.fileType,
+        periodLabel: sub?.periodLabel,
+        templateName: template?.name ?? "Unknown",
+        validatorKey: template?.validatorKey ?? "unknown",
+        validationScore: valResult?.score,
+        extracted: f.extracted,
+      });
+    }
+    return results;
   },
 });

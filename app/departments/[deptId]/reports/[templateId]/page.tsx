@@ -109,33 +109,33 @@ export default function ReportDetailPage({
           <p className="text-sm text-muted-foreground capitalize">{data.template.cadence} cadence</p>
         </div>
 
-        {/* Extracted Sales Volume Summary Cards for Canteen Sales Daily Report */}
-        {isCanteen && (
+        {/* Extracted Outcome Summary Cards & Progression Chart */}
+        {(outcomeBenchmark || isCanteen) && (
           <div className="flex flex-col gap-6">
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground">
-                    Total Sales Volume (Student Count)
+                    Total Cumulative {outcomeBenchmark?.metricLabel || "Extracted Outcome"}
                   </CardTitle>
                   <Users className="size-4 text-emerald-600" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold tracking-tight">{totalStudents.toLocaleString()} Students</div>
-                  <p className="text-xs text-muted-foreground mt-1">Cumulatively fed across reporting periods</p>
+                  <div className="text-2xl font-bold tracking-tight">{totalStudents.toLocaleString()}</div>
+                  <p className="text-xs text-muted-foreground mt-1">Cumulatively extracted across reporting periods</p>
                 </CardContent>
               </Card>
 
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground">
-                    Average Daily Student Volume
+                    Average Outcome per Period
                   </CardTitle>
                   <TrendingUp className="size-4 text-primary" />
                 </CardHeader>
                 <CardContent>
                   <div className="flex items-baseline justify-between">
-                    <div className="text-2xl font-bold tracking-tight">{avgStudents} Students / Day</div>
+                    <div className="text-2xl font-bold tracking-tight">{avgStudents}</div>
                     {rating && (
                       <Badge variant="outline" className={`font-medium text-xs ${rating.badgeClass}`}>
                         {rating.label}
@@ -144,8 +144,8 @@ export default function ReportDetailPage({
                   </div>
                   <p className="text-xs text-muted-foreground mt-1">
                     {targetBenchmark !== undefined
-                      ? `Average vs target benchmark of ${targetBenchmark} students`
-                      : "Average sales volume per daily report"}
+                      ? `Average vs target benchmark of ${targetBenchmark}`
+                      : "Average metric value per report submission"}
                   </p>
                 </CardContent>
               </Card>
@@ -153,7 +153,7 @@ export default function ReportDetailPage({
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground">
-                    Outcome Tracking Metric
+                    Outcome Metric Tracked
                   </CardTitle>
                   <DollarSign className="size-4 text-muted-foreground" />
                 </CardHeader>
@@ -163,8 +163,8 @@ export default function ReportDetailPage({
                   </div>
                   <p className="text-xs text-muted-foreground mt-1">
                     {targetBenchmark !== undefined
-                      ? `Target Benchmark: ${targetBenchmark} Students`
-                      : "Extracted directly from daily collection recon sheets"}
+                      ? `Target Benchmark: ${targetBenchmark}`
+                      : "Extracted directly from submitted documents"}
                   </p>
                 </CardContent>
               </Card>
@@ -174,9 +174,9 @@ export default function ReportDetailPage({
             <Card>
               <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <div>
-                  <CardTitle className="text-base">Sales Volume Progression</CardTitle>
+                  <CardTitle className="text-base">{outcomeBenchmark?.metricLabel || "Outcome"} Progression</CardTitle>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    Daily student count trend plotted against target benchmark
+                    Extracted metric trend plotted against target benchmark
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -187,7 +187,7 @@ export default function ReportDetailPage({
                   )}
                   <Badge variant="outline" className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20 font-medium">
                     <Users className="mr-1 size-3.5" />
-                    Student Volume Trend
+                    Outcome Trend
                   </Badge>
                 </div>
               </CardHeader>
@@ -215,12 +215,8 @@ export default function ReportDetailPage({
                       <YAxis tick={{ fontSize: 12 }} allowDecimals={false} width={40} />
                       <Tooltip
                         formatter={(value: any, name: any) => [
-                          name === "Sales Volume (Students)" || name === "studentCount"
-                            ? `${value} Students`
-                            : name.startsWith("Target Benchmark")
-                              ? `${value} Students`
-                              : `ZMW ${value}`,
-                          name === "studentCount" ? "Sales Volume (Students)" : name,
+                          `${value}`,
+                          name === "studentCount" ? (outcomeBenchmark?.metricLabel || "Extracted Outcome") : name,
                         ]}
                         labelFormatter={(_, payload) => payload?.[0]?.payload?.periodLabel ?? ""}
                         contentStyle={{ fontSize: 12, borderRadius: 8, padding: "8px 12px" }}
@@ -240,7 +236,7 @@ export default function ReportDetailPage({
                       <Area
                         type="monotone"
                         dataKey="studentCount"
-                        name="Sales Volume (Students)"
+                        name={outcomeBenchmark?.metricLabel || "Extracted Outcome"}
                         stroke="#10b981"
                         strokeWidth={2.5}
                         fillOpacity={1}

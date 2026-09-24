@@ -107,33 +107,88 @@ async function reviewWithAi(
     return { kind: "unavailable", why: "No AI integration is connected for this organization." };
   }
 
-  const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [
-    { text: buildPrompt(context, files) },
-  ];
+  const promptText = buildPrompt(context, files);
+  const isOpenRouter = context.ai.provider === "openrouter" || context.ai.apiKey.startsWith("sk-or-");
 
   let attached = 0;
-  for (const file of files) {
-    if (file.raw && file.raw.byteLength <= MAX_INLINE_BYTES) {
-      parts.push({ inlineData: { mimeType: file.raw.mimeType, data: file.raw.data } });
-      attached++;
-    } else if (file.fileType === "csv" && file.raw) {
-      const text = Buffer.from(file.raw.data, "base64").toString("utf8").slice(0, 20000);
-      parts.push({ text: `--- ${file.label} (csv) ---\n${text}` });
-      attached++;
-    }
-  }
-
-  if (attached === 0) {
-    return { kind: "unavailable", why: "No attachment could be read for review." };
-  }
 
   try {
-    const ai = new GoogleGenAI({ apiKey: context.ai.apiKey });
-    const response = await ai.models.generateContent({
-      model: context.ai.model,
-      contents: [{ role: "user", parts }],
-    });
-    const verdict = parseVerdict(response.text ?? "");
+    let responseText = "";
+
+    if (isOpenRouter) {
+      const contentParts: Array<{ type: string; text?: string; image_url?: { url: string } }> = [
+        { type: "text", text: promptText },
+      ];
+
+      for (const file of files) {
+        if (file.raw && file.raw.byteLength <= MAX_INLINE_BYTES) {
+          contentParts.push({
+            type: "image_url",
+            image_url: { url: `data:${file.raw.mimeType};base64,${file.raw.data}` },
+          });
+          attached++;
+        } else if (file.fileType === "csv" && file.raw) {
+          const text = Buffer.from(file.raw.data, "base64").toString("utf8").slice(0, 20000);
+          contentParts.push({ type: "text", text: `--- ${file.label} (csv) ---\n${text}` });
+          attached++;
+        }
+      }
+
+      if (attached === 0) {
+        return { kind: "unavailable", why: "No attachment could be read for review." };
+      }
+
+      const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${context.ai.apiKey}`,
+          "Content-Type": "application/json",
+          "HTTP-Referer": "https://kaizen-os.app",
+          "X-OpenRouter-Title": "Kaizen OS",
+        },
+        body: JSON.stringify({
+          model: context.ai.model || "google/gemini-2.5-flash",
+          messages: [{ role: "user", content: contentParts }],
+          response_format: { type: "json_object" },
+        }),
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`OpenRouter API error (${res.status}): ${errText}`);
+      }
+
+      const data = await res.json();
+      responseText = data.choices?.[0]?.message?.content ?? "";
+    } else {
+      const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [
+        { text: promptText },
+      ];
+
+      for (const file of files) {
+        if (file.raw && file.raw.byteLength <= MAX_INLINE_BYTES) {
+          parts.push({ inlineData: { mimeType: file.raw.mimeType, data: file.raw.data } });
+          attached++;
+        } else if (file.fileType === "csv" && file.raw) {
+          const text = Buffer.from(file.raw.data, "base64").toString("utf8").slice(0, 20000);
+          parts.push({ text: `--- ${file.label} (csv) ---\n${text}` });
+          attached++;
+        }
+      }
+
+      if (attached === 0) {
+        return { kind: "unavailable", why: "No attachment could be read for review." };
+      }
+
+      const ai = new GoogleGenAI({ apiKey: context.ai.apiKey });
+      const response = await ai.models.generateContent({
+        model: context.ai.model,
+        contents: [{ role: "user", parts }],
+      });
+      responseText = response.text ?? "";
+    }
+
+    const verdict = parseVerdict(responseText);
     if (!verdict) {
       return { kind: "unavailable", why: "The AI reviewer returned an unreadable answer." };
     }

@@ -190,21 +190,39 @@ export const departmentDashboard = query({
                 .withIndex("by_submissionId", (q) => q.eq("submissionId", s._id))
                 .collect();
 
+              const targetKey = template.outcomeBenchmark?.metricKey ?? "studentCount";
+              let outcomeValue: number | null = null;
               let studentCount: number | null = null;
               let grandTotal: number | null = null;
               for (const f of subFiles) {
-                if (f.extracted?.metadata) {
-                  if (f.extracted.metadata.studentCount !== undefined && f.extracted.metadata.studentCount !== null) {
-                    studentCount = Number(f.extracted.metadata.studentCount);
+                if (f.extracted) {
+                  if (targetKey === "closingBalance" && f.extracted.closingBalance !== undefined && f.extracted.closingBalance !== null) {
+                    outcomeValue = f.extracted.closingBalance;
                   }
-                  if (f.extracted.metadata.grandTotal !== undefined && f.extracted.metadata.grandTotal !== null) {
-                    grandTotal = Number(f.extracted.metadata.grandTotal);
+                  if (targetKey === "openingBalance" && f.extracted.openingBalance !== undefined && f.extracted.openingBalance !== null) {
+                    outcomeValue = f.extracted.openingBalance;
+                  }
+                  if (targetKey === "transactionCount" && f.extracted.transactionCount !== undefined && f.extracted.transactionCount !== null) {
+                    outcomeValue = f.extracted.transactionCount;
+                  }
+                  if (f.extracted.metadata) {
+                    if (f.extracted.metadata.studentCount !== undefined && f.extracted.metadata.studentCount !== null) {
+                      studentCount = Number(f.extracted.metadata.studentCount);
+                    }
+                    if (f.extracted.metadata.grandTotal !== undefined && f.extracted.metadata.grandTotal !== null) {
+                      grandTotal = Number(f.extracted.metadata.grandTotal);
+                    }
+                    if (f.extracted.metadata[targetKey] !== undefined && f.extracted.metadata[targetKey] !== null) {
+                      const val = Number(f.extracted.metadata[targetKey]);
+                      if (!isNaN(val)) outcomeValue = val;
+                    }
                   }
                 }
               }
+              const finalVal = outcomeValue !== null ? outcomeValue : studentCount;
               return {
                 submission: s,
-                studentCount,
+                studentCount: finalVal,
                 grandTotal,
               };
             }),
@@ -310,25 +328,43 @@ export const reportDetail = query({
             .withIndex("by_submissionId", (q) => q.eq("submissionId", s._id))
             .collect();
 
+          const targetKey = template.outcomeBenchmark?.metricKey ?? "studentCount";
+          let outcomeValue: number | null = null;
           let studentCount: number | null = null;
           let grandTotal: number | null = null;
           for (const f of subFiles) {
-            if (f.extracted?.metadata) {
-              if (f.extracted.metadata.studentCount !== undefined && f.extracted.metadata.studentCount !== null) {
-                studentCount = Number(f.extracted.metadata.studentCount);
+            if (f.extracted) {
+              if (targetKey === "closingBalance" && f.extracted.closingBalance !== undefined && f.extracted.closingBalance !== null) {
+                outcomeValue = f.extracted.closingBalance;
               }
-              if (f.extracted.metadata.grandTotal !== undefined && f.extracted.metadata.grandTotal !== null) {
-                grandTotal = Number(f.extracted.metadata.grandTotal);
+              if (targetKey === "openingBalance" && f.extracted.openingBalance !== undefined && f.extracted.openingBalance !== null) {
+                outcomeValue = f.extracted.openingBalance;
+              }
+              if (targetKey === "transactionCount" && f.extracted.transactionCount !== undefined && f.extracted.transactionCount !== null) {
+                outcomeValue = f.extracted.transactionCount;
+              }
+              if (f.extracted.metadata) {
+                if (f.extracted.metadata.studentCount !== undefined && f.extracted.metadata.studentCount !== null) {
+                  studentCount = Number(f.extracted.metadata.studentCount);
+                }
+                if (f.extracted.metadata.grandTotal !== undefined && f.extracted.metadata.grandTotal !== null) {
+                  grandTotal = Number(f.extracted.metadata.grandTotal);
+                }
+                if (f.extracted.metadata[targetKey] !== undefined && f.extracted.metadata[targetKey] !== null) {
+                  const val = Number(f.extracted.metadata[targetKey]);
+                  if (!isNaN(val)) outcomeValue = val;
+                }
               }
             }
           }
 
+          const finalVal = outcomeValue !== null ? outcomeValue : studentCount;
           return {
             submission: s,
             employeeName: employee && "name" in employee ? employee.name : "Unknown",
             qualityScore: validationResult?.score,
             status: statusForScore(s.finalScore ?? 0),
-            studentCount,
+            studentCount: finalVal,
             grandTotal,
           };
         }),

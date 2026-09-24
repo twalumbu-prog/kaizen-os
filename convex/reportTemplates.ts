@@ -199,3 +199,96 @@ export const listReferenceFiles = query({
     return results;
   },
 });
+
+export const getExtractedFields = query({
+  args: { templateId: v.id("reportTemplates") },
+  handler: async (ctx, { templateId }) => {
+    await requireProfile(ctx);
+    const template = await ctx.db.get(templateId);
+    if (!template) return [];
+
+    const defaultFieldsMap: Record<string, Array<{ key: string; label: string }>> = {
+      canteenSalesRecon: [
+        { key: "studentCount", label: "Sales Volume (Students Count)" },
+        { key: "staffSalesVolume", label: "Staff Sales Volume" },
+        { key: "grandTotal", label: "Total Sales Amount" },
+        { key: "closingBalance", label: "Closing Cash/Bank Balance" },
+      ],
+      adPerformance: [
+        { key: "impressions", label: "Impressions" },
+        { key: "clicks", label: "Clicks" },
+        { key: "conversions", label: "Conversions" },
+        { key: "adSpend", label: "Total Ad Spend" },
+        { key: "roas", label: "Return on Ad Spend (ROAS)" },
+        { key: "cpc", label: "Cost Per Click (CPC)" },
+        { key: "ctr", label: "Click-Through Rate (CTR %)" },
+      ],
+      payroll: [
+        { key: "netPay", label: "Net Pay" },
+        { key: "totalGrossPay", label: "Total Gross Pay / Salaries" },
+        { key: "napsaPayable", label: "NAPSA Payable" },
+        { key: "nhimaPayable", label: "NHIMA Payable" },
+        { key: "employeeCount", label: "Total Employees Count" },
+      ],
+      statutoryReceipts: [
+        { key: "receiptTotal", label: "Receipt Total Amount" },
+        { key: "taxAmount", label: "Tax Amount Paid" },
+        { key: "closingBalance", label: "Closing Balance" },
+      ],
+      documentSubmission: [
+        { key: "complianceScore", label: "Document Relevance / Compliance Score" },
+        { key: "receiptTotal", label: "Document Total Amount" },
+        { key: "transactionCount", label: "Item / Line Count" },
+      ],
+      bankReconciliation: [
+        { key: "closingBalance", label: "Closing Bank Balance" },
+        { key: "openingBalance", label: "Opening Bank Balance" },
+        { key: "transactionCount", label: "Total Transactions Count" },
+      ],
+    };
+
+    const knownForValidator = defaultFieldsMap[template.validatorKey] ?? [
+      { key: "closingBalance", label: "Closing Balance" },
+      { key: "openingBalance", label: "Opening Balance" },
+      { key: "transactionCount", label: "Total Transactions Count" },
+    ];
+
+    const fieldsMap = new Map<string, string>();
+    for (const item of knownForValidator) {
+      fieldsMap.set(item.key, item.label);
+    }
+
+    fieldsMap.set("closingBalance", "Closing Balance");
+    fieldsMap.set("openingBalance", "Opening Balance");
+    fieldsMap.set("transactionCount", "Transaction Count");
+
+    const submissions = await ctx.db
+      .query("submissions")
+      .withIndex("by_templateId", (q) => q.eq("templateId", templateId))
+      .order("desc")
+      .take(20);
+
+    for (const sub of submissions) {
+      const files = await ctx.db
+        .query("submissionFiles")
+        .withIndex("by_submissionId", (q) => q.eq("submissionId", sub._id))
+        .collect();
+
+      for (const file of files) {
+        if (file.extracted?.metadata) {
+          for (const key of Object.keys(file.extracted.metadata)) {
+            if (!fieldsMap.has(key) && key !== "fileName" && key !== "fileType" && key !== "fileSize") {
+              const formattedLabel = key
+                .replace(/([A-Z])/g, " $1")
+                .replace(/_/g, " ")
+                .replace(/^\w/, (c) => c.toUpperCase());
+              fieldsMap.set(key, formattedLabel);
+            }
+          }
+        }
+      }
+    }
+
+    return Array.from(fieldsMap.entries()).map(([key, label]) => ({ key, label }));
+  },
+});
