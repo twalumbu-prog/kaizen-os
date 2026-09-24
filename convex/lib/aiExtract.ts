@@ -30,23 +30,24 @@ function extractTextFromBuffer(
   existingStatement?: ParsedStatement
 ): string {
   if (fileType === "csv") {
-    return new TextDecoder().decode(buffer).slice(0, 40000);
+    return new TextDecoder().decode(buffer).slice(0, 50000);
   }
   if (fileType === "xlsx") {
     try {
-      const workbook = XLSX.read(new Uint8Array(buffer), { type: "array" });
+      const uint8 = new Uint8Array(buffer);
+      const workbook = XLSX.read(uint8, { type: "array" });
       const sheetTexts: string[] = [];
       for (const sheetName of workbook.SheetNames) {
         const sheet = workbook.Sheets[sheetName];
         if (sheet) {
-          const csv = XLSX.utils.sheet_to_csv(sheet);
+          const csv = XLSX.utils.sheet_to_csv(sheet, { blankrows: false });
           if (csv.trim()) {
             sheetTexts.push(`--- Sheet: ${sheetName} ---\n${csv}`);
           }
         }
       }
       if (sheetTexts.length > 0) {
-        return sheetTexts.join("\n\n").slice(0, 40000);
+        return sheetTexts.join("\n\n").slice(0, 50000);
       }
     } catch (err) {
       console.warn(`[AiExtract] Failed to parse XLSX workbook:`, err);
@@ -90,7 +91,7 @@ export async function extractDataWithAi(
 
     const hasCustomFields = customExtractionFields && customExtractionFields.length > 0;
     const customFieldsSection = hasCustomFields
-      ? `\nThe administrator has configured these specific fields to extract from this report type:\n${customExtractionFields!.map((f) => `  - ${f.key}: ${f.label}${f.description ? ` — ${f.description}` : ""}`).join("\n")}\nPrioritize finding these fields. Use the exact key names listed above in your metadata response.\n`
+      ? `\nThe report configurator specifies these outcome benchmark fields to track for this report:\n${customExtractionFields!.map((f) => `  - ${f.key}: ${f.label}${f.description ? ` — ${f.description}` : ""}`).join("\n")}\nPrioritize finding these fields. Use the exact key names listed above in your JSON response.\n`
       : "";
 
     const promptText = `
@@ -98,25 +99,24 @@ You are an expert document analysis and data extraction AI agent for an organiza
 Analyze the document submitted for report: "${templateName || "Business Report"}" (document label: "${label}").
 ${customFieldsSection}
 Your task:
-1. Carefully read ALL contents: every table row, header, total, subtotal, summary cell, and label in the document.
-2. Extract EVERY numerical metric, count, balance, or total you can find — be comprehensive.
-3. For each value found, choose a concise camelCase key that describes it (e.g. totalItems, openingStock, grandTotal).
-4. If the document has opening/closing balances, set the top-level openingBalance and closingBalance fields.
-5. Count the total number of line items / transactions / rows for transactionCount.
-6. Write a brief 1–2 sentence summaryNotes describing what type of document this is and the key figures found.
+1. Read ALL contents: every table row, header, item, quantity, unit price, total, subtotal, and summary cell in the document.
+2. Extract ALL numerical metrics, sales volumes, counts, totals, or figures into the "metadata" object as descriptive camelCase keys (e.g. grandTotal, studentSalesVolume, staffSalesVolume, totalCost, itemCount).
+3. If the document has opening/closing balances, set openingBalance and closingBalance fields.
+4. Count total line items or transactions for transactionCount.
+5. Provide a clear 1-2 sentence AI summary of findings in "summaryNotes" inside "metadata".
 
-Respond ONLY with a single valid JSON object — no markdown, no explanation, just raw JSON:
+Respond ONLY with a single valid JSON object format (no markdown, no explanation):
 {
-  "openingBalance": <number or null>,
-  "closingBalance": <number or null>,
-  "transactionCount": <integer>,
+  "openingBalance": null,
+  "closingBalance": null,
+  "transactionCount": 0,
   "metadata": {
-    <key>: <value>,
-    "summaryNotes": "<1-2 sentence summary of this document and its key figures>"
+    "summaryNotes": "brief summary of document contents",
+    "extractedDocumentType": "type of report",
+    "grandTotal": 0,
+    "studentSalesVolume": 0
   }
 }
-
-IMPORTANT: Include ALL metrics you find as metadata keys, not just the ones listed above. Every significant number in the document should appear in the metadata with an appropriate descriptive key.
 `.trim();
 
     let responseText = "";
@@ -165,7 +165,17 @@ IMPORTANT: Include ALL metrics you find as metadata keys, not just the ones list
       }
 
       const data = await res.json();
-      responseText = data.choices?.[0]?.message?.content ?? "";
+      const choice = data.choices?.[0];
+      const msg = choice?.message;
+      if (typeof msg?.content === "string") {
+        responseText = msg.content;
+      } else if (Array.isArray(msg?.content)) {
+        responseText = msg.content.map((c: any) => (typeof c === "string" ? c : c.text ?? "")).join("\n");
+      } else if (typeof msg?.reasoning === "string" && msg.reasoning.includes("{")) {
+        responseText = msg.reasoning;
+      } else if (typeof choice?.text === "string") {
+        responseText = choice.text;
+      }
     } else {
       // GoogleGenAI SDK execution
       const ai = new GoogleGenAI({ apiKey: aiConfig.apiKey });
@@ -206,14 +216,24 @@ IMPORTANT: Include ALL metrics you find as metadata keys, not just the ones list
       return null;
     }
 
-    const parsed = JSON.parse(match[0]) as {
-      openingBalance?: number | null;
-      closingBalance?: number | null;
-      transactionCount?: number;
-      metadata?: Record<string, string | number | boolean | null>;
-    };
+    const parsed = JSON.parse(match[0]) as Record<string, any>;
 
     const cleanedMetadata: Record<string, string | number | null> = {};
+
+    // 1. Process top-level metadata fields if AI placed metrics at root
+    for (const [k, v] of Object.entries(parsed)) {
+      if (k !== "openingBalance" && k !== "closingBalance" && k !== "transactionCount" && k !== "metadata") {
+        if (v !== undefined && v !== null) {
+          if (typeof v === "number" || typeof v === "string") {
+            cleanedMetadata[k] = v;
+          } else if (typeof v === "boolean") {
+            cleanedMetadata[k] = v ? 1 : 0;
+          }
+        }
+      }
+    }
+
+    // 2. Process nested metadata object
     if (parsed.metadata && typeof parsed.metadata === "object") {
       for (const [k, v] of Object.entries(parsed.metadata)) {
         if (v !== undefined && v !== null) {

@@ -179,6 +179,34 @@ export const updateIntegrationStatusInternal = internalMutation({
   }
 });
 
+export const seedOpenRouterForAllOrgs = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const orgs = await ctx.db.query("organizations").collect();
+    const apiKey = process.env.OPENROUTER_API_KEY;
+    if (!apiKey) return { count: 0, status: "No OPENROUTER_API_KEY set in environment" };
+    const configStr = JSON.stringify({ apiKey, model: "~z-ai/glm-flash-latest" });
+
+    for (const org of orgs) {
+      const existing = await ctx.db.query("integrations")
+        .withIndex("by_orgId_provider", q => q.eq("orgId", org._id).eq("provider", "openrouter"))
+        .first();
+
+      if (existing) {
+        await ctx.db.patch(existing._id, { status: "active", config: configStr });
+      } else {
+        await ctx.db.insert("integrations", {
+          orgId: org._id,
+          provider: "openrouter",
+          status: "active",
+          config: configStr,
+        });
+      }
+    }
+    return { count: orgs.length };
+  },
+});
+
 export const patchQbRealmId = internalMutation({
   args: { orgId: v.id("organizations"), realmId: v.string() },
   handler: async (ctx, { orgId, realmId }) => {

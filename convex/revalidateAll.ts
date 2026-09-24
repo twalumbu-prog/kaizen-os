@@ -313,15 +313,7 @@ export const backfillQbLedgers = internalAction({
       throw new Error("QuickBooks integration is not active for this org");
     }
 
-    // Resolve account name via Composio CDC (no direct token needed).
-    const cdcResult = await ctx.runAction(internal.quickbooks.fetchTransactionListReport, {
-      orgId,
-      accountId: quickbooksAccountId,
-      startDate: "2000-01-01",
-      endDate: "2000-01-01", // minimal date range just to warm up / verify connection
-    }).catch(() => null);
-
-    // Separately get the account name from CDC.
+    // Get the account name from CDC (no direct token needed).
     const allAccountsResult = await ctx.runAction(internal.quickbooks.fetchChangedEntities, {
       orgId,
     });
