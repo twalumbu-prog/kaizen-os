@@ -1,4 +1,4 @@
-import { action, internalAction, internalMutation, internalQuery } from "./_generated/server";
+import { action, internalAction, internalMutation, internalQuery, query } from "./_generated/server";
 import type { ActionCtx } from "./_generated/server";
 import { extractAccountRows } from "./lib/qbExtract";
 import { extractDataWithAi } from "./lib/aiExtract";
@@ -23,6 +23,31 @@ function findAccountBalanceInReport(rows: any[], accountId: string): number | nu
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
+
+export const ping = query({
+  args: {},
+  handler: async () => "pong",
+});
+
+export const countSubmissions = action({
+  args: {},
+  handler: async (ctx: ActionCtx): Promise<string> => {
+    const ids = (await ctx.runQuery(internal.revalidateAll.getAllSubmissionIds, {})) as Id<"submissions">[];
+    return `Found ${ids.length} submissions in production.`;
+  },
+});
+
+export const revalidateOne = action({
+  args: { submissionId: v.id("submissions") },
+  handler: async (ctx: ActionCtx, { submissionId }): Promise<string> => {
+    try {
+      await ctx.runAction(internal.validationRunner.runValidation, { submissionId });
+      return `OK: ${submissionId}`;
+    } catch (err: any) {
+      return `ERROR: ${String(err?.message ?? err)}`;
+    }
+  },
+});
 
 export const getAllSubmissionIds = internalQuery({
   args: {},
@@ -187,6 +212,26 @@ export const revalidateAllSubmissions = action({
       }
     }
     return `Cleaned ${cleanupRes.removedDups} dups, purged ${cleanupRes.purgedExcludedRows} excluded rows & updated ${cleanupRes.updatedTemplates} templates. Successfully revalidated and extracted data for ${count} of ${ids.length} submissions.`;
+  },
+});
+
+/** Schedules revalidation for every submission as individual background jobs.
+ *  This avoids the 10-minute action timeout when there are many submissions.
+ *  npx convex run revalidateAll:scheduleRevalidateAll --prod
+ */
+export const scheduleRevalidateAll = action({
+  args: {},
+  handler: async (ctx: ActionCtx): Promise<string> => {
+    const ids = (await ctx.runQuery(internal.revalidateAll.getAllSubmissionIds, {})) as Id<"submissions">[];
+    console.log(`[ScheduleRevalidateAll] Scheduling ${ids.length} revalidation jobs...`);
+    for (let i = 0; i < ids.length; i++) {
+      await ctx.scheduler.runAfter(
+        i * 2000,
+        internal.validationRunner.runValidation,
+        { submissionId: ids[i] },
+      );
+    }
+    return `Scheduled ${ids.length} revalidation jobs (staggered 2s apart, ~${Math.ceil((ids.length * 2) / 60)} min total).`;
   },
 });
 
