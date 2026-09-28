@@ -4,36 +4,26 @@ import type { ParsedStatement } from "../../validators/types";
 /**
  * Parses the Canteen Sales Collection Recon spreadsheet.
  *
- * The real template canteen staff fill in is a plain payments table, not a
- * form with labeled header fields:
- *
- *   Row 1                 → a title like "LUNCH - 07.09.2026" (the date is
- *                            read from wherever a d.m.yyyy-style token
- *                            appears in the first few rows)
- *   Header row             → NO. | NAME | CLASS | <payment method columns…>
- *   Student rows            → col A is the row number (1, 2, 3 …)
- *   Footer row              → "TOTAL" in col A or col B, with each payment
- *                            method's column total below its header
- *
- * Payment-method columns are read by matching the header row's own labels
- * (CASH, AIRTEL, WISE, BANK, MASTER/MASTERFEES) rather than fixed column
- * positions, since which methods appear — and in what order — can change
- * sheet to sheet.
- *
- * A "Date:" / "Prepared by:" labeled row and a "Grand Total" / "AMT
- * Deposited" row are also recognised if present, for older-style sheets.
- *
- * Metadata keys produced (consumed by canteenSalesRecon validator):
- *   date, preparedBy, grandTotal, amtDeposited, studentCount,
- *   <method>Total for each recognised column (e.g. cashTotal, wiseTotal) — the
- *     figure on the footer row, or null if that column isn't on the sheet,
- *   <method>Sum for each recognised column — re-summed from the student rows.
+ * Sales-tier counts added (how many students paid for each duration):
+ *   salesCountDaily, salesCount2Day, salesCount3Day, salesCountWeekly,
+ *   salesCount2Week, salesCount3Week, salesCountMonthly, salesCountOther
  */
 
 const PAYMENT_METHODS = ["cash", "airtel", "wise", "bank", "master"] as const;
 type PaymentMethod = (typeof PAYMENT_METHODS)[number];
 
-/** Header label → the metadata key it maps to. "master"/"masterfees" are the same column. */
+const RATE_PER_DAY = 35;
+
+const SALES_TIERS: Array<{ days: number; key: string }> = [
+  { days: 1,  key: "salesCountDaily"   },
+  { days: 2,  key: "salesCount2Day"    },
+  { days: 3,  key: "salesCount3Day"    },
+  { days: 4,  key: "salesCountWeekly"  },
+  { days: 8,  key: "salesCount2Week"   },
+  { days: 12, key: "salesCount3Week"   },
+  { days: 16, key: "salesCountMonthly" },
+];
+
 function methodForLabel(label: string): PaymentMethod | null {
   const norm = label.trim().toLowerCase().replace(/[^a-z]/g, "");
   if (norm === "cash") return "cash";
@@ -48,7 +38,6 @@ function metaKey(method: PaymentMethod, suffix: "Total" | "Sum"): string {
   return `${method}${suffix}`;
 }
 
-// "-" or blank cells represent zero in a payment-method column.
 function toAmt(val: unknown): number {
   if (val === null || val === undefined || val === "-" || val === "") return 0;
   if (typeof val === "number") return val;
@@ -56,7 +45,6 @@ function toAmt(val: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-/** Used for an explicit "Date:" field, which may be typed in almost any format. */
 function toDateStr(val: unknown): string | null {
   if (val instanceof Date) return val.toISOString().slice(0, 10);
   if (!val) return null;
@@ -68,14 +56,7 @@ function toDateStr(val: unknown): string | null {
   return isNaN(parsed.getTime()) ? null : parsed.toISOString().slice(0, 10);
 }
 
-/**
- * Finds a d.m.yyyy / d-m-yyyy / d/m/yyyy token anywhere in a string — the
- * title row reads e.g. "LUNCH - 07.09.2026" rather than a labeled date field.
- */
 function parseDateToken(text: string): string | null {
-  // Word-boundary anchored so this can't match a stray substring of an
-  // already-ISO "yyyy-mm-dd" value (e.g. reading "26-09-07" out of
-  // "2026-09-07") — there is no boundary between two adjacent digits.
   const match = text.match(/\b(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{2,4})\b/);
   if (!match) return null;
   const [, a, b, y] = match;
@@ -104,26 +85,23 @@ export function parseCanteenRecon(buffer: ArrayBuffer): ParsedStatement {
   const methodColumn = new Map<PaymentMethod, number>();
   const totals = new Map<PaymentMethod, number>();
   const sums = new Map<PaymentMethod, number>();
+  const tierCounts = new Map<string, number>();
+  let salesCountOther = 0;
   let headerSeen = false;
 
   for (const row of rows) {
     const a = String(row[0] ?? "").trim();
     const b = row[1];
 
-    // A title row (before the header) may carry the date, e.g. "LUNCH - 07.09.2026".
     if (!headerSeen && date === null) {
       for (const cell of row) {
         if (typeof cell === "string") {
           const found = parseDateToken(cell);
-          if (found) {
-            date = found;
-            break;
-          }
+          if (found) { date = found; break; }
         }
       }
     }
 
-    // Older-style sheets: an explicit "Date:" labeled row.
     if (/^date[:\s]/i.test(a)) {
       date = toDateStr(b) ?? date;
       const d = String(row[3] ?? "").trim();
@@ -131,17 +109,12 @@ export function parseCanteenRecon(buffer: ArrayBuffer): ParsedStatement {
       continue;
     }
 
-    if (/grand total/i.test(a)) {
-      grandTotal = toAmt(b);
-      continue;
-    }
-
+    if (/grand total/i.test(a)) { grandTotal = toAmt(b); continue; }
     if (/amt deposited/i.test(a)) {
       amtDeposited = b !== null && b !== undefined ? toAmt(b) : null;
       continue;
     }
 
-    // Header row: whichever columns carry a recognised payment-method label.
     if (!headerSeen && row.some((cell) => typeof cell === "string" && methodForLabel(cell))) {
       row.forEach((cell, idx) => {
         if (typeof cell !== "string") return;
@@ -152,34 +125,43 @@ export function parseCanteenRecon(buffer: ArrayBuffer): ParsedStatement {
       continue;
     }
 
-    // Footer row: "TOTAL" or "Subtotal" in any of the first few columns.
     const isTotal = row.slice(0, 4).some((cell) => typeof cell === "string" && isTotalLabel(cell));
     if (isTotal) {
-      for (const [method, idx] of methodColumn) {
-        totals.set(method, toAmt(row[idx]));
-      }
+      for (const [method, idx] of methodColumn) totals.set(method, toAmt(row[idx]));
       continue;
     }
 
-    // Student row detection:
-    // 1) Serial number in Col A (e.g. 1, "1.", "1")
     const cleanedA = a.replace(/[^0-9.]/g, "");
     const rowNo = typeof row[0] === "number" ? row[0] : (cleanedA ? parseFloat(cleanedA) : NaN);
     const hasValidRowNo = Number.isFinite(rowNo) && rowNo > 0;
-
-    // 2) Fallback: if header has been seen, check if row has a student name or non-zero payment amount
     const colB = String(row[1] ?? "").trim();
     const colC = String(row[2] ?? "").trim();
-    const isHeaderOrMetaKey = /^(no|s\/n|serial|name|class|total|grand total|amt deposited|date|prepared by)$/i.test(a) ||
-                              /^(no|s\/n|serial|name|class|total)$/i.test(colB);
-
+    const isHeaderOrMetaKey =
+      /^(no|s\/n|serial|name|class|total|grand total|amt deposited|date|prepared by)$/i.test(a) ||
+      /^(no|s\/n|serial|name|class|total)$/i.test(colB);
     const hasPaymentValue = Array.from(methodColumn.values()).some((idx) => toAmt(row[idx]) > 0);
-    const hasStudentName = (colB.length >= 2 || colC.length >= 2 || (a.length >= 2 && !hasValidRowNo)) && !isHeaderOrMetaKey;
+    const hasStudentName =
+      (colB.length >= 2 || colC.length >= 2 || (a.length >= 2 && !hasValidRowNo)) &&
+      !isHeaderOrMetaKey;
 
     if (headerSeen && (hasValidRowNo || (hasStudentName && hasPaymentValue))) {
       studentCount++;
+
+      let rowTotal = 0;
       for (const [method, idx] of methodColumn) {
-        sums.set(method, (sums.get(method) ?? 0) + toAmt(row[idx]));
+        const amt = toAmt(row[idx]);
+        sums.set(method, (sums.get(method) ?? 0) + amt);
+        rowTotal += amt;
+      }
+
+      if (rowTotal > 0) {
+        const days = Math.round(rowTotal / RATE_PER_DAY);
+        const tier = SALES_TIERS.find((t) => t.days === days);
+        if (tier) {
+          tierCounts.set(tier.key, (tierCounts.get(tier.key) ?? 0) + 1);
+        } else {
+          salesCountOther++;
+        }
       }
     }
   }
@@ -191,9 +173,17 @@ export function parseCanteenRecon(buffer: ArrayBuffer): ParsedStatement {
     amtDeposited,
     studentCount,
   };
+
   for (const method of PAYMENT_METHODS) {
     metadata[metaKey(method, "Total")] = totals.get(method) ?? null;
     metadata[metaKey(method, "Sum")] = methodColumn.has(method) ? (sums.get(method) ?? 0) : null;
+  }
+
+  for (const tier of SALES_TIERS) {
+    metadata[tier.key] = tierCounts.get(tier.key) ?? 0;
+  }
+  if (salesCountOther > 0) {
+    metadata.salesCountOther = salesCountOther;
   }
 
   return { openingBalance: null, closingBalance: null, transactions: [], metadata };
