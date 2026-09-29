@@ -225,6 +225,14 @@ export const runValidation = internalAction({
         ...(statement.metadata ? statement.metadata : {}),
         ...aiMetadata,
       };
+      // A daily submission's period label is authoritative: parser/AI-read
+      // dates can be null or wrong. Keep what the document said separately.
+      if (/^\d{4}-\d{2}-\d{2}$/.test(submission.periodLabel)) {
+        if (mergedMetadata.date && mergedMetadata.date !== submission.periodLabel) {
+          mergedMetadata.documentDate = mergedMetadata.date;
+        }
+        mergedMetadata.date = submission.periodLabel;
+      }
 
       extractedUpdates.push({
         fileId: file._id,

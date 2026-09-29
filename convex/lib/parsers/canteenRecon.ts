@@ -95,10 +95,11 @@ export function parseCanteenRecon(buffer: ArrayBuffer): ParsedStatement {
 
     if (!headerSeen && date === null) {
       for (const cell of row) {
-        if (typeof cell === "string") {
-          const found = parseDateToken(cell);
-          if (found) { date = found; break; }
-        }
+        const found =
+          cell instanceof Date ? toDateStr(cell)
+          : typeof cell === "string" ? parseDateToken(cell)
+          : null;
+        if (found) { date = found; break; }
       }
     }
 
