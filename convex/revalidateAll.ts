@@ -479,3 +479,30 @@ export const getExtractedResultsSummary = internalQuery({
     return results;
   },
 });
+
+export const getCanteenSalesTierData = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const files = await ctx.db.query("submissionFiles").collect();
+    const results: Array<{
+      date: string | null;
+      periodLabel: string | null;
+      metadata: Record<string, any>;
+    }> = [];
+
+    for (const f of files) {
+      const meta = f.extracted?.metadata;
+      if (!meta || typeof meta.salesCountDaily === "undefined") continue;
+      const sub = f.submissionId ? await ctx.db.get(f.submissionId) : null;
+      const tmpl = sub ? await ctx.db.get(sub.templateId) : null;
+      if (tmpl?.validatorKey !== "canteenSalesRecon") continue;
+      results.push({
+        date: (meta.date as string | null) ?? sub?.periodLabel ?? null,
+        periodLabel: sub?.periodLabel ?? null,
+        metadata: meta as Record<string, any>,
+      });
+    }
+
+    return results.sort((a, b) => (a.date ?? "").localeCompare(b.date ?? ""));
+  },
+});
