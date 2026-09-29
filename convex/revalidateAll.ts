@@ -255,6 +255,40 @@ export const getSubmissionIdsByTemplateName = internalQuery({
   },
 });
 
+/** Diagnostic: configured outcome metric + extracted values per submission for a template. */
+export const diagTemplateOutcome = internalQuery({
+  args: { nameContains: v.string() },
+  handler: async (ctx, { nameContains }) => {
+    const needle = nameContains.toLowerCase();
+    const templates = (await ctx.db.query("reportTemplates").collect()).filter((t) =>
+      t.name.toLowerCase().includes(needle),
+    );
+    const out = [];
+    for (const t of templates) {
+      const subs = await ctx.db
+        .query("submissions")
+        .withIndex("by_templateId", (q) => q.eq("templateId", t._id))
+        .collect();
+      const key = t.outcomeBenchmark?.metricKey;
+      const rows = [];
+      for (const s of subs) {
+        const files = await ctx.db
+          .query("submissionFiles")
+          .withIndex("by_submissionId", (q) => q.eq("submissionId", s._id))
+          .collect();
+        rows.push({
+          period: s.periodLabel,
+          status: s.status,
+          value: files.map((f) => (key ? f.extracted?.metadata?.[key] : undefined) ?? null),
+          extractedKeys: files.flatMap((f) => Object.keys(f.extracted?.metadata ?? {})).slice(0, 25),
+        });
+      }
+      out.push({ name: t.name, metricKey: key, aiFields: t.aiExtractionFields, rows });
+    }
+    return out;
+  },
+});
+
 /** npx convex run revalidateAll:scheduleRevalidateByTemplate '{"nameContains":"Canteen Inventory"}' --prod */
 export const scheduleRevalidateByTemplate = action({
   args: { nameContains: v.string() },
