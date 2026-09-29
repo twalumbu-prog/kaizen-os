@@ -78,8 +78,13 @@ export default function ReportDetailPage({
     );
   }
 
-  const isCanteen = data.template.validatorKey === "canteenSalesRecon";
   const outcomeBenchmark = data.template.outcomeBenchmark;
+  const isCanteen = data.template.validatorKey === "canteenSalesRecon";
+  // Show the outcome column for any report with a configured outcome metric, not just canteen sales.
+  const showOutcome = isCanteen || !!outcomeBenchmark?.metricKey;
+  const outcomeColumnLabel =
+    outcomeBenchmark?.metricLabel || (isCanteen ? "Sales Volume (Student Count)" : "Outcome");
+  const outcomeUnit = outcomeBenchmark?.metricLabel || "Students";
   const targetBenchmark = outcomeBenchmark?.targetBenchmark;
   const showBenchmarkOnChart = outcomeBenchmark?.showBenchmarkOnChart ?? true;
 
@@ -269,10 +274,10 @@ export default function ReportDetailPage({
                       <span className="text-xs text-muted-foreground capitalize">{entry.submission.status}</span>
                       <StatusBadge score={entry.submission.finalScore ?? 0} />
                     </div>
-                    {isCanteen && entry.studentCount !== null && entry.studentCount !== undefined && (
+                    {showOutcome && entry.studentCount !== null && entry.studentCount !== undefined && (
                       <Badge variant="secondary" className="mt-1 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20 text-[11px] font-medium">
                         <Users className="mr-1 size-3" />
-                        {entry.studentCount} Students
+                        {entry.studentCount} {outcomeUnit}
                       </Badge>
                     )}
                   </div>
@@ -293,7 +298,7 @@ export default function ReportDetailPage({
                   <TableHead>Period</TableHead>
                   <TableHead>Employee</TableHead>
                   <TableHead>Status</TableHead>
-                  {isCanteen && <TableHead>Sales Volume (Student Count)</TableHead>}
+                  {showOutcome && <TableHead>{outcomeColumnLabel}</TableHead>}
                   <TableHead>Outcome Rating</TableHead>
                   <TableHead>Quality Score</TableHead>
                   <TableHead>Submission Time</TableHead>
@@ -316,12 +321,12 @@ export default function ReportDetailPage({
                       </TableCell>
                       <TableCell>{entry.employeeName}</TableCell>
                       <TableCell className="capitalize">{entry.submission.status}</TableCell>
-                      {isCanteen && (
+                      {showOutcome && (
                         <TableCell>
                           {entry.studentCount !== null && entry.studentCount !== undefined ? (
                             <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20 font-medium">
                               <Users className="mr-1 size-3.5" />
-                              {entry.studentCount} Students
+                              {entry.studentCount} {outcomeUnit}
                             </Badge>
                           ) : (
                             <span className="text-muted-foreground text-xs">—</span>
