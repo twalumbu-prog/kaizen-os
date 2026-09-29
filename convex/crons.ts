@@ -23,4 +23,12 @@ crons.daily(
   internal.adReports.autoSubmitAll,
 );
 
+// After the school day: reconcile canteen subscriptions against the inventory
+// report and submit the deviation report for any new dates.
+crons.daily(
+  "canteen-deviation-automation",
+  { hourUTC: 17, minuteUTC: 0 },
+  internal.canteenAutomation.runAllScheduled,
+);
+
 export default crons;

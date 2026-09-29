@@ -158,7 +158,8 @@ export const runValidation = internalAction({
       let aiClosing: number | undefined = undefined;
       let aiTxCount = 0;
 
-      if (aiConfig) {
+      // canteenDeviation workbooks are machine-generated; their Summary sheet is authoritative.
+      if (aiConfig && template.validatorKey !== "canteenDeviation") {
         console.log(`[ValidationRunner] Running AI document analysis & extraction on ${file.label}...`);
         const customFields = [
           ...(template.aiExtractionFields ?? []),

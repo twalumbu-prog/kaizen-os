@@ -317,6 +317,41 @@ export default defineSchema({
     .index("by_orgId", ["orgId"])
     .index("by_orgId_provider", ["orgId", "provider"]),
 
+  /** Scheduled background jobs that produce and submit reports on their own. */
+  automations: defineTable({
+    orgId: v.id("organizations"),
+    /** Stable identifier of the built-in job this row runs, e.g. "canteenDeviation". */
+    kind: v.string(),
+    name: v.string(),
+    description: v.string(),
+    /** Human-readable schedule, e.g. "Daily at 17:00 UTC". */
+    schedule: v.string(),
+    enabled: v.boolean(),
+    /** Report template the generated workbooks are submitted to. */
+    outputTemplateId: v.optional(v.id("reportTemplates")),
+  }).index("by_orgId", ["orgId"]),
+
+  automationRuns: defineTable({
+    automationId: v.id("automations"),
+    orgId: v.id("organizations"),
+    startedAt: v.number(),
+    finishedAt: v.optional(v.number()),
+    trigger: v.union(v.literal("schedule"), v.literal("manual")),
+    status: v.union(
+      v.literal("running"),
+      v.literal("success"),
+      v.literal("skipped"),
+      v.literal("failed"),
+    ),
+    message: v.string(),
+    /** Dates (YYYY-MM-DD) this run produced a report for. */
+    datesProcessed: v.array(v.string()),
+    /** Submissions created or refreshed by this run. */
+    submissionIds: v.array(v.id("submissions")),
+  })
+    .index("by_automationId", ["automationId"])
+    .index("by_orgId", ["orgId"]),
+
   // One-time, short-lived tokens binding an OAuth `state` param to the org/admin
   // that initiated the connect flow — prevents a caller from completing an OAuth
   // flow with a hand-crafted `state` to link their own third-party account to a

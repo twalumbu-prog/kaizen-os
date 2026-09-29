@@ -7,6 +7,7 @@ import { parsePayrollExtract } from "./payrollExtract";
 import { parseCanteenRecon } from "./canteenRecon";
 import { parseCanteenInventory } from "./canteenInventory";
 import { parseCanteenReceiptPdf } from "./canteenReceipt";
+import { parseCanteenDeviation } from "./canteenDeviation";
 import { parseAdPerformance } from "./adPerformance";
 import type { FileType, ParsedStatement } from "../../validators/types";
 
@@ -34,6 +35,8 @@ export async function parseUploadedFile(
       return parseCanteenRecon(buffer); // sales recon, or any other xlsx
     }
   }
+
+  if (validatorKey === "canteenDeviation" && fileType === "xlsx") return parseCanteenDeviation(buffer);
 
   // ── Ad Performance specialist parser ─────────────────────────────────────
   if (validatorKey === "adPerformance" && fileType === "xlsx") return parseAdPerformance(buffer);
