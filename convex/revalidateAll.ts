@@ -235,6 +235,40 @@ export const scheduleRevalidateAll = action({
   },
 });
 
+/** Submission ids for templates whose name contains `nameContains` (case-insensitive). */
+export const getSubmissionIdsByTemplateName = internalQuery({
+  args: { nameContains: v.string() },
+  handler: async (ctx, { nameContains }) => {
+    const needle = nameContains.toLowerCase();
+    const templates = (await ctx.db.query("reportTemplates").collect()).filter((t) =>
+      t.name.toLowerCase().includes(needle),
+    );
+    const ids: Id<"submissions">[] = [];
+    for (const t of templates) {
+      const subs = await ctx.db
+        .query("submissions")
+        .withIndex("by_templateId", (q) => q.eq("templateId", t._id))
+        .collect();
+      for (const s of subs) if (s.submittedAt) ids.push(s._id);
+    }
+    return { templates: templates.map((t) => t.name), ids };
+  },
+});
+
+/** npx convex run revalidateAll:scheduleRevalidateByTemplate '{"nameContains":"Canteen Inventory"}' --prod */
+export const scheduleRevalidateByTemplate = action({
+  args: { nameContains: v.string() },
+  handler: async (ctx: ActionCtx, { nameContains }): Promise<string> => {
+    const { templates, ids } = (await ctx.runQuery(internal.revalidateAll.getSubmissionIdsByTemplateName, {
+      nameContains,
+    })) as { templates: string[]; ids: Id<"submissions">[] };
+    for (let i = 0; i < ids.length; i++) {
+      await ctx.scheduler.runAfter(i * 2000, internal.validationRunner.runValidation, { submissionId: ids[i] });
+    }
+    return `Matched templates [${templates.join(", ")}]; scheduled ${ids.length} jobs.`;
+  },
+});
+
 // ─── QB Ledger Backfill ───────────────────────────────────────────────────────
 
 async function refreshQbTokenIfNeeded(
