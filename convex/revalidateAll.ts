@@ -497,12 +497,45 @@ export const getCanteenSalesTierData = internalQuery({
       const tmpl = sub ? await ctx.db.get(sub.templateId) : null;
       if (tmpl?.validatorKey !== "canteenSalesRecon") continue;
       results.push({
-        date: (meta.date as string | null) ?? sub?.periodLabel ?? null,
+        date: sub?.periodLabel ?? (meta.date as string | null) ?? null,
         periodLabel: sub?.periodLabel ?? null,
         metadata: meta as Record<string, any>,
       });
     }
 
     return results.sort((a, b) => (a.date ?? "").localeCompare(b.date ?? ""));
+  },
+});
+
+/** Diagnostic: returns ALL canteen recon submissions with their extraction status */
+export const diagCanteenSubmissions = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const files = await ctx.db.query("submissionFiles").collect();
+    const results: Array<{
+      periodLabel: string | null;
+      fileLabel: string;
+      hasExtracted: boolean;
+      hasSalesCountDaily: boolean;
+      salesCountDaily: any;
+      validatorKey: string | null;
+    }> = [];
+
+    for (const f of files) {
+      const sub = f.submissionId ? await ctx.db.get(f.submissionId) : null;
+      const tmpl = sub ? await ctx.db.get(sub.templateId) : null;
+      if (tmpl?.validatorKey !== "canteenSalesRecon") continue;
+      const meta = f.extracted?.metadata;
+      results.push({
+        periodLabel: sub?.periodLabel ?? null,
+        fileLabel: f.label,
+        hasExtracted: !!f.extracted,
+        hasSalesCountDaily: meta ? typeof meta.salesCountDaily !== "undefined" : false,
+        salesCountDaily: meta?.salesCountDaily ?? null,
+        validatorKey: tmpl?.validatorKey ?? null,
+      });
+    }
+
+    return results.sort((a, b) => (a.periodLabel ?? "").localeCompare(b.periodLabel ?? ""));
   },
 });
