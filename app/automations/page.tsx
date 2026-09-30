@@ -49,17 +49,19 @@ export default function AutomationsPage() {
                     <h3 className="text-base font-semibold tracking-tight">{a.name}</h3>
                     <p className="mt-1 truncate text-xs text-muted-foreground">{a.description}</p>
                   </div>
-                  <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-                    <AutomationControls automationId={a._id} enabled={a.enabled} isAdmin={isAdmin} />
-                    <p className="min-w-44 text-xs text-muted-foreground">
-                      {a.lastRun ? (
-                        <>
-                          Last run {fmt(a.lastRun.startedAt)} · <RunStatus status={a.lastRun.status} />
-                        </>
-                      ) : (
-                        "Never run"
-                      )}
-                    </p>
+                  <div className="flex items-center gap-3">
+                    <div className="flex flex-col items-start gap-1.5 lg:items-end">
+                      <AutomationControls automationId={a._id} enabled={a.enabled} isAdmin={isAdmin} />
+                      <p className="text-xs text-muted-foreground">
+                        {a.lastRun ? (
+                          <>
+                            Last run {fmt(a.lastRun.startedAt)} · <RunStatus status={a.lastRun.status} />
+                          </>
+                        ) : (
+                          "Never run"
+                        )}
+                      </p>
+                    </div>
                     <ChevronRight className="hidden size-4 text-muted-foreground lg:block" />
                   </div>
                 </CardContent>
