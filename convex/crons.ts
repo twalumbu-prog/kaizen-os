@@ -34,7 +34,7 @@ crons.daily(
 // Pick up new job applications from the careers inbox and log them as talent leads.
 crons.interval(
   "recruitment-talent-leads",
-  { hours: 2 },
+  { hours: 24 },
   internal.recruitmentAutomation.runAllScheduled,
 );
 

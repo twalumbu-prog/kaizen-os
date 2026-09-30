@@ -25,14 +25,17 @@ export const seed = internalMutation({
     const existing = (
       await ctx.db.query("automations").withIndex("by_orgId", (q) => q.eq("orgId", org._id)).collect()
     ).find((a) => a.kind === KIND);
-    if (existing) return { created: false, id: existing._id };
+    if (existing) {
+      await ctx.db.patch(existing._id, { schedule: "Every 24 hours" });
+      return { created: false, id: existing._id };
+    }
     const id = await ctx.db.insert("automations", {
       orgId: org._id,
       kind: KIND,
       name: "Recruitment Talent Leads",
       description:
         "Checks the careers inbox in Zoho Mail for new job applications, extracts each applicant's position, name, contact details and qualifications, and adds them to the Talent Leads Master List in Google Drive (Human Resources › 02_Recruitment & Hiring › Recruitment Leads & Contacts).",
-      schedule: "Every 2 hours",
+      schedule: "Every 24 hours",
       enabled: true,
       config: JSON.stringify(DEFAULT_CONFIG),
     });
