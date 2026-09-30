@@ -48,6 +48,8 @@ import type * as migrateMultiTenancy from "../migrateMultiTenancy.js";
 import type * as organizations from "../organizations.js";
 import type * as profiles from "../profiles.js";
 import type * as quickbooks from "../quickbooks.js";
+import type * as recruitmentAutomation from "../recruitmentAutomation.js";
+import type * as recruitmentData from "../recruitmentData.js";
 import type * as reminders from "../reminders.js";
 import type * as reportAssignments from "../reportAssignments.js";
 import type * as reportTemplates from "../reportTemplates.js";
@@ -120,6 +122,8 @@ declare const fullApi: ApiFromModules<{
   organizations: typeof organizations;
   profiles: typeof profiles;
   quickbooks: typeof quickbooks;
+  recruitmentAutomation: typeof recruitmentAutomation;
+  recruitmentData: typeof recruitmentData;
   reminders: typeof reminders;
   reportAssignments: typeof reportAssignments;
   reportTemplates: typeof reportTemplates;

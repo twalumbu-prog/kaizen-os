@@ -169,6 +169,16 @@ export default function AutomationsPage() {
                       {a.schedule}
                       {a.outputTemplateName ? ` · Submits to “${a.outputTemplateName}”` : ""}
                     </p>
+                    {a.sheetUrl && (
+                      <a
+                        href={a.sheetUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-1 inline-block text-sm text-primary hover:underline"
+                      >
+                        Open Talent Leads Master List ↗
+                      </a>
+                    )}
                   </div>
                   <div className="flex flex-col items-end gap-2">
                     <div className="flex items-center gap-2 text-sm">

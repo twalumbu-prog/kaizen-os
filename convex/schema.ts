@@ -329,7 +329,16 @@ export default defineSchema({
     enabled: v.boolean(),
     /** Report template the generated workbooks are submitted to. */
     outputTemplateId: v.optional(v.id("reportTemplates")),
+    /** Job-specific settings as a JSON string (e.g. mailbox addresses to watch, output sheet link). */
+    config: v.optional(v.string()),
   }).index("by_orgId", ["orgId"]),
+
+  /** Items (e.g. email message ids) an automation has already handled, so reruns never repeat work. */
+  automationProcessed: defineTable({
+    automationId: v.id("automations"),
+    itemId: v.string(),
+    note: v.optional(v.string()),
+  }).index("by_automationId_itemId", ["automationId", "itemId"]),
 
   automationRuns: defineTable({
     automationId: v.id("automations"),

@@ -20,7 +20,12 @@ export const list = query({
           .order("desc")
           .take(1);
         const template = a.outputTemplateId ? await ctx.db.get(a.outputTemplateId) : null;
-        return { ...a, lastRun: runs[0] ?? null, outputTemplateName: template?.name ?? null };
+        let sheetUrl: string | null = null;
+        try {
+          sheetUrl = JSON.parse(a.config ?? "{}").sheetUrl ?? null;
+        } catch {}
+        const { config: _config, ...rest } = a;
+        return { ...rest, lastRun: runs[0] ?? null, outputTemplateName: template?.name ?? null, sheetUrl };
       }),
     );
   },
@@ -94,9 +99,10 @@ export const runNow = mutation({
     const profile = await requireRole(ctx, ["admin"]);
     const a = await ctx.db.get(automationId);
     if (!a || a.orgId !== profile.orgId) throw new Error("Automation not found");
-    await ctx.scheduler.runAfter(0, internal.canteenAutomation.runAutomation, {
-      automationId,
-      trigger: "manual",
-    });
+    const runner =
+      a.kind === "recruitmentLeads"
+        ? internal.recruitmentAutomation.runAutomation
+        : internal.canteenAutomation.runAutomation;
+    await ctx.scheduler.runAfter(0, runner, { automationId, trigger: "manual" });
   },
 });

@@ -31,4 +31,11 @@ crons.daily(
   internal.canteenAutomation.runAllScheduled,
 );
 
+// Pick up new job applications from the careers inbox and log them as talent leads.
+crons.interval(
+  "recruitment-talent-leads",
+  { hours: 2 },
+  internal.recruitmentAutomation.runAllScheduled,
+);
+
 export default crons;
