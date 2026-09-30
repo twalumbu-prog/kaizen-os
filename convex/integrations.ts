@@ -8,9 +8,9 @@ export const listByOrg = query({
     const userId = await getAuthUserId(ctx);
     if (!userId) return null;
 
-    const profile = await ctx.db.query("profiles")
+    const profile = (await ctx.db.query("profiles")
       .withIndex("by_userId", (q) => q.eq("userId", userId))
-      .first();
+      .collect()).find((p) => p.orgId === args.orgId);
 
     if (!profile || profile.orgId !== args.orgId || profile.role !== "admin") {
       throw new Error("Unauthorized");
@@ -31,9 +31,9 @@ export const getIntegration = query({
     const userId = await getAuthUserId(ctx);
     if (!userId) return null;
 
-    const profile = await ctx.db.query("profiles")
+    const profile = (await ctx.db.query("profiles")
       .withIndex("by_userId", (q) => q.eq("userId", userId))
-      .first();
+      .collect()).find((p) => p.orgId === args.orgId);
 
     // Admins need full access to `config` for OAuth tokens / API keys.
     // Regular employees can read the integration status, but we must strip the config.
@@ -121,9 +121,9 @@ export const updateIntegrationStatus = mutation({
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Unauthorized");
 
-    const profile = await ctx.db.query("profiles")
+    const profile = (await ctx.db.query("profiles")
       .withIndex("by_userId", (q) => q.eq("userId", userId))
-      .first();
+      .collect()).find((p) => p.orgId === args.orgId);
 
     if (!profile || profile.orgId !== args.orgId || profile.role !== "admin") {
       throw new Error("Unauthorized");
