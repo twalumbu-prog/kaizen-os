@@ -281,6 +281,7 @@ export const runValidation = internalAction({
       summary: result.summary,
       checklist: result.checklist,
       bankClosingBalance: result.carryForward?.closingBalance,
+      ledgerClosingBalance: result.ledgerClosingBalance,
     });
     console.log(`[ValidationRunner] Results saved to database.`);
   },

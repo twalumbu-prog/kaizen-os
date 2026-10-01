@@ -213,6 +213,8 @@ export default defineSchema({
     finalScore: v.optional(v.number()),
     /** Validated bank closing balance, carried forward as next period's expected opening balance. */
     bankClosingBalance: v.optional(v.number()),
+    /** Ledger (QuickBooks) closing balance for the same period — compared with bankClosingBalance to get the reconciliation variance. */
+    ledgerClosingBalance: v.optional(v.number()),
     /** True when submitted automatically by the system (cron/integration), not by a human. */
     isAutoSubmitted: v.optional(v.boolean()),
   })

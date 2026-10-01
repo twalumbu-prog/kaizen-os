@@ -518,8 +518,9 @@ export const saveValidationResult = internalMutation({
       }),
     ),
     bankClosingBalance: v.optional(v.number()),
+    ledgerClosingBalance: v.optional(v.number()),
   },
-  handler: async (ctx, { submissionId, score, summary, checklist, bankClosingBalance }) => {
+  handler: async (ctx, { submissionId, score, summary, checklist, bankClosingBalance, ledgerClosingBalance }) => {
     const submission = await ctx.db.get(submissionId);
     if (!submission) throw new Error("Submission not found");
 
@@ -535,7 +536,7 @@ export const saveValidationResult = internalMutation({
     }
 
     const finalScore = finalReportScore(submission.submissionScore ?? 0, score);
-    await ctx.db.patch(submissionId, { finalScore, bankClosingBalance });
+    await ctx.db.patch(submissionId, { finalScore, bankClosingBalance, ledgerClosingBalance });
 
     const template = await ctx.db.get(submission.templateId);
     if (template) {

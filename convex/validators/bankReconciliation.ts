@@ -455,5 +455,6 @@ export async function bankReconciliationValidator(
   return {
     ...result,
     carryForward: bankStatement.closingBalance !== null ? { closingBalance: bankStatement.closingBalance } : undefined,
+    ledgerClosingBalance: ledgerStatement.closingBalance ?? undefined,
   };
 }

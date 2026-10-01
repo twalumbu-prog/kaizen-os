@@ -19,6 +19,8 @@ export interface ValidationResult {
   recommendations: string[];
   /** Values this validator wants persisted and handed to the next period's validation run of the same report. */
   carryForward?: { closingBalance?: number };
+  /** Period closing balance of the internal ledger, persisted so the bank-vs-ledger variance can be charted. */
+  ledgerClosingBalance?: number;
 }
 
 export interface ValidationRule {

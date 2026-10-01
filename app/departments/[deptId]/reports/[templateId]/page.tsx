@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { BackButton } from "@/components/layout/back-button";
 import { SubmissionChecklistView } from "@/components/reports/submission-checklist-view";
+import { BankVarianceSection } from "@/components/reports/bank-variance-section";
 import { Users, DollarSign, TrendingUp, ListChecks, Table2 } from "lucide-react";
 import { Area, CartesianGrid, ComposedChart, Legend, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import {
@@ -86,8 +87,12 @@ export default function ReportDetailPage({
 
   const outcomeBenchmark = data.template.outcomeBenchmark;
   const isCanteen = data.template.validatorKey === "canteenSalesRecon";
+  // Bank reconciliation is measured by the bank-vs-ledger variance, not an extracted outcome metric.
+  const isBankRecon = data.template.validatorKey === "bankReconciliation";
+  const varianceTolerance =
+    data.template.validationRules.find((r) => r.key === "closingBalance")?.tolerance ?? 0.01;
   // Show the outcome column for any report with a configured outcome metric, not just canteen sales.
-  const showOutcome = isCanteen || !!outcomeBenchmark?.metricKey;
+  const showOutcome = !isBankRecon && (isCanteen || !!outcomeBenchmark?.metricKey);
   const outcomeColumnLabel =
     outcomeBenchmark?.metricLabel || (isCanteen ? "Sales Volume (Student Count)" : "Outcome");
   const outcomeUnit = outcomeBenchmark?.metricLabel || "Students";
@@ -121,8 +126,20 @@ export default function ReportDetailPage({
           <p className="text-sm text-muted-foreground capitalize">{data.template.cadence} cadence</p>
         </div>
 
+        {isBankRecon && (
+          <BankVarianceSection
+            tolerance={varianceTolerance}
+            points={data.timeline.map((entry) => ({
+              periodLabel: entry.submission.periodLabel,
+              bankClosingBalance: entry.bankClosingBalance,
+              ledgerClosingBalance: entry.ledgerClosingBalance,
+              variance: entry.variance,
+            }))}
+          />
+        )}
+
         {/* Extracted Outcome Summary Cards & Progression Chart */}
-        {(outcomeBenchmark || isCanteen) && (
+        {!isBankRecon && (outcomeBenchmark || isCanteen) && (
           <div className="flex flex-col gap-6">
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <Card>
@@ -263,38 +280,6 @@ export default function ReportDetailPage({
         )}
 
         <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Timeline &amp; Extracted Outcomes</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {data.timeline.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No submissions yet.</p>
-            ) : (
-              <div className="flex gap-3 overflow-x-auto pb-2">
-                {data.timeline.map((entry) => (
-                  <div
-                    key={entry.submission._id}
-                    className="flex min-w-44 flex-col gap-1.5 rounded-lg border p-3 text-sm"
-                  >
-                    <span className="font-medium">{entry.submission.periodLabel}</span>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-muted-foreground capitalize">{entry.submission.status}</span>
-                      <StatusBadge score={entry.submission.finalScore ?? 0} />
-                    </div>
-                    {showOutcome && entry.studentCount !== null && entry.studentCount !== undefined && (
-                      <Badge variant="secondary" className="mt-1 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20 text-[11px] font-medium">
-                        <Users className="mr-1 size-3" />
-                        {entry.studentCount} {outcomeUnit}
-                      </Badge>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-3">
             <CardTitle className="text-base">Submission History &amp; Extracted Data</CardTitle>
             <Button
@@ -324,7 +309,7 @@ export default function ReportDetailPage({
                   <TableHead>Employee</TableHead>
                   <TableHead>Status</TableHead>
                   {showOutcome && <TableHead>{outcomeColumnLabel}</TableHead>}
-                  <TableHead>Outcome Rating</TableHead>
+                  {isBankRecon ? <TableHead>Variance</TableHead> : <TableHead>Outcome Rating</TableHead>}
                   <TableHead>Quality Score</TableHead>
                   <TableHead>Submission Time</TableHead>
                   <TableHead>Validation Result</TableHead>
@@ -359,7 +344,20 @@ export default function ReportDetailPage({
                         </TableCell>
                       )}
                       <TableCell>
-                        {entryRating ? (
+                        {isBankRecon ? (
+                          entry.variance !== null ? (
+                            <span
+                              className={`font-medium tabular-nums ${
+                                Math.abs(entry.variance) > varianceTolerance ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"
+                              }`}
+                            >
+                              {entry.variance > 0 ? "+" : entry.variance < 0 ? "-" : ""}
+                              {Math.abs(entry.variance).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground text-xs">—</span>
+                          )
+                        ) : entryRating ? (
                           <Badge variant="outline" className={`font-medium text-xs ${entryRating.badgeClass}`}>
                             {entryRating.label}
                           </Badge>

@@ -431,6 +431,13 @@ export const reportDetail = query({
             status: statusForScore(s.finalScore ?? 0),
             studentCount: finalVal,
             grandTotal,
+            bankClosingBalance: s.bankClosingBalance ?? null,
+            ledgerClosingBalance: s.ledgerClosingBalance ?? null,
+            // Ledger minus bank: positive means the books show more cash than the bank.
+            variance:
+              s.bankClosingBalance !== undefined && s.ledgerClosingBalance !== undefined
+                ? Math.round((s.ledgerClosingBalance - s.bankClosingBalance) * 100) / 100
+                : null,
           };
         }),
       );
