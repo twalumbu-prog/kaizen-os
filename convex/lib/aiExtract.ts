@@ -157,6 +157,7 @@ Respond ONLY with a single valid JSON object format (no markdown, no explanation
           messages: [{ role: "user", content: contentParts }],
           response_format: { type: "json_object" },
         }),
+        signal: AbortSignal.timeout(60_000),
       });
 
       if (!res.ok) {

@@ -1,6 +1,5 @@
 import { action, internalAction, internalMutation, internalQuery, query } from "./_generated/server";
 import type { ActionCtx } from "./_generated/server";
-import { extractAccountRows } from "./lib/qbExtract";
 import { extractDataWithAi } from "./lib/aiExtract";
 
 function findAccountBalanceInReport(rows: any[], accountId: string): number | null {
@@ -411,12 +410,15 @@ export const upsertInternalLedger = internalMutation({
  *   npx convex run revalidateAll:backfillQbLedgers '{"templateId":"<id>"}'
  */
 export const backfillQbLedgers = internalAction({
-  args: { templateId: v.id("reportTemplates") },
-  handler: async (ctx, { templateId }) => {
-    const { quickbooksAccountId, orgId, submissions } = await ctx.runQuery(
-      internal.revalidateAll.getQbSubmissions,
-      { templateId },
-    );
+  args: {
+    templateId: v.id("reportTemplates"),
+    offset: v.optional(v.number()),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, { templateId, offset, limit }) => {
+    const qb = await ctx.runQuery(internal.revalidateAll.getQbSubmissions, { templateId });
+    const { quickbooksAccountId, orgId } = qb;
+    const submissions = qb.submissions.slice(offset ?? 0, limit !== undefined ? (offset ?? 0) + limit : undefined);
 
     const integration = await ctx.runQuery(internal.integrations.getInternalIntegration, {
       orgId,
@@ -444,45 +446,41 @@ export const backfillQbLedgers = internalAction({
     for (const sub of submissions) {
       console.log(`  ${sub.periodLabel}: ${toDateStr(sub.periodStart)} – ${toDateStr(sub.periodEnd)}`);
 
-      let reportData: any;
+      let ledger: any;
       try {
-        reportData = await ctx.runAction(internal.quickbooks.fetchTransactionListReport, {
+        ledger = await ctx.runAction(internal.quickbooks.fetchAccountLedger, {
           orgId,
           accountId: quickbooksAccountId,
           startDate: toDateStr(sub.periodStart),
           endDate: toDateStr(sub.periodEnd),
         });
       } catch (e) {
-        console.error(`  QB TransactionList error for ${sub.periodLabel}:`, e);
+        console.error(`  QB GeneralLedger error for ${sub.periodLabel} — skipping:`, e);
         continue;
       }
 
-      const dayBefore = toDateStr(sub.periodStart - 86_400_000);
-      let openingBalance = 0;
-      try {
-        const bsData = await ctx.runAction(internal.quickbooks.fetchBalanceSheetReport, {
-          orgId,
-          reportDate: dayBefore,
-        });
-        // Composio wraps QB response — rows may be at bsData.Rows or bsData.data.Rows
-        const bsRows = bsData?.Rows?.Row ?? bsData?.data?.Rows?.Row ?? [];
-        const found = findAccountBalanceInReport(bsRows, quickbooksAccountId);
-        if (found !== null) openingBalance = found;
-      } catch (e) {
-        console.warn(`  QB BalanceSheet failed for ${sub.periodLabel} — defaulting to 0`);
+      // A period with no postings has no GL section, so fall back to the BalanceSheet as of the day before.
+      let openingBalance: number | null = ledger.openingBalance;
+      if (openingBalance === null) {
+        try {
+          const bsData = await ctx.runAction(internal.quickbooks.fetchBalanceSheetReport, {
+            orgId,
+            reportDate: toDateStr(sub.periodStart - 86_400_000),
+          });
+          openingBalance = findAccountBalanceInReport(bsData?.Rows?.Row ?? [], quickbooksAccountId);
+        } catch (e) {
+          console.error(`  QB BalanceSheet fallback failed for ${sub.periodLabel}:`, e);
+        }
       }
-
-      // Composio wraps QB response — rows may be at reportData.Rows or reportData.data.Rows
-      const rows: any[] = reportData?.Rows?.Row ?? reportData?.data?.Rows?.Row ?? [];
+      if (openingBalance === null) {
+        console.error(`  No opening balance available for ${sub.periodLabel} — skipping so a wrong ledger is never written`);
+        continue;
+      }
 
       let csvContent = "Date,Description,Debit,Credit,Balance\n";
       csvContent += `,Opening Balance,,,${openingBalance.toFixed(2)}\n`;
-
-      // Extract rows for this account, including synthesised rows for non-bank
-      // Transfers where QB omits the bank-account side (see lib/qbExtract.ts).
-      const accountRows = extractAccountRows(rows, accountName);
       let runningBalance = openingBalance;
-      for (const { date, description, amount } of accountRows) {
+      for (const { date, description, amount } of ledger.rows) {
         runningBalance += amount;
         const escaped = String(description).replace(/"/g, '""');
         csvContent +=
@@ -490,14 +488,17 @@ export const backfillQbLedgers = internalAction({
             ? `${date},"${escaped}",${amount.toFixed(2)},,${runningBalance.toFixed(2)}\n`
             : `${date},"${escaped}",,${Math.abs(amount).toFixed(2)},${runningBalance.toFixed(2)}\n`;
       }
+      if (ledger.closingBalance !== null && Math.abs(runningBalance - ledger.closingBalance) > 0.01) {
+        console.warn(`  Balance mismatch for ${sub.periodLabel}: computed ${runningBalance.toFixed(2)} vs QB ${ledger.closingBalance.toFixed(2)}`);
+      }
 
       const storageId = await ctx.storage.store(new Blob([csvContent], { type: "text/csv" }));
       await ctx.runMutation(internal.revalidateAll.upsertInternalLedger, {
         submissionId: sub._id,
         storageId,
       });
-      await ctx.runAction(internal.validationRunner.runValidation, { submissionId: sub._id });
-      console.log(`  Done ✓`);
+      await ctx.scheduler.runAfter(0, internal.validationRunner.runValidation, { submissionId: sub._id });
+      console.log(`  Done ✓ (validation scheduled)`);
     }
 
     console.log("QB ledger backfill complete.");

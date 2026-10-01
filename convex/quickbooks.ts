@@ -548,88 +548,6 @@ async function resolveRealmIdIfNeeded(
 }
 
 
-/**
- * Syncs the latest access/refresh tokens from Composio into our integration config.
- * Returns the fresh access token so callers can use it immediately.
- * Falls back silently if Composio can't provide a token.
- */
-export const syncTokenFromComposio = internalAction({
-  args: { orgId: v.id("organizations") },
-  handler: async (ctx, { orgId }) => {
-    const integration = await ctx.runQuery(internal.integrations.getInternalIntegration, {
-      orgId, provider: "quickbooks",
-    });
-    if (!integration?.config) return null;
-    const config = JSON.parse(integration.config);
-    if (!config.composioConnectionId || !process.env.COMPOSIO_API_KEY) return null;
-    try {
-      const composio = getComposioClient();
-      // Trigger a fresh token from Composio before reading the state.
-      try {
-        await (composio.connectedAccounts as any).refresh(config.composioConnectionId);
-      } catch (refreshErr) {
-        console.warn("[syncTokenFromComposio] Composio refresh call failed:", refreshErr);
-      }
-      const account = await composio.connectedAccounts.get(config.composioConnectionId);
-      const raw = account as any;
-      const state = raw.state ?? {};
-      const stateVal = state.authScheme === "OAUTH2" ? (state.val ?? {}) : state.val ?? {};
-      const dataObj = raw.data ?? stateVal ?? {};
-
-      const freshAccessToken: string | undefined =
-        stateVal?.access_token ?? dataObj?.access_token;
-      const freshRefreshToken: string | undefined =
-        stateVal?.refresh_token ?? dataObj?.refresh_token;
-      const freshExpiresIn: number | undefined =
-        stateVal?.expires_in ?? dataObj?.expires_in;
-
-      if (!freshAccessToken) return null;
-
-      const newConfig = {
-        ...config,
-        accessToken: freshAccessToken,
-        ...(freshRefreshToken ? { refreshToken: freshRefreshToken } : {}),
-        ...(freshExpiresIn ? { expiresAt: Date.now() + Number(freshExpiresIn) * 1000 } : {}),
-      };
-      await ctx.runMutation(internal.integrations.updateIntegrationStatusInternal, {
-        orgId,
-        provider: "quickbooks",
-        status: "active",
-        config: JSON.stringify(newConfig),
-      });
-      return freshAccessToken;
-    } catch (e) {
-      console.warn("[syncTokenFromComposio] Failed:", e);
-      return null;
-    }
-  },
-});
-
-/** Dumps the raw Composio state for debugging (helps find realmId). */
-export const dumpComposioState = internalAction({
-  args: { orgId: v.id("organizations") },
-  handler: async (ctx, { orgId }) => {
-    const integration = await ctx.runQuery(internal.integrations.getInternalIntegration, {
-      orgId, provider: "quickbooks",
-    });
-    if (!integration?.config) throw new Error("QB integration not found");
-    const config = JSON.parse(integration.config);
-    if (!config.composioConnectionId) return { error: "no composioConnectionId" };
-    const composio = getComposioClient();
-    const account = await composio.connectedAccounts.get(config.composioConnectionId);
-    const raw = account as any;
-    const state = raw.state ?? {};
-    const stateVal = state.authScheme === "OAUTH2" ? (state.val ?? {}) : {};
-    return {
-      status: raw.status,
-      stateStatus: stateVal.status,
-      fullContent: stateVal.full ?? null,
-      extraTokenData: stateVal.extra_token_data ?? null,
-      data: raw.data ?? null,
-    };
-  },
-});
-
 /** Returns all active QB accounts via Composio CDC (no direct token needed). */
 export const fetchChangedEntities = internalAction({
   args: { orgId: v.id("organizations") },
@@ -652,8 +570,12 @@ export const fetchChangedEntities = internalAction({
   },
 });
 
-/** Fetches a QB TransactionList report for an account + date range via Composio. */
-export const fetchTransactionListReport = internalAction({
+/**
+ * Fetches one account's General Ledger for a date range via Composio: its beginning balance, every
+ * posting with the account's own sign, and the running balance. Unlike TransactionList, the GL lists
+ * both sides of transfers, so the result always reconciles to the BalanceSheet.
+ */
+export const fetchAccountLedger = internalAction({
   args: {
     orgId: v.id("organizations"),
     accountId: v.string(),
@@ -662,20 +584,64 @@ export const fetchTransactionListReport = internalAction({
   },
   handler: async (ctx, { orgId, accountId, startDate, endDate }) => {
     const composio = getComposioClient();
-    const result = await (composio as any).tools.execute(
-      "QUICKBOOKS_GET_TRANSACTION_LIST_REPORT",
-      {
-        userId: orgId,
-        arguments: { account_ids: [accountId], start_date: startDate, end_date: endDate },
-        dangerouslySkipVersionCheck: true,
+    const result = await (composio as any).tools.execute("QUICKBOOKS_GET_GENERAL_LEDGER_REPORT", {
+      userId: orgId,
+      arguments: {
+        account_ids: [accountId],
+        start_date: startDate,
+        end_date: endDate,
+        columns: "tx_date,txn_type,doc_num,name,memo,split_acc,subt_nat_amount,rbal_nat_amount",
+        accounting_method: "Accrual",
       },
-    );
-    if (!result?.successful) throw new Error(`QB TransactionList failed: ${JSON.stringify(result?.error ?? result)}`);
-    return result.data ?? result;
+      dangerouslySkipVersionCheck: true,
+    });
+    if (!result?.successful) throw new Error(`QB GeneralLedger failed: ${JSON.stringify(result?.error ?? result)}`);
+    const data = result.data?.Rows || result.data?.Header ? result.data : result.data?.data ?? result.data;
+    if (data?.Header?.StartPeriod !== startDate || data?.Header?.EndPeriod !== endDate) {
+      throw new Error(`QB GeneralLedger returned ${data?.Header?.StartPeriod}..${data?.Header?.EndPeriod}, expected ${startDate}..${endDate}`);
+    }
+
+    // Collect this account's section: prefer the one whose header id matches, else any with data rows.
+    const sections: { id?: string; rows: any[] }[] = [];
+    const walk = (rows: any[]) => {
+      for (const r of rows ?? []) {
+        if (r.Rows?.Row) {
+          const dataRows = r.Rows.Row.filter((x: any) => x.type === "Data");
+          if (dataRows.length > 0) sections.push({ id: r.Header?.ColData?.[0]?.id, rows: dataRows });
+          walk(r.Rows.Row.filter((x: any) => x.type !== "Data"));
+        }
+      }
+    };
+    walk(data?.Rows?.Row ?? []);
+    const section = sections.find((sct) => sct.id === accountId) ?? sections[0];
+    if (!section) return { found: false as const, openingBalance: null, closingBalance: null, rows: [] as any[] };
+
+    const num = (x: any) => parseFloat(String(x ?? "").replace(/,/g, ""));
+    let openingBalance: number | null = null;
+    const rows: { date: string; description: string; amount: number; balance: number }[] = [];
+    for (const row of section.rows) {
+      const c = row.ColData ?? [];
+      if (String(c[0]?.value).toLowerCase().includes("beginning balance")) {
+        const b = num(c[c.length - 1]?.value);
+        if (Number.isFinite(b)) openingBalance = b;
+        continue;
+      }
+      const amount = num(c[6]?.value);
+      const balance = num(c[7]?.value);
+      if (!c[0]?.value || !Number.isFinite(amount)) continue;
+      const description = [c[3]?.value, c[4]?.value].filter(Boolean).join(" — ") || c[1]?.value || "Transaction";
+      rows.push({ date: c[0].value, description, amount, balance });
+    }
+    const closingBalance = rows.length > 0 ? rows[rows.length - 1].balance : openingBalance;
+    return { found: true as const, openingBalance, closingBalance, rows };
   },
 });
 
-/** Fetches a QB BalanceSheet report for a given date via Composio. */
+/**
+ * Fetches a QB BalanceSheet as of `reportDate` via Composio. QUICKBOOKS_GET_BALANCE_SHEET_REPORT
+ * treats report_date as a start date and ends at today, so the generic reports tool is used with an
+ * explicit start/end window. The returned header is checked so a wrong as-of date can never pass silently.
+ */
 export const fetchBalanceSheetReport = internalAction({
   args: {
     orgId: v.id("organizations"),
@@ -683,64 +649,23 @@ export const fetchBalanceSheetReport = internalAction({
   },
   handler: async (ctx, { orgId, reportDate }) => {
     const composio = getComposioClient();
-    const result = await (composio as any).tools.execute(
-      "QUICKBOOKS_GET_BALANCE_SHEET_REPORT",
-      {
-        userId: orgId,
-        arguments: { report_date: reportDate },
-        dangerouslySkipVersionCheck: true,
+    const result = await (composio as any).tools.execute("QUICKBOOKS_GET_REPORTS", {
+      userId: orgId,
+      arguments: {
+        report_name: "BalanceSheet",
+        start_date: "2000-01-01",
+        end_date: reportDate,
+        accounting_method: "Accrual",
       },
-    );
+      dangerouslySkipVersionCheck: true,
+    });
     if (!result?.successful) throw new Error(`QB BalanceSheet failed: ${JSON.stringify(result?.error ?? result)}`);
-    return result.data ?? result;
-  },
-});
-
-/** Runs a QB API call against prod then sandbox, returning the parsed JSON. */
-export const fetchQbJson = internalAction({
-  args: { orgId: v.id("organizations"), pathAndQuery: v.string() },
-  handler: async (ctx, { orgId, pathAndQuery }) => {
-    const integration = await ctx.runQuery(internal.integrations.getInternalIntegration, {
-      orgId, provider: "quickbooks",
-    });
-    if (!integration?.config) throw new Error("QB integration not found");
-    const config = JSON.parse(integration.config);
-    if (!config.realmId) {
-      config.realmId = await resolveRealmIdIfNeeded(ctx, orgId, config);
+    const data = result.data?.Rows || result.data?.Header ? result.data : result.data?.data ?? result.data;
+    const endPeriod: string | undefined = data?.Header?.EndPeriod;
+    if (endPeriod && endPeriod !== reportDate) {
+      throw new Error(`QB BalanceSheet returned EndPeriod ${endPeriod}, expected ${reportDate}`);
     }
-    const accessToken = await ensureFreshAccessToken(ctx, orgId, config);
-    const res = await fetchIntuitApi(config.realmId, pathAndQuery, accessToken);
-    const text = await res.text();
-    if (!res.ok) throw new Error(`QB API error: ${text}`);
-    return JSON.parse(text);
-  },
-});
-
-/** Gets a fresh QB access token for an org (used by backfillQbLedgers). */
-export const getFreshToken = internalAction({
-  args: { orgId: v.id("organizations") },
-  handler: async (ctx, { orgId }) => {
-    const integration = await ctx.runQuery(internal.integrations.getInternalIntegration, {
-      orgId, provider: "quickbooks",
-    });
-    if (!integration?.config) throw new Error("QB integration not found");
-    const config = JSON.parse(integration.config);
-    return await ensureFreshAccessToken(ctx, orgId, config);
-  },
-});
-
-/** Resolves and persists the realmId for an org's QB integration (used by backfillQbLedgers). */
-export const resolveRealmId = internalAction({
-  args: { orgId: v.id("organizations") },
-  handler: async (ctx, { orgId }) => {
-    const integration = await ctx.runQuery(internal.integrations.getInternalIntegration, {
-      orgId,
-      provider: "quickbooks",
-    });
-    if (!integration || !integration.config) throw new Error("QB integration not found");
-    const config = JSON.parse(integration.config);
-    if (config.realmId) return config.realmId as string;
-    return await resolveRealmIdIfNeeded(ctx, orgId, config);
+    return data;
   },
 });
 
