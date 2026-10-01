@@ -246,11 +246,22 @@ export const departmentDashboard = query({
               score: o.studentCount!,
             }));
 
+          // Ledger-minus-bank closing balance per period, for bank reconciliation reports.
+          const varianceTrend = [...submissions]
+            .reverse()
+            .filter((s) => s.bankClosingBalance !== undefined && s.ledgerClosingBalance !== undefined)
+            .map((s) => ({
+              periodLabel: s.periodLabel,
+              variance: Math.round((s.ledgerClosingBalance! - s.bankClosingBalance!) * 100) / 100,
+            }));
+
           const healthScore = latest?.finalScore ?? 0;
 
           return {
             template,
             hasData: submissions.length > 0,
+            varianceTrend,
+            latestVariance: varianceTrend.length > 0 ? varianceTrend[varianceTrend.length - 1].variance : null,
             healthScore,
             status: statusForScore(healthScore),
             submissionRate: submissionRatePct,

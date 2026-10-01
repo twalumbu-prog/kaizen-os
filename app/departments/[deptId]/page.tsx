@@ -7,6 +7,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { AppShell } from "@/components/layout/app-shell";
 import { TrendSparkline } from "@/components/dashboard/trend-sparkline";
+import { VarianceSparkline } from "@/components/dashboard/variance-sparkline";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
@@ -166,6 +167,8 @@ export default function DepartmentPage({
                 const rating = val !== null && benchmark ? getBenchmarkRating(val, benchmark) : null;
                 const target = benchmark?.targetBenchmark;
                 const outcomeTrend = (r as any).outcomeTrend ?? r.trend;
+                const isBankRecon = r.template.validatorKey === "bankReconciliation";
+                const latestVariance = r.latestVariance;
 
                 return (
                   <Card key={r.template._id} className="transition-all hover:shadow-sm border">
@@ -206,14 +209,30 @@ export default function DepartmentPage({
                       <div className="flex flex-wrap items-center gap-4 sm:gap-6 shrink-0">
                         {/* Extracted Outcome Value */}
                         <div className="text-right">
-                          {val !== null ? (
+                          {isBankRecon ? (
+                            latestVariance !== null ? (
+                              <>
+                                <div
+                                  className={`text-lg font-bold tracking-tight ${
+                                    Math.abs(latestVariance) > 0.01 ? "text-red-600 dark:text-red-400" : "text-foreground"
+                                  }`}
+                                >
+                                  {latestVariance > 0 ? "+" : latestVariance < 0 ? "-" : ""}
+                                  {Math.abs(latestVariance).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </div>
+                                <div className="text-[11px] text-muted-foreground">Latest bank vs QuickBooks variance</div>
+                              </>
+                            ) : (
+                              <div className="text-xs text-muted-foreground">No variance data yet</div>
+                            )
+                          ) : val !== null ? (
                             <div className="text-lg font-bold tracking-tight text-foreground">
                               {val} <span className="text-xs font-normal text-muted-foreground">Students / Day</span>
                             </div>
                           ) : (
                             <div className="text-xs text-muted-foreground">No Extracted Data</div>
                           )}
-                          <div className="text-[11px] text-muted-foreground">Actual Sales Volume</div>
+                          {!isBankRecon && <div className="text-[11px] text-muted-foreground">Actual Sales Volume</div>}
                         </div>
 
                         {/* Outcome Performance Status Badge */}
@@ -239,7 +258,11 @@ export default function DepartmentPage({
                             Outcome Glimpse
                           </div>
                           <div className="h-9 w-28">
-                            <TrendSparkline data={outcomeTrend} height={36} />
+                            {isBankRecon ? (
+                              <VarianceSparkline data={r.varianceTrend} height={36} />
+                            ) : (
+                              <TrendSparkline data={outcomeTrend} height={36} />
+                            )}
                           </div>
                         </div>
 
