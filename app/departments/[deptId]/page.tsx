@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { BackButton } from "@/components/layout/back-button";
 import { ChevronRight, Users, TrendingUp } from "lucide-react";
 
 function getBenchmarkRating(
@@ -49,6 +50,7 @@ export default function DepartmentPage({
   if (data === undefined) {
     return (
       <AppShell>
+        <BackButton fallbackHref="/" />
         <Skeleton className="h-48 w-full rounded-xl" />
       </AppShell>
     );
@@ -57,6 +59,7 @@ export default function DepartmentPage({
   if (data === null) {
     return (
       <AppShell>
+        <BackButton fallbackHref="/" />
         <p className="text-sm text-muted-foreground">Department not found.</p>
       </AppShell>
     );
@@ -102,6 +105,7 @@ export default function DepartmentPage({
   return (
     <AppShell>
       <div className="flex flex-col gap-6">
+        <BackButton fallbackHref="/" />
         {/* Header Summary */}
         <Card className="border">
           <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between pb-3">

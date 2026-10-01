@@ -10,6 +10,7 @@ import { AppShell } from "@/components/layout/app-shell";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
+import { BackButton } from "@/components/layout/back-button";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { CheckCircle2, RefreshCw } from "lucide-react";
@@ -179,6 +180,7 @@ export default function UploadReportPage({
   return (
     <AppShell>
       <div className="mx-auto flex max-w-xl flex-col gap-6">
+        <BackButton fallbackHref="/employee" />
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">{template.name}</h1>
           <p className="text-sm text-muted-foreground capitalize">{template.cadence} cadence</p>

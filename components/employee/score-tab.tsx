@@ -20,9 +20,9 @@ const CHECKLIST_ICON = {
 };
 
 type ReportScore = NonNullable<ReturnType<typeof useQuery<typeof api.submissions.myReportScores>>>[number];
-type PeriodScore = ReportScore["periods"][number];
+export type PeriodScore = ReportScore["periods"][number];
 
-function PeriodRow({ period, periodKey }: { period: PeriodScore; periodKey: string }) {
+export function PeriodRow({ period, periodKey }: { period: PeriodScore; periodKey: string }) {
   const [open, setOpen] = useState(false);
   const router = useRouter();
   const me = useQuery(api.profiles.getMe);

@@ -287,6 +287,71 @@ export const departmentDashboard = query({
   },
 });
 
+/** Per-period validation checklists for a report, shaped like the Score tab's periods. */
+export const reportChecklists = query({
+  args: { templateId: v.id("reportTemplates") },
+  handler: async (ctx, { templateId }) => {
+    const userId = await getAuthUserId(ctx);
+    if (userId === null) return null;
+    try {
+      const profile = await requireProfile(ctx);
+      const template = await ctx.db.get(templateId);
+      if (!template) return null;
+      const dept = await ctx.db.get(template.departmentId);
+      if (!dept || dept.orgId !== profile.orgId) return null;
+
+      const submissions = (
+        await ctx.db
+          .query("submissions")
+          .withIndex("by_templateId", (q) => q.eq("templateId", templateId))
+          .order("desc")
+          .take(52)
+      ).filter(
+        (s) =>
+          !(
+            (s.status === "missing" || s.status === "pending") &&
+            isExcludedDay(new Date(s.periodStart), template)
+          ),
+      );
+
+      const periods = await Promise.all(
+        submissions.map(async (s) => {
+          const result = await ctx.db
+            .query("validationResults")
+            .withIndex("by_submissionId", (q) => q.eq("submissionId", s._id))
+            .order("desc")
+            .first();
+          const checklist = result
+            ? await ctx.db
+                .query("validationChecklistItems")
+                .withIndex("by_validationResultId", (q) => q.eq("validationResultId", result._id))
+                .collect()
+            : [];
+          return {
+            periodLabel: s.periodLabel,
+            periodStart: s.periodStart,
+            periodEnd: s.periodEnd,
+            dueAt: s.dueAt,
+            status: s.status,
+            submissionId: s._id,
+            earned: checklist.reduce((sum, c) => sum + c.points, 0),
+            possible: checklist.reduce((sum, c) => sum + c.maxPoints, 0),
+            checklist,
+          };
+        }),
+      );
+      periods.sort((a, b) => b.dueAt - a.dueAt);
+      return {
+        earned: periods.reduce((sum, p) => sum + p.earned, 0),
+        possible: periods.reduce((sum, p) => sum + p.possible, 0),
+        periods,
+      };
+    } catch {
+      return null;
+    }
+  },
+});
+
 export const reportDetail = query({
   args: { templateId: v.id("reportTemplates") },
   handler: async (ctx, { templateId }) => {

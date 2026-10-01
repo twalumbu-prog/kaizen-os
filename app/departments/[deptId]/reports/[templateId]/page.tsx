@@ -2,7 +2,7 @@
 
 import { useQuery } from "convex/react";
 import Link from "next/link";
-import { use } from "react";
+import { use, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { AppShell } from "@/components/layout/app-shell";
@@ -10,7 +10,10 @@ import { StatusBadge } from "@/components/dashboard/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { Users, DollarSign, TrendingUp } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { BackButton } from "@/components/layout/back-button";
+import { SubmissionChecklistView } from "@/components/reports/submission-checklist-view";
+import { Users, DollarSign, TrendingUp, ListChecks, Table2 } from "lucide-react";
 import { Area, CartesianGrid, ComposedChart, Legend, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import {
   Table,
@@ -61,10 +64,12 @@ export default function ReportDetailPage({
 }) {
   const { templateId } = use(params);
   const data = useQuery(api.dashboard.reportDetail, { templateId });
+  const [historyView, setHistoryView] = useState<"table" | "checklist">("table");
 
   if (data === undefined) {
     return (
       <AppShell>
+        <BackButton fallbackHref="/" />
         <Skeleton className="h-48 w-full rounded-xl" />
       </AppShell>
     );
@@ -73,6 +78,7 @@ export default function ReportDetailPage({
   if (!data || !data.template) {
     return (
       <AppShell>
+        <BackButton fallbackHref="/" />
         <p className="text-sm text-muted-foreground">Report not found.</p>
       </AppShell>
     );
@@ -109,6 +115,7 @@ export default function ReportDetailPage({
   return (
     <AppShell>
       <div className="flex flex-col gap-6">
+        <BackButton fallbackHref="/" />
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">{data.template.name}</h1>
           <p className="text-sm text-muted-foreground capitalize">{data.template.cadence} cadence</p>
@@ -288,10 +295,28 @@ export default function ReportDetailPage({
         </Card>
 
         <Card>
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between gap-3">
             <CardTitle className="text-base">Submission History &amp; Extracted Data</CardTitle>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setHistoryView((v) => (v === "table" ? "checklist" : "table"))}
+            >
+              {historyView === "table" ? (
+                <>
+                  <ListChecks className="mr-1.5 size-4" /> Checklist view
+                </>
+              ) : (
+                <>
+                  <Table2 className="mr-1.5 size-4" /> Table view
+                </>
+              )}
+            </Button>
           </CardHeader>
           <CardContent>
+            {historyView === "checklist" ? (
+              <SubmissionChecklistView templateId={templateId} />
+            ) : (
             <Table>
               <TableHeader>
                 <TableRow>
@@ -360,6 +385,7 @@ export default function ReportDetailPage({
                 })}
               </TableBody>
             </Table>
+            )}
           </CardContent>
         </Card>
       </div>

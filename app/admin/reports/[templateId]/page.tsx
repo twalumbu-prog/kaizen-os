@@ -10,6 +10,7 @@ import { AppShell } from "@/components/layout/app-shell";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
+import { BackButton } from "@/components/layout/back-button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -811,6 +812,7 @@ export default function ReportConfigPage({
   return (
     <AppShell>
       <div className="mx-auto flex max-w-2xl flex-col gap-6">
+        <BackButton fallbackHref="/" />
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">{template.name}</h1>
           <p className="text-sm text-muted-foreground">Report configuration</p>
