@@ -1,8 +1,9 @@
 "use client";
 
 import { useQuery } from "convex/react";
+import type { FunctionReturnType } from "convex/server";
 import { useRouter } from "next/navigation";
-import { Fragment, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
@@ -14,6 +15,27 @@ import { cn } from "@/lib/utils";
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DAY_WIDTH_PX = 34;
 const REPORT_COLUMN_PX = 260;
+
+// The axis starts this many days either side of today and grows by
+// GROW_CHUNK_DAYS whenever the table is scrolled within EDGE_THRESHOLD_PX of
+// an edge, so it can be scrolled indefinitely into the past or the future.
+const INITIAL_DAYS_EACH_SIDE = 60;
+const GROW_CHUNK_DAYS = 60;
+const EDGE_THRESHOLD_PX = 800;
+// The table opens with this many days of history visible before today.
+const HOME_DAYS_BEFORE_TODAY = 14;
+// Due dates are fetched for a window around whatever is on screen, kept well
+// under the backend's MAX_CALENDAR_RANGE_DAYS (370). The centre snaps to
+// multiples of DATA_STEP_DAYS so the query only changes every so often.
+const DATA_STEP_DAYS = 30;
+const DATA_DAYS_EACH_SIDE = 60;
+// How far the Earlier / Later buttons scroll.
+const PAGE_DAYS = 28;
+
+type Timeline = FunctionReturnType<typeof api.submissions.reportTimeline>;
+type DueDate = Timeline["departments"][number]["reports"][number]["due"][number];
+/** Due dates seen so far, by report then by day. */
+type DueCache = ReadonlyMap<string, ReadonlyMap<number, DueDate>>;
 
 // The three header rows stack with `position: sticky`, so each one's offset is
 // the sum of the rows above it. Their heights are set explicitly rather than
@@ -44,6 +66,31 @@ function startOfUTCDay(ms: number): number {
 
 function isoDay(ms: number): string {
   return new Date(ms).toISOString().slice(0, 10);
+}
+
+function snapToDataStep(ms: number): number {
+  const step = DATA_STEP_DAYS * DAY_MS;
+  return Math.round(ms / step) * step;
+}
+
+/**
+ * Fold a freshly loaded window into the cache. Days inside the window are
+ * replaced wholesale (so a due date that disappeared stays gone); days outside
+ * it keep whatever was seen when they were last in view.
+ */
+function mergeDueDates(prev: DueCache, timeline: Timeline, from: number, to: number): DueCache {
+  const next = new Map(prev);
+  for (const department of timeline.departments) {
+    for (const report of department.reports) {
+      const days = new Map(next.get(report.templateId));
+      for (const day of days.keys()) {
+        if (day >= from && day <= to) days.delete(day);
+      }
+      for (const due of report.due) days.set(due.day, due);
+      next.set(report.templateId, days);
+    }
+  }
+  return next;
 }
 
 /** The days in the window, with the month/year runs needed for the header rows. */
@@ -82,15 +129,26 @@ export function ReportTimeline({ viewSwitcher }: { viewSwitcher?: ReactNode }) {
   // Read the clock once, on mount: re-reading it during every render makes the
   // "today" column jump around when the component happens to re-render.
   const [today] = useState(() => startOfUTCDay(Date.now()));
-  // Start the window a fortnight back so recent misses stay visible.
-  const [windowStart, setWindowStart] = useState(() => today - 14 * DAY_MS);
-  const windowDays = 70;
-  const windowEnd = windowStart + (windowDays - 1) * DAY_MS;
+  // The axis the table renders. Independent of which days have data loaded, so
+  // growing it is instant and scrolling never stalls waiting on the backend.
+  const [renderFrom, setRenderFrom] = useState(() => today - INITIAL_DAYS_EACH_SIDE * DAY_MS);
+  const [renderTo, setRenderTo] = useState(() => today + INITIAL_DAYS_EACH_SIDE * DAY_MS);
+  // The day in the middle of the table, which the data window follows.
+  const [dataCenter, setDataCenter] = useState(() => snapToDataStep(today));
+  const dataFrom = dataCenter - DATA_DAYS_EACH_SIDE * DAY_MS;
+  const dataTo = dataCenter + DATA_DAYS_EACH_SIDE * DAY_MS;
 
-  const timeline = useQuery(api.submissions.reportTimeline, {
-    from: windowStart,
-    to: windowEnd,
-  });
+  const timeline = useQuery(api.submissions.reportTimeline, { from: dataFrom, to: dataTo });
+
+  // Keep the last-loaded report list on screen while the window moves, and
+  // remember every due date seen so scrolling back over them shows no gaps.
+  const [lastTimeline, setLastTimeline] = useState(timeline);
+  const [dueCache, setDueCache] = useState<DueCache>(new Map());
+  if (timeline !== undefined && timeline !== lastTimeline) {
+    setLastTimeline(timeline);
+    setDueCache((prev) => mergeDueDates(prev, timeline, dataFrom, dataTo));
+  }
+  const shown = timeline ?? lastTimeline;
 
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
 
@@ -103,9 +161,64 @@ export function ReportTimeline({ viewSwitcher }: { viewSwitcher?: ReactNode }) {
     });
   }
 
-  const axis = useMemo(() => buildAxis(windowStart, windowEnd), [windowStart, windowEnd]);
+  const axis = useMemo(() => buildAxis(renderFrom, renderTo), [renderFrom, renderTo]);
 
   const totalWidth = REPORT_COLUMN_PX + axis.days.length * DAY_WIDTH_PX;
+
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const prevRenderFromRef = useRef(renderFrom);
+  const hasHomedRef = useRef(false);
+  const hasTable = shown !== undefined && shown.departments.length > 0;
+
+  /** Scroll position that puts the "home" day just after the sticky column. */
+  function homeScrollLeft(): number {
+    return ((today - HOME_DAYS_BEFORE_TODAY * DAY_MS - renderFrom) / DAY_MS) * DAY_WIDTH_PX;
+  }
+
+  /** Move the data window to follow the scroll, and extend the axis near an edge. */
+  function syncToScroll(container: HTMLDivElement) {
+    const centreIndex = Math.floor(
+      (container.scrollLeft + (container.clientWidth - REPORT_COLUMN_PX) / 2) / DAY_WIDTH_PX,
+    );
+    setDataCenter(snapToDataStep(renderFrom + centreIndex * DAY_MS));
+
+    if (container.scrollLeft < EDGE_THRESHOLD_PX) {
+      setRenderFrom((prev) => prev - GROW_CHUNK_DAYS * DAY_MS);
+    }
+    const distanceFromEnd = container.scrollWidth - container.clientWidth - container.scrollLeft;
+    if (distanceFromEnd < EDGE_THRESHOLD_PX) {
+      setRenderTo((prev) => prev + GROW_CHUNK_DAYS * DAY_MS);
+    }
+  }
+
+  // Runs after the DOM has been updated, before paint. Opens at "home" the first
+  // time the table appears. After that, when days are prepended the browser
+  // keeps scrollLeft fixed relative to the content start, which would yank the
+  // view to the right — so move it by exactly the width that was added (every
+  // column is the same fixed width) and what the user was looking at stays put.
+  useLayoutEffect(() => {
+    const container = scrollRef.current;
+    if (!container) {
+      hasHomedRef.current = false;
+      prevRenderFromRef.current = renderFrom;
+      return;
+    }
+    if (!hasHomedRef.current) {
+      container.scrollLeft = homeScrollLeft();
+      hasHomedRef.current = true;
+    } else if (renderFrom < prevRenderFromRef.current) {
+      container.scrollLeft +=
+        ((prevRenderFromRef.current - renderFrom) / DAY_MS) * DAY_WIDTH_PX;
+    }
+    prevRenderFromRef.current = renderFrom;
+    // Also covers a table too narrow to scroll at all (no scroll event fires).
+    syncToScroll(container);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [renderFrom, renderTo, hasTable]);
+
+  function scrollByDays(days: number) {
+    scrollRef.current?.scrollBy({ left: days * DAY_WIDTH_PX, behavior: "smooth" });
+  }
 
   return (
     <Card>
@@ -116,18 +229,24 @@ export function ReportTimeline({ viewSwitcher }: { viewSwitcher?: ReactNode }) {
             variant="outline"
             size="sm"
             aria-label="Earlier"
-            onClick={() => setWindowStart((s) => s - 28 * DAY_MS)}
+            onClick={() => scrollByDays(-PAGE_DAYS)}
           >
             <ChevronLeft className="size-4" />
           </Button>
-          <Button variant="outline" size="sm" onClick={() => setWindowStart(today - 14 * DAY_MS)}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              scrollRef.current?.scrollTo({ left: homeScrollLeft(), behavior: "smooth" })
+            }
+          >
             Today
           </Button>
           <Button
             variant="outline"
             size="sm"
             aria-label="Later"
-            onClick={() => setWindowStart((s) => s + 28 * DAY_MS)}
+            onClick={() => scrollByDays(PAGE_DAYS)}
           >
             <ChevronRight className="size-4" />
           </Button>
@@ -135,15 +254,21 @@ export function ReportTimeline({ viewSwitcher }: { viewSwitcher?: ReactNode }) {
         </div>
       </CardHeader>
       <CardContent>
-        {timeline === undefined ? (
+        {shown === undefined ? (
           <Skeleton className="h-80 w-full rounded-lg" />
-        ) : timeline.departments.length === 0 ? (
+        ) : shown.departments.length === 0 ? (
           <p className="py-6 text-sm text-muted-foreground">
             No reports to show yet. Create reports under Settings, then assign them to people.
           </p>
         ) : (
           <>
-            <div className="max-h-[70vh] overflow-auto rounded-lg border">
+            {/* overflow-anchor is off because the browser's own scroll anchoring
+                would fight the manual compensation above when days are prepended. */}
+            <div
+              ref={scrollRef}
+              onScroll={(e) => syncToScroll(e.currentTarget)}
+              className="max-h-[70vh] overflow-auto rounded-lg border [overflow-anchor:none]"
+            >
               <table
                 className="border-separate border-spacing-0 text-sm"
                 style={{ width: totalWidth }}
@@ -213,7 +338,7 @@ export function ReportTimeline({ viewSwitcher }: { viewSwitcher?: ReactNode }) {
                 </thead>
 
                 <tbody>
-                  {timeline.departments.map((department) => {
+                  {shown.departments.map((department) => {
                     const isCollapsed = collapsed.has(department.departmentId);
 
                     return (
@@ -251,7 +376,7 @@ export function ReportTimeline({ viewSwitcher }: { viewSwitcher?: ReactNode }) {
 
                       {!isCollapsed &&
                        department.reports.map((report) => {
-                        const byDay = new Map(report.due.map((d) => [d.day, d]));
+                        const byDay = dueCache.get(report.templateId);
                         return (
                           <tr key={report.templateId} className="group">
                             <th
@@ -278,7 +403,7 @@ export function ReportTimeline({ viewSwitcher }: { viewSwitcher?: ReactNode }) {
                             </th>
 
                             {axis.days.map((day) => {
-                              const due = byDay.get(day.ms);
+                              const due = byDay?.get(day.ms);
                               const style = due ? STATE_STYLES[due.state] : null;
                               return (
                                 <td

@@ -1,8 +1,9 @@
 "use client";
 
 import { useQuery } from "convex/react";
+import type { FunctionReturnType } from "convex/server";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { CalendarDays, CheckCircle2, Circle } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
@@ -19,12 +20,23 @@ function todayMidnightUTC(): number {
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const INITIAL_DAYS_BEFORE = 10;
-const INITIAL_DAYS_AFTER = 10;
-const GROW_CHUNK_DAYS = 14;
-// Keep comfortably under the backend's MAX_CALENDAR_RANGE_DAYS (370) so
-// scrolling never hits the query's own error.
-const MAX_WINDOW_DAYS_EACH_SIDE = 175;
+// The strip renders this many days either side of the selected day to begin
+// with, and grows by GROW_CHUNK_DAYS whenever it is scrolled near an edge — so
+// it can be scrolled indefinitely in both directions.
+const INITIAL_DAYS_EACH_SIDE = 30;
+const GROW_CHUNK_DAYS = 30;
+// Calendar data is fetched for a window around whatever is on screen. Kept well
+// under the backend's MAX_CALENDAR_RANGE_DAYS (370). The centre snaps to
+// multiples of DATA_STEP_DAYS so the query only changes every so often.
+const DATA_STEP_DAYS = 30;
+const DATA_DAYS_EACH_SIDE = 60;
+
+function snapToDataStep(ms: number): number {
+  const step = DATA_STEP_DAYS * DAY_MS;
+  return Math.round(ms / step) * step;
+}
+
+type CalendarItems = FunctionReturnType<typeof api.submissions.myCalendar>[number]["items"];
 
 /**
  * The signed-in user's work calendar: a scrollable day strip plus the to-do and
@@ -41,9 +53,14 @@ export function WorkCalendar({ viewSwitcher }: { viewSwitcher?: ReactNode }) {
   const initialDate = urlDate ? parseInt(urlDate, 10) : todayMidnightUTC();
   const [selectedDate, setSelectedDate] = useState(initialDate);
   const [showFullCalendar, setShowFullCalendar] = useState(false);
-  const today = todayMidnightUTC();
-  const [windowFrom, setWindowFrom] = useState(selectedDate - INITIAL_DAYS_BEFORE * DAY_MS);
-  const [windowTo, setWindowTo] = useState(selectedDate + INITIAL_DAYS_AFTER * DAY_MS);
+  // Which days the strip renders. Independent of which days have data loaded, so
+  // growing it is instant and the strip never stalls waiting on the backend.
+  const [renderFrom, setRenderFrom] = useState(initialDate - INITIAL_DAYS_EACH_SIDE * DAY_MS);
+  const [renderTo, setRenderTo] = useState(initialDate + INITIAL_DAYS_EACH_SIDE * DAY_MS);
+  // The day in the middle of the strip, which the data window follows.
+  const [dataCenter, setDataCenter] = useState(() => snapToDataStep(initialDate));
+  // Bumped to re-mount the strip (and so re-centre it) when the date is jumped.
+  const [stripKey, setStripKey] = useState(0);
 
   // Follow ?date= when it changes, by adjusting state during render rather than
   // in an effect — React's documented way to derive state from changed input.
@@ -53,15 +70,17 @@ export function WorkCalendar({ viewSwitcher }: { viewSwitcher?: ReactNode }) {
     if (urlDate) {
       const d = parseInt(urlDate, 10);
       setSelectedDate(d);
-      setWindowFrom(d - INITIAL_DAYS_BEFORE * DAY_MS);
-      setWindowTo(d + INITIAL_DAYS_AFTER * DAY_MS);
+      setRenderFrom(d - INITIAL_DAYS_EACH_SIDE * DAY_MS);
+      setRenderTo(d + INITIAL_DAYS_EACH_SIDE * DAY_MS);
+      setDataCenter(snapToDataStep(d));
+      setStripKey((k) => k + 1);
     }
   }
 
-  // The strip's window only ever grows (never shrinks) as the user scrolls near
-  // either edge — see CalendarStrip's onNeedEarlier/onNeedLater. The full
-  // calendar dialog remains the fast path for jumping far away.
-  const strip = useQuery(api.submissions.myCalendar, { from: windowFrom, to: windowTo });
+  const strip = useQuery(api.submissions.myCalendar, {
+    from: dataCenter - DATA_DAYS_EACH_SIDE * DAY_MS,
+    to: dataCenter + DATA_DAYS_EACH_SIDE * DAY_MS,
+  });
   const selectedDayCalendar = useQuery(api.submissions.myCalendar, {
     from: selectedDate,
     to: selectedDate,
@@ -69,32 +88,49 @@ export function WorkCalendar({ viewSwitcher }: { viewSwitcher?: ReactNode }) {
   const me = useQuery(api.profiles.getMe);
   const canViewConfig = me?.role === "admin";
 
+  // Remember every day's items from each window that has loaded, so moving the
+  // data window along doesn't blank out days that were already seen. The live
+  // window always overwrites what is cached for its own days.
+  const [loadedDays, setLoadedDays] = useState<ReadonlyMap<number, CalendarItems>>(new Map());
+  const [lastStrip, setLastStrip] = useState(strip);
+  if (strip !== undefined && strip !== lastStrip) {
+    setLastStrip(strip);
+    setLoadedDays((prev) => {
+      const next = new Map(prev);
+      for (const day of strip) next.set(day.date, day.items);
+      return next;
+    });
+  }
+
   // Keep showing the last-known data while a wider range loads, so growing the
   // window doesn't flash the whole view back to a loading skeleton.
-  const [lastStrip, setLastStrip] = useState(strip);
-  if (strip !== undefined && strip !== lastStrip) setLastStrip(strip);
-  const displayStrip = strip ?? lastStrip;
-
   const [lastSelected, setLastSelected] = useState(selectedDayCalendar);
   if (selectedDayCalendar !== undefined && selectedDayCalendar !== lastSelected) {
     setLastSelected(selectedDayCalendar);
   }
   const displaySelectedCalendar = selectedDayCalendar ?? lastSelected;
 
-  if (displayStrip === undefined || displaySelectedCalendar === undefined) {
+  const stripDays = useMemo(() => {
+    const out: { date: number; items: CalendarItems }[] = [];
+    for (let date = renderFrom; date <= renderTo; date += DAY_MS) {
+      out.push({ date, items: loadedDays.get(date) ?? [] });
+    }
+    return out;
+  }, [renderFrom, renderTo, loadedDays]);
+
+  if (
+    (strip === undefined && loadedDays.size === 0) ||
+    displaySelectedCalendar === undefined
+  ) {
     return <Skeleton className="h-64 w-full rounded-xl" />;
   }
 
   function needEarlier() {
-    setWindowFrom((prev) =>
-      Math.max(prev - GROW_CHUNK_DAYS * DAY_MS, today - MAX_WINDOW_DAYS_EACH_SIDE * DAY_MS),
-    );
+    setRenderFrom((prev) => prev - GROW_CHUNK_DAYS * DAY_MS);
   }
 
   function needLater() {
-    setWindowTo((prev) =>
-      Math.min(prev + GROW_CHUNK_DAYS * DAY_MS, today + MAX_WINDOW_DAYS_EACH_SIDE * DAY_MS),
-    );
+    setRenderTo((prev) => prev + GROW_CHUNK_DAYS * DAY_MS);
   }
 
   const items = displaySelectedCalendar[0]?.items ?? [];
@@ -131,11 +167,13 @@ export function WorkCalendar({ viewSwitcher }: { viewSwitcher?: ReactNode }) {
         </CardHeader>
         <CardContent>
           <CalendarStrip
-            days={displayStrip}
+            key={stripKey}
+            days={stripDays}
             selectedDate={selectedDate}
             onSelectDate={setSelectedDate}
             onNeedEarlier={needEarlier}
             onNeedLater={needLater}
+            onVisibleDateChange={(date) => setDataCenter(snapToDataStep(date))}
           />
           <FullCalendarDialog
             open={showFullCalendar}
