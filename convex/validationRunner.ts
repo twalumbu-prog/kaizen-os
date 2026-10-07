@@ -106,8 +106,12 @@ async function loadAiConfig(
 }
 
 export const runValidation = internalAction({
-  args: { submissionId: v.id("submissions") },
-  handler: async (ctx, { submissionId }) => {
+  args: {
+    submissionId: v.id("submissions"),
+    /** Set when a person has just submitted or replaced the files — lets report-driven automations run. */
+    triggerAutomations: v.optional(v.boolean()),
+  },
+  handler: async (ctx, { submissionId, triggerAutomations }) => {
     const detail = await ctx.runQuery(internal.submissions.loadForValidation, {
       submissionId,
     });
@@ -284,5 +288,10 @@ export const runValidation = internalAction({
       ledgerClosingBalance: result.ledgerClosingBalance,
     });
     console.log(`[ValidationRunner] Results saved to database.`);
+
+    // The recon's figures are saved now, so the valid-children list can be rebuilt from it.
+    if (triggerAutomations && orgId && template.validatorKey === "canteenSalesRecon") {
+      await ctx.scheduler.runAfter(0, internal.canteenValidChildren.runOnReconSubmitted, { orgId });
+    }
   },
 });

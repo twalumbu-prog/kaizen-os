@@ -357,7 +357,10 @@ export const submitReport = mutation({
     const subScore = computeSubmissionScore({ status, dueAt: submission.dueAt, submittedAt: now });
     await ctx.db.patch(submissionId, { submittedAt: now, status, submissionScore: subScore });
 
-    await ctx.scheduler.runAfter(0, internal.validationRunner.runValidation, { submissionId });
+    await ctx.scheduler.runAfter(0, internal.validationRunner.runValidation, {
+      submissionId,
+      triggerAutomations: true,
+    });
     return null;
   },
 });
@@ -388,7 +391,10 @@ export const replaceSubmissionFile = mutation({
     const subScore = computeSubmissionScore({ status, dueAt: submission.dueAt, submittedAt: now });
     await ctx.db.patch(submission._id, { submittedAt: now, status, submissionScore: subScore });
 
-    await ctx.scheduler.runAfter(0, internal.validationRunner.runValidation, { submissionId: submission._id });
+    await ctx.scheduler.runAfter(0, internal.validationRunner.runValidation, {
+      submissionId: submission._id,
+      triggerAutomations: true,
+    });
     return null;
   },
 });

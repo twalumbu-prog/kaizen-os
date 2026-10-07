@@ -347,7 +347,7 @@ export default defineSchema({
     orgId: v.id("organizations"),
     startedAt: v.number(),
     finishedAt: v.optional(v.number()),
-    trigger: v.union(v.literal("schedule"), v.literal("manual")),
+    trigger: v.union(v.literal("schedule"), v.literal("manual"), v.literal("submission")),
     status: v.union(
       v.literal("running"),
       v.literal("success"),

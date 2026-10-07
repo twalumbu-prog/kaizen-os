@@ -66,7 +66,7 @@ export default function AutomationDetailPage({ params }: { params: Promise<{ aut
             </div>
             <Card>
               <CardContent className="pt-2">
-                <AutomationDetail automationId={a._id} />
+                <AutomationDetail automationId={a._id} kind={a.kind} />
               </CardContent>
             </Card>
           </>

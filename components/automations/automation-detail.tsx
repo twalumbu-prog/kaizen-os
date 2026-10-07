@@ -28,7 +28,8 @@ export function RunStatus({ status }: { status: string }) {
 export const fmt = (ms: number | null | undefined) => (ms ? new Date(ms).toLocaleString() : "—");
 const signed = (n: number | null) => (n === null ? "—" : `${n > 0 ? "+" : ""}${n}`);
 
-export function AutomationDetail({ automationId }: { automationId: Id<"automations"> }) {
+export function AutomationDetail({ automationId, kind }: { automationId: Id<"automations">; kind: string }) {
+  const validChildren = kind === "canteenValidChildren";
   const runs = useQuery(api.automations.runs, { automationId });
   const work = useQuery(api.automations.submittedWork, { automationId });
 
@@ -49,9 +50,19 @@ export function AutomationDetail({ automationId }: { automationId: Id<"automatio
             <TableHeader>
               <TableRow>
                 <TableHead>Date</TableHead>
-                <TableHead>Expected</TableHead>
-                <TableHead>Actual</TableHead>
-                <TableHead>Deviation</TableHead>
+                {validChildren ? (
+                  <>
+                    <TableHead>Valid children</TableHead>
+                    <TableHead>Last day</TableHead>
+                    <TableHead>Paid today</TableHead>
+                  </>
+                ) : (
+                  <>
+                    <TableHead>Expected</TableHead>
+                    <TableHead>Actual</TableHead>
+                    <TableHead>Deviation</TableHead>
+                  </>
+                )}
                 <TableHead>Submitted</TableHead>
                 <TableHead>Report</TableHead>
               </TableRow>
@@ -64,9 +75,19 @@ export function AutomationDetail({ automationId }: { automationId: Id<"automatio
                       {w.periodLabel}
                     </Link>
                   </TableCell>
-                  <TableCell>{w.expected ?? "—"}</TableCell>
-                  <TableCell>{w.actual ?? "—"}</TableCell>
-                  <TableCell>{signed(w.deviation)}</TableCell>
+                  {validChildren ? (
+                    <>
+                      <TableCell>{w.validChildren ?? "—"}</TableCell>
+                      <TableCell>{w.expiringToday ?? "—"}</TableCell>
+                      <TableCell>{w.paidToday ?? "—"}</TableCell>
+                    </>
+                  ) : (
+                    <>
+                      <TableCell>{w.expected ?? "—"}</TableCell>
+                      <TableCell>{w.actual ?? "—"}</TableCell>
+                      <TableCell>{signed(w.deviation)}</TableCell>
+                    </>
+                  )}
                   <TableCell>{fmt(w.submittedAt)}</TableCell>
                   <TableCell>
                     {w.url ? (

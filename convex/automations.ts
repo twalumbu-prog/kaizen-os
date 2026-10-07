@@ -77,6 +77,9 @@ export const submittedWork = query({
           deviation: typeof meta?.deviation === "number" ? meta.deviation : null,
           expected: typeof meta?.expectedChildren === "number" ? meta.expectedChildren : null,
           actual: typeof meta?.actualChildren === "number" ? meta.actualChildren : null,
+          validChildren: typeof meta?.validChildren === "number" ? meta.validChildren : null,
+          expiringToday: typeof meta?.expiringToday === "number" ? meta.expiringToday : null,
+          paidToday: typeof meta?.paidToday === "number" ? meta.paidToday : null,
         };
       }),
     );
@@ -102,7 +105,9 @@ export const runNow = mutation({
     const runner =
       a.kind === "recruitmentLeads"
         ? internal.recruitmentAutomation.runAutomation
-        : internal.canteenAutomation.runAutomation;
+        : a.kind === "canteenValidChildren"
+          ? internal.canteenValidChildren.runAutomation
+          : internal.canteenAutomation.runAutomation;
     await ctx.scheduler.runAfter(0, runner, { automationId, trigger: "manual" });
   },
 });

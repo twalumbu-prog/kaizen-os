@@ -287,7 +287,10 @@ function buildWorkbook(days: DayInput[], inventory: Record<string, number>, targ
 // ── Run log ──────────────────────────────────────────────────────────────────
 
 export const startRun = internalMutation({
-  args: { automationId: v.id("automations"), trigger: v.union(v.literal("schedule"), v.literal("manual")) },
+  args: {
+    automationId: v.id("automations"),
+    trigger: v.union(v.literal("schedule"), v.literal("manual"), v.literal("submission")),
+  },
   handler: async (ctx, { automationId, trigger }) => {
     const a = await ctx.db.get(automationId);
     if (!a) throw new Error("Automation not found");

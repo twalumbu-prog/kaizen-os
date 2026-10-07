@@ -12,7 +12,14 @@ import type { ParsedStatement } from "../../validators/types";
 const PAYMENT_METHODS = ["cash", "airtel", "wise", "bank", "master"] as const;
 type PaymentMethod = (typeof PAYMENT_METHODS)[number];
 
-const RATE_PER_DAY = 35;
+export const RATE_PER_DAY = 35;
+
+/** One child's payment row on a day's recon sheet — all payment methods summed. */
+export interface ReconPayment {
+  name: string;
+  className: string;
+  amount: number;
+}
 
 const SALES_TIERS: Array<{ days: number; key: string }> = [
   { days: 1,  key: "salesCountDaily"   },
@@ -72,6 +79,11 @@ function isTotalLabel(text: string): boolean {
 }
 
 export function parseCanteenRecon(buffer: ArrayBuffer): ParsedStatement {
+  return scanCanteenRecon(buffer).statement;
+}
+
+/** Parses the recon sheet and also returns each paying child's row (name, class, amount). */
+export function scanCanteenRecon(buffer: ArrayBuffer): { statement: ParsedStatement; payments: ReconPayment[] } {
   const wb = XLSX.read(new Uint8Array(buffer), { type: "array", cellDates: true });
   const ws = wb.Sheets[wb.SheetNames[0]];
   const rows: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
@@ -88,6 +100,10 @@ export function parseCanteenRecon(buffer: ArrayBuffer): ParsedStatement {
   const tierCounts = new Map<string, number>();
   let salesCountOther = 0;
   let headerSeen = false;
+  const payments: ReconPayment[] = [];
+  // Name / class sit in columns B / C on the real sheet; the header row confirms it.
+  let nameCol = 1;
+  let classCol = 2;
 
   for (const row of rows) {
     const a = String(row[0] ?? "").trim();
@@ -121,6 +137,8 @@ export function parseCanteenRecon(buffer: ArrayBuffer): ParsedStatement {
         if (typeof cell !== "string") return;
         const method = methodForLabel(cell);
         if (method) methodColumn.set(method, idx);
+        else if (/^name$/i.test(cell.trim())) nameCol = idx;
+        else if (/^class$/i.test(cell.trim())) classCol = idx;
       });
       headerSeen = true;
       continue;
@@ -155,6 +173,11 @@ export function parseCanteenRecon(buffer: ArrayBuffer): ParsedStatement {
         rowTotal += amt;
       }
 
+      const childName = String(row[nameCol] ?? "").trim();
+      if (rowTotal > 0 && childName) {
+        payments.push({ name: childName, className: String(row[classCol] ?? "").trim(), amount: rowTotal });
+      }
+
       if (rowTotal > 0) {
         const days = Math.round(rowTotal / RATE_PER_DAY);
         const tier = SALES_TIERS.find((t) => t.days === days);
@@ -187,5 +210,5 @@ export function parseCanteenRecon(buffer: ArrayBuffer): ParsedStatement {
     metadata.salesCountOther = salesCountOther;
   }
 
-  return { openingBalance: null, closingBalance: null, transactions: [], metadata };
+  return { statement: { openingBalance: null, closingBalance: null, transactions: [], metadata }, payments };
 }
