@@ -208,7 +208,7 @@ export function WorkCalendar({ viewSwitcher }: { viewSwitcher?: ReactNode }) {
                   </Button>
                 ) : (
                   <span className="text-xs capitalize text-muted-foreground">
-                    {item.unassigned ? "Unassigned" : item.status}
+                    {item.automated ? "Automated" : item.unassigned ? "Unassigned" : item.status}
                   </span>
                 )}
                 <ReportOptionsMenu templateId={item.templateId} canViewConfig={canViewConfig} />

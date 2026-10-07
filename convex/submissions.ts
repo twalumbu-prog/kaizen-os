@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
-import type { MutationCtx } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { CHECKLIST_STATUS, FILE_TYPE } from "./schema";
 import { requireProfile, requireRole } from "./lib/roles";
@@ -22,6 +22,28 @@ function sharedAssigneeLabel(
   if (responsible.length === 0) return "Shared · nobody assigned";
   return `Shared · ${responsible.map((id) => nameByUserId.get(id) ?? "Unknown").join(", ")}`;
 }
+
+/**
+ * Reports an enabled automation files on the organization's behalf, keyed to
+ * the automation's name. They have no human assignees by design, so the
+ * calendar and timeline use this to show them as automated, not unassigned.
+ */
+async function automatedTemplates(
+  ctx: QueryCtx,
+  orgId: Id<"organizations">,
+): Promise<Map<Id<"reportTemplates">, string>> {
+  const automations = await ctx.db
+    .query("automations")
+    .withIndex("by_orgId", (q) => q.eq("orgId", orgId))
+    .collect();
+  const owners = new Map<Id<"reportTemplates">, string>();
+  for (const a of automations) {
+    if (a.enabled && a.outputTemplateId) owners.set(a.outputTemplateId, a.name);
+  }
+  return owners;
+}
+
+const automationLabel = (name: string) => `Automation · ${name}`;
 
 /**
  * Walks forward from the caller's most recent submission (or, if they have
@@ -816,6 +838,7 @@ export const myCalendar = query({
       .withIndex("by_orgId", (q) => q.eq("orgId", profile.orgId))
       .collect();
     const nameByUserId = new Map(orgProfiles.map((p) => [p.userId, p.name]));
+    const automated = await automatedTemplates(ctx, profile.orgId);
 
     let templates: Doc<"reportTemplates">[];
     if (overseeing) {
@@ -933,6 +956,7 @@ export const myCalendar = query({
         );
         const responsible = owners.get(template._id) ?? [];
         const shared = isShared(template);
+        const automation = responsible.length === 0 ? (automated.get(template._id) ?? null) : null;
 
         // A shared report has exactly one row for the whole team — whoever
         // submits it settles it for everyone responsible. An individual
@@ -961,19 +985,22 @@ export const myCalendar = query({
             periodLabel: bounds.periodLabel,
             dueAt: bounds.dueAt,
             submissionId: submission?._id ?? null,
-            status: submission?.status ?? (row.userId ? "pending" : "unassigned"),
+            status: submission?.status ?? (row.userId || automation ? "pending" : "unassigned"),
             completed: submission?.status === "submitted" || submission?.status === "late",
             score: submission?.finalScore ?? null,
             /** Set only when overseeing someone else's report — drives read-only UI. */
-            assigneeName: shared
-              ? overseeing && !isMine
-                ? sharedAssigneeLabel(responsible, nameByUserId)
-                : null
-              : overseeing && row.userId && !isMine
-                ? (nameByUserId.get(row.userId) ?? "Unknown")
-                : null,
+            assigneeName: automation
+              ? automationLabel(automation)
+              : shared
+                ? overseeing && !isMine
+                  ? sharedAssigneeLabel(responsible, nameByUserId)
+                  : null
+                : overseeing && row.userId && !isMine
+                  ? (nameByUserId.get(row.userId) ?? "Unknown")
+                  : null,
             shared,
-            unassigned: !shared && row.userId === null && !submission,
+            automated: automation !== null,
+            unassigned: !shared && row.userId === null && !submission && !automation,
             canSubmit: isMine,
           });
         }
@@ -995,6 +1022,7 @@ export const myCalendar = query({
 
           const responsible = owners.get(template._id) ?? [];
           const shared = isShared(template);
+          const automation = responsible.length === 0 ? (automated.get(template._id) ?? null) : null;
           const isMine = shared ? responsible.includes(profile.userId) : s.userId === profile.userId;
 
           items.push({
@@ -1006,14 +1034,17 @@ export const myCalendar = query({
             status: s.status,
             completed: true,
             score: s.finalScore ?? null,
-            assigneeName: shared
-              ? overseeing && !isMine
-                ? sharedAssigneeLabel(responsible, nameByUserId)
-                : null
-              : overseeing && !isMine
-                ? (nameByUserId.get(s.userId) ?? "Unknown")
-                : null,
+            assigneeName: automation
+              ? automationLabel(automation)
+              : shared
+                ? overseeing && !isMine
+                  ? sharedAssigneeLabel(responsible, nameByUserId)
+                  : null
+                : overseeing && !isMine
+                  ? (nameByUserId.get(s.userId) ?? "Unknown")
+                  : null,
             shared,
+            automated: automation !== null,
             unassigned: false,
             canSubmit: isMine,
           });
@@ -1196,6 +1227,7 @@ export const reportTimeline = query({
         : null;
 
     const now = Date.now();
+    const automated = await automatedTemplates(ctx, profile.orgId);
     const groups = [];
 
     for (const department of departments) {
@@ -1222,7 +1254,13 @@ export const reportTimeline = query({
 
         // A shared report needs only one submission per period no matter how
         // many people are responsible for making sure it happens.
-        const expectedCount = isShared(template) ? (assigneeIds.length > 0 ? 1 : 0) : assigneeIds.length;
+        // An automation-owned report has no assignees but is still owed once.
+        const automation = assigneeIds.length === 0 ? (automated.get(template._id) ?? null) : null;
+        const expectedCount = automation
+          ? 1
+          : isShared(template)
+            ? (assigneeIds.length > 0 ? 1 : 0)
+            : assigneeIds.length;
 
         // Walk the report's own periods across the window. A misconfigured
         // report (e.g. "cycle" with no settings) is skipped, not fatal.
@@ -1308,6 +1346,8 @@ export const reportTimeline = query({
           name: template.name,
           cadence: template.cadence,
           assigneeCount: assigneeIds.length,
+          /** Name of the automation that files this report, when no one is assigned. */
+          automation,
           due,
         });
       }

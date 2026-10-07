@@ -396,9 +396,11 @@ export function ReportTimeline({ viewSwitcher }: { viewSwitcher?: ReactNode }) {
                               </button>
                               <span className="text-xs text-muted-foreground">
                                 {cadenceLabel(report.cadence)}
-                                {report.assigneeCount === 0
-                                  ? " · unassigned"
-                                  : ` · ${report.assigneeCount} assigned`}
+                                {report.automation
+                                  ? " · automated"
+                                  : report.assigneeCount === 0
+                                    ? " · unassigned"
+                                    : ` · ${report.assigneeCount} assigned`}
                               </span>
                             </th>
 
