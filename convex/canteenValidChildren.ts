@@ -260,7 +260,12 @@ export function buildWorkbook(children: Child[], date: string) {
 
 // ── Entry points ─────────────────────────────────────────────────────────────
 
-async function runOne(ctx: ActionCtx, automationId: Id<"automations">, trigger: "schedule" | "manual" | "submission") {
+async function runOne(
+  ctx: ActionCtx,
+  automationId: Id<"automations">,
+  trigger: "schedule" | "manual" | "submission",
+  rebuild = false,
+) {
   // The run log is shared with the other canteen automation.
   const runId = await ctx.runMutation(internal.canteenAutomation.startRun, { automationId, trigger });
   const finish = (
@@ -306,7 +311,8 @@ async function runOne(ctx: ActionCtx, automationId: Id<"automations">, trigger: 
     const reportedAt = new Map<string, number>();
     for (const r of input.reported) reportedAt.set(r.periodLabel, Math.max(reportedAt.get(r.periodLabel) ?? 0, r.submittedAt));
     const reconAt = new Map([...byDate].map(([d, v]) => [d, v.submittedAt]));
-    const todo = datesToReport(reconAt, reportedAt);
+    // `rebuild` regenerates every day, e.g. after a fix to how recons are dated.
+    const todo = rebuild ? datesToReport(reconAt, new Map()) : datesToReport(reconAt, reportedAt);
 
     const sample = (xs: string[]) => xs.sort().slice(0, 4).join(", ") + (xs.length > 4 ? ", …" : "");
     const notes =
@@ -355,9 +361,14 @@ async function runOne(ctx: ActionCtx, automationId: Id<"automations">, trigger: 
 }
 
 export const runAutomation = internalAction({
-  args: { automationId: v.id("automations"), trigger: v.union(v.literal("schedule"), v.literal("manual")) },
-  handler: async (ctx, { automationId, trigger }) => {
-    await runOne(ctx, automationId, trigger);
+  args: {
+    automationId: v.id("automations"),
+    trigger: v.union(v.literal("schedule"), v.literal("manual")),
+    /** Regenerate every day's report, not just new or out-of-date ones. */
+    rebuild: v.optional(v.boolean()),
+  },
+  handler: async (ctx, { automationId, trigger, rebuild }) => {
+    await runOne(ctx, automationId, trigger, rebuild);
   },
 });
 
