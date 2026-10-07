@@ -37,6 +37,18 @@ export function dateOfSchoolDay(index: number): string {
   return new Date((week * 7 + dow + FIRST_MONDAY_DAY) * DAY_MS).toISOString().slice(0, 10);
 }
 
+/**
+ * The school day a Canteen Daily Sales or Inventory report is about, from its
+ * period label. Those reports are scheduled Tue–Fri, so Monday's report is
+ * filed under the Friday label before it: Tue–Thu labels are the day itself,
+ * and a Friday label is the following Monday.
+ */
+export function reportDay(periodLabel: string): string {
+  const d = new Date(`${periodLabel}T00:00:00Z`);
+  if (d.getUTCDay() === 5) d.setUTCDate(d.getUTCDate() + 3);
+  return d.toISOString().slice(0, 10);
+}
+
 // ── Name matching ────────────────────────────────────────────────────────────
 
 export function nameTokens(name: string): string[] {

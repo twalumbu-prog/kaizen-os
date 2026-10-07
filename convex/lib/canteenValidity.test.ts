@@ -8,6 +8,7 @@ import {
   justExpiredOn,
   nameCost,
   nameTokens,
+  reportDay,
   schoolDayIndex,
   validOn,
   type Payment,
@@ -169,5 +170,23 @@ describe("datesToReport", () => {
 
   it("skips non-school days", () => {
     expect(datesToReport(recon([[FRI, 10]]), new Map())).toEqual([]);
+  });
+});
+
+describe("reportDay", () => {
+  it("is the day itself for Mon–Thu labels", () => {
+    for (const d of [MON, TUE, WED, THU]) expect(reportDay(d)).toBe(d);
+  });
+
+  it("maps the Friday label to the following Monday, where Monday's report is filed", () => {
+    expect(reportDay(FRI)).toBe(NEXT_MON);
+    // Real labels: 2026-09-18 and 2026-09-25 hold the Monday 21st and 28th reports.
+    expect(reportDay("2026-09-18")).toBe("2026-09-21");
+    expect(reportDay("2026-09-25")).toBe("2026-09-28");
+  });
+
+  it("gives every school day exactly one label in a week", () => {
+    const labels = ["2026-10-06", "2026-10-07", "2026-10-08", "2026-10-09"]; // Tue–Fri labels
+    expect(labels.map(reportDay)).toEqual([TUE, WED, THU, NEXT_MON]);
   });
 });

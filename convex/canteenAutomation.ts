@@ -5,6 +5,7 @@ import type { ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { periodContaining } from "./lib/periods";
+import { reportDay } from "./lib/canteenValidity";
 
 /**
  * Canteen deviation automation.
@@ -159,7 +160,8 @@ export const loadInputs = internalQuery({
           .withIndex("by_submissionId", (q) => q.eq("submissionId", s._id))
           .collect();
         const f = files.find((x) => x.extracted?.metadata?.salesCountDaily !== undefined);
-        if (f?.extracted?.metadata) sales.push({ date: s.periodLabel, metadata: f.extracted.metadata });
+        // Monday's recon is filed under the Friday label — see reportDay.
+        if (f?.extracted?.metadata) sales.push({ date: reportDay(s.periodLabel), metadata: f.extracted.metadata });
       }
     }
 
@@ -172,7 +174,7 @@ export const loadInputs = internalQuery({
           .collect();
         for (const f of files) {
           const val = f.extracted?.metadata?.[inventoryKey];
-          if (typeof val === "number") inventory[s.periodLabel] = val;
+          if (typeof val === "number") inventory[reportDay(s.periodLabel)] = val;
         }
       }
     }

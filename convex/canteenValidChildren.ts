@@ -6,7 +6,7 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { periodContaining } from "./lib/periods";
 import { scanCanteenRecon, RATE_PER_DAY } from "./lib/parsers/canteenRecon";
-import { buildChildren, datesToReport, justExpiredOn, validOn } from "./lib/canteenValidity";
+import { buildChildren, datesToReport, justExpiredOn, reportDay, validOn } from "./lib/canteenValidity";
 import type { Child, Payment, ValidChild } from "./lib/canteenValidity";
 
 /**
@@ -23,9 +23,9 @@ import type { Child, Payment, ValidChild } from "./lib/canteenValidity";
  * submitted since — so reruns are safe, the first run backfills every past day,
  * and a corrected recon refreshes the days that depend on it.
  *
- * Payments are dated by the day written inside the recon file (the day it was
- * prepared); that day counts as the first day paid for. Top-ups queue after
- * the days a child already has. The rules live in lib/canteenValidity.ts.
+ * Payments are dated by the recon's report period (see reportDay); that day
+ * counts as the first day paid for. Top-ups queue after the days a child
+ * already has. The rules live in lib/canteenValidity.ts.
  */
 
 export const KIND = "canteenValidChildren";
@@ -279,28 +279,20 @@ async function runOne(ctx: ActionCtx, automationId: Id<"automations">, trigger: 
     // Read every recon. Where two are dated the same day the latest submission wins.
     const byDate = new Map<string, { submittedAt: number; payments: Payment[] }>();
     const problems: string[] = [];
-    const periodUsed: string[] = [];
     const differing: string[] = [];
+    const clashes: string[] = [];
     for (const r of input.recons) {
       try {
         const blob = await ctx.storage.get(r.storageId);
         if (!blob) throw new Error("file missing from storage");
         const { statement, payments } = scanCanteenRecon(await blob.arrayBuffer());
-        // Payments belong to the day the recon was prepared, which is written in the file. The Sales report's
-        // period is normally the following day (it is due and submitted the day after).
-        // A missing date, or one far from the report period (a typo), falls back to the period.
+        // The report period says which day this recon is for (Monday's sits under Friday). The date
+        // written inside the file is only a cross-check — staff sometimes upload the wrong sheet.
+        const date = reportDay(r.periodLabel);
         const fileDate = statement.metadata?.date;
-        let date = r.periodLabel;
-        if (typeof fileDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(fileDate)) {
-          const apart = Math.abs(Date.parse(`${fileDate}T00:00:00Z`) - Date.parse(`${r.periodLabel}T00:00:00Z`)) / 86_400_000;
-          if (apart <= 3) {
-            date = fileDate;
-            // The usual case is a recon prepared the day before its report period; only other gaps are worth a note.
-            if (apart !== 1 && fileDate !== r.periodLabel) differing.push(`${r.periodLabel}→${fileDate}`);
-            else if (apart === 1 && fileDate > r.periodLabel) differing.push(`${r.periodLabel}→${fileDate}`);
-          } else periodUsed.push(`${r.periodLabel} (file says ${fileDate})`);
-        } else periodUsed.push(`${r.periodLabel} (no date in file)`);
+        if (typeof fileDate === "string" && fileDate !== date) differing.push(`${date} (file says ${fileDate})`);
         const prev = byDate.get(date);
+        if (prev) clashes.push(date);
         if (prev && prev.submittedAt > r.submittedAt) continue;
         byDate.set(date, {
           submittedAt: r.submittedAt,
@@ -318,8 +310,8 @@ async function runOne(ctx: ActionCtx, automationId: Id<"automations">, trigger: 
 
     const sample = (xs: string[]) => xs.sort().slice(0, 4).join(", ") + (xs.length > 4 ? ", …" : "");
     const notes =
-      (differing.length ? ` ${differing.length} recon${differing.length === 1 ? " has" : "s have"} an unusual date inside the file compared with the report period (period→file): ${sample(differing)}. File dates were used.` : "") +
-      (periodUsed.length ? ` Used the report period instead of the file date for: ${sample(periodUsed)}.` : "") +
+      (clashes.length ? ` More than one recon is filed for ${sample([...new Set(clashes)])}; the latest was used.` : "") +
+      (differing.length ? ` The date inside the recon file differs from its report period for ${differing.length}: ${sample(differing)}.` : "") +
       (problems.length ? ` Could not read: ${problems.join("; ")}.` : "");
 
     if (todo.length === 0) return await finish("skipped", `Nothing new to report.${notes}`);
