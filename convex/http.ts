@@ -100,6 +100,42 @@ http.route({
 });
 
 http.route({
+  path: "/api/masterfees/callback",
+  method: "GET",
+  handler: httpAction(async (ctx, request) => {
+    const url = new URL(request.url);
+    const schoolId   = url.searchParams.get("school_id");
+    const publicKey  = url.searchParams.get("public_key");
+    const schoolName = url.searchParams.get("school_name") ?? "";
+    const state      = url.searchParams.get("state");
+
+    if (!schoolId || !publicKey || !state) {
+      return new Response("Missing required callback parameters", { status: 400 });
+    }
+
+    const result = await ctx.runAction(internal.masterfees.handleCallback, {
+      schoolId,
+      publicKey,
+      schoolName,
+      state,
+    });
+
+    const appUrl = process.env.SITE_URL;
+    if (appUrl) {
+      const dest = new URL("/admin/integrations/masterfees", appUrl);
+      dest.searchParams.set(result.success ? "connected" : "error", "masterfees");
+      return Response.redirect(dest.toString(), 302);
+    }
+
+    if (result.success) {
+      return new Response("Master Fees connected successfully! You can close this window.", { status: 200 });
+    } else {
+      return new Response("Failed to connect Master Fees.", { status: 500 });
+    }
+  }),
+});
+
+http.route({
   path: "/api/drive/callback",
   method: "GET",
   handler: httpAction(async (ctx, request) => {

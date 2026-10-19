@@ -3,7 +3,7 @@ import { internalMutation } from "../_generated/server";
 
 const STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes — plenty for a redirect round-trip.
 
-const PROVIDER = v.union(v.literal("quickbooks"), v.literal("google_drive"));
+const PROVIDER = v.union(v.literal("quickbooks"), v.literal("google_drive"), v.literal("masterfees"));
 
 /** Issues a one-time OAuth `state` token bound to the org that requested it. */
 export const createState = internalMutation({

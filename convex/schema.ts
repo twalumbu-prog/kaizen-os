@@ -371,7 +371,7 @@ export default defineSchema({
   oauthStates: defineTable({
     token: v.string(),
     orgId: v.id("organizations"),
-    provider: v.union(v.literal("quickbooks"), v.literal("google_drive")),
+    provider: v.union(v.literal("quickbooks"), v.literal("google_drive"), v.literal("masterfees")),
     expiresAt: v.number(),
   }).index("by_token", ["token"]),
 });
