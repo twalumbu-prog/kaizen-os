@@ -38,4 +38,13 @@ crons.interval(
   internal.recruitmentAutomation.runAllScheduled,
 );
 
+// End of day: fetch Zanaco bank inflows from Master Fees and pre-populate
+// the reconciliation submission so the finance team can just upload the
+// bank statement the next morning and complete the 3-way check.
+crons.daily(
+  "zanaco-bank-recon",
+  { hourUTC: 22, minuteUTC: 0 },
+  internal.zanacoRecon.runAllScheduled,
+);
+
 export default crons;

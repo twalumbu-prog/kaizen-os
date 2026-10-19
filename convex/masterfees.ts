@@ -247,3 +247,68 @@ export const getFeeCategories = action({
     return mfFetch(publicKey, schoolId, "/fee-categories");
   },
 });
+
+// ── Zanaco-specific helpers ──────────────────────────────────────────────────
+
+export type MfTransaction = {
+  transaction_id: string;
+  reference: string;
+  amount: number;
+  payment_method: string;
+  payment_source: string;
+  account_name: string | null;
+  source_payment_method: string | null;
+  status: string;
+  term: number;
+  year: number;
+  completed_at: string;
+  student: {
+    student_id: string;
+    full_name: string;
+    admission_number: string;
+    grade: string;
+  };
+};
+
+/**
+ * Fetches ALL Zanaco bank-transfer transactions for a specific calendar date
+ * (ISO "YYYY-MM-DD") by paginating the full transactions list.
+ */
+export const getZanacoInflowsForDate = action({
+  args: { date: v.string() },
+  handler: async (ctx, { date }): Promise<{ transactions: MfTransaction[]; total: number }> => {
+    const { publicKey, schoolId } = await getMfConfig(ctx);
+
+    const base = `https://dashboard.master-fees.com/api/v1/school/${schoolId}/data`;
+    const results: MfTransaction[] = [];
+    let page = 1;
+
+    while (true) {
+      const res = await fetch(`${base}/transactions?page=${page}&limit=1000`, {
+        headers: mfHeaders(publicKey),
+      });
+      if (!res.ok) throw new Error(`Master Fees API error ${res.status}`);
+      const body = await res.json() as {
+        data: MfTransaction[];
+        pagination: { has_more: boolean };
+      };
+
+      for (const tx of body.data) {
+        const txDate = tx.completed_at?.slice(0, 10);
+        if (
+          txDate === date &&
+          tx.payment_method === "bank" &&
+          (tx.account_name ?? "").toLowerCase().includes("zanaco")
+        ) {
+          results.push(tx);
+        }
+      }
+
+      if (!body.pagination.has_more) break;
+      page++;
+    }
+
+    const total = results.reduce((sum, tx) => sum + tx.amount, 0);
+    return { transactions: results, total };
+  },
+});

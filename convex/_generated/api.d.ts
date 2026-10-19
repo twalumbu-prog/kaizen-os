@@ -78,6 +78,8 @@ import type * as validators_payroll from "../validators/payroll.js";
 import type * as validators_registry from "../validators/registry.js";
 import type * as validators_statutoryReceipts from "../validators/statutoryReceipts.js";
 import type * as validators_types from "../validators/types.js";
+import type * as zanacoRecon from "../zanacoRecon.js";
+import type * as zanacoReconDb from "../zanacoReconDb.js";
 
 import type {
   ApiFromModules,
@@ -156,6 +158,8 @@ declare const fullApi: ApiFromModules<{
   "validators/registry": typeof validators_registry;
   "validators/statutoryReceipts": typeof validators_statutoryReceipts;
   "validators/types": typeof validators_types;
+  zanacoRecon: typeof zanacoRecon;
+  zanacoReconDb: typeof zanacoReconDb;
 }>;
 
 /**
