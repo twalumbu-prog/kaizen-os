@@ -32,7 +32,7 @@ export default function MasterFeesIntegrationPage() {
 
   const [isRedirecting, setIsRedirecting]   = useState(false);
   const [isDisconnecting, setIsDisconnecting] = useState(false);
-  const [showManual, setShowManual]          = useState(false);
+  const [showManual, setShowManual]          = useState(true);
   const [manualKey, setManualKey]            = useState(DEFAULT_PUBLIC_KEY);
   const [manualSchoolId, setManualSchoolId]  = useState(DEFAULT_SCHOOL_ID);
   const [manualSchoolName, setManualSchoolName] = useState(DEFAULT_SCHOOL_NAME);
@@ -207,17 +207,17 @@ export default function MasterFeesIntegrationPage() {
                 ) : (
                   <div className="space-y-4">
                     <p className="text-sm text-muted-foreground">
-                      Click <strong>Connect to Master Fees</strong> to be redirected to the Master Fees authorization page, where you'll confirm your school. You'll be brought back here automatically.
+                      Enter your Master Fees school credentials below to activate the integration. You can also use the <strong>Connect via Master Fees</strong> button if your school has OAuth set up.
                     </p>
 
-                    {/* Manual fallback toggle */}
+                    {/* OAuth redirect toggle */}
                     <button
                       type="button"
                       onClick={() => setShowManual((v) => !v)}
                       className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
                     >
                       {showManual ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />}
-                      Enter credentials manually instead
+                      {showManual ? "Hide manual entry" : "Enter credentials manually"}
                     </button>
 
                     {showManual && (
