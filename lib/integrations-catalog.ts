@@ -44,6 +44,17 @@ export type CatalogEntry = {
 export const INTEGRATIONS: CatalogEntry[] = [
   // ── Native integrations ─────────────────────────────────────────────────
   {
+    slug: "masterfees",
+    name: "Master Fees",
+    description: "Sync student invoices, transactions, outstanding balances, and fee structures from Master Fees.",
+    category: "Finance",
+    kind: "native",
+    href: "/admin/integrations/masterfees",
+    domain: "dashboard.master-fees.com",
+    initials: "MF",
+    iconClassName: "bg-violet-50 text-violet-600 dark:bg-violet-900/30 dark:text-violet-400",
+  },
+  {
     slug: "quickbooks",
     name: "QuickBooks Online",
     description: "Sync bank accounts, fetch live transaction data, and automate reconciliation reports.",

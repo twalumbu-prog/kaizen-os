@@ -45,6 +45,7 @@ import type * as lib_periods from "../lib/periods.js";
 import type * as lib_qbExtract from "../lib/qbExtract.js";
 import type * as lib_roles from "../lib/roles.js";
 import type * as lib_scoring from "../lib/scoring.js";
+import type * as masterfees from "../masterfees.js";
 import type * as meta from "../meta.js";
 import type * as migrateMultiTenancy from "../migrateMultiTenancy.js";
 import type * as organizations from "../organizations.js";
@@ -122,6 +123,7 @@ declare const fullApi: ApiFromModules<{
   "lib/qbExtract": typeof lib_qbExtract;
   "lib/roles": typeof lib_roles;
   "lib/scoring": typeof lib_scoring;
+  masterfees: typeof masterfees;
   meta: typeof meta;
   migrateMultiTenancy: typeof migrateMultiTenancy;
   organizations: typeof organizations;

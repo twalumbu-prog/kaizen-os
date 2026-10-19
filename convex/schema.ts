@@ -311,7 +311,8 @@ export default defineSchema({
       v.literal("google_drive"),
       v.literal("google_ai"),
       v.literal("openrouter"),
-      v.literal("meta")
+      v.literal("meta"),
+      v.literal("masterfees")
     ),
     status: v.union(v.literal("active"), v.literal("disconnected")),
     config: v.optional(v.string()), // JSON string of integration-specific configuration
