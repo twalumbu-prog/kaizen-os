@@ -7,10 +7,19 @@ const PROVIDER = v.union(v.literal("quickbooks"), v.literal("google_drive"), v.l
 
 /** Issues a one-time OAuth `state` token bound to the org that requested it. */
 export const createState = internalMutation({
-  args: { orgId: v.id("organizations"), provider: PROVIDER },
-  handler: async (ctx, { orgId, provider }) => {
+  args: {
+    orgId: v.id("organizations"),
+    provider: PROVIDER,
+    /** PKCE code verifier — pass for providers that use PKCE. */
+    codeVerifier: v.optional(v.string()),
+  },
+  handler: async (ctx, { orgId, provider, codeVerifier }) => {
     const token = crypto.randomUUID();
-    await ctx.db.insert("oauthStates", { token, orgId, provider, expiresAt: Date.now() + STATE_TTL_MS });
+    await ctx.db.insert("oauthStates", {
+      token, orgId, provider,
+      expiresAt: Date.now() + STATE_TTL_MS,
+      ...(codeVerifier ? { codeVerifier } : {}),
+    });
     return token;
   },
 });
@@ -33,5 +42,24 @@ export const consumeState = internalMutation({
     if (row.provider !== provider) throw new Error("OAuth state provider mismatch");
     if (row.expiresAt < Date.now()) throw new Error("OAuth state expired");
     return row.orgId;
+  },
+});
+
+/**
+ * Like consumeState but also returns the stored PKCE code verifier.
+ * Use for providers that implement PKCE (e.g. MoneyWise Pro).
+ */
+export const consumeStateWithVerifier = internalMutation({
+  args: { token: v.string(), provider: PROVIDER },
+  handler: async (ctx, { token, provider }) => {
+    const row = await ctx.db
+      .query("oauthStates")
+      .withIndex("by_token", (q) => q.eq("token", token))
+      .unique();
+    if (!row) throw new Error("Invalid or already-used OAuth state");
+    await ctx.db.delete(row._id);
+    if (row.provider !== provider) throw new Error("OAuth state provider mismatch");
+    if (row.expiresAt < Date.now()) throw new Error("OAuth state expired");
+    return { orgId: row.orgId, codeVerifier: row.codeVerifier };
   },
 });

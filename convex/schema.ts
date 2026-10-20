@@ -374,5 +374,7 @@ export default defineSchema({
     orgId: v.id("organizations"),
     provider: v.union(v.literal("quickbooks"), v.literal("google_drive"), v.literal("masterfees"), v.literal("moneywise")),
     expiresAt: v.number(),
+    /** PKCE code verifier — stored so the callback can complete the token exchange. */
+    codeVerifier: v.optional(v.string()),
   }).index("by_token", ["token"]),
 });

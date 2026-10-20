@@ -27,6 +27,7 @@ import {
   ChevronDown,
   ChevronUp,
   PlusCircle,
+  RefreshCw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AppShell } from "@/components/layout/app-shell";
@@ -54,29 +55,27 @@ export default function MoneyWiseProIntegrationPage() {
   );
 
   const getAuthUrl = useAction(api.moneywise.getAuthUrl);
-  const connect = useAction(api.moneywise.connect);
+  const connect    = useAction(api.moneywise.connect);
   const disconnect = useAction(api.moneywise.disconnect);
 
-  const [isRedirecting, setIsRedirecting] = useState(false);
+  const [isRedirecting, setIsRedirecting]     = useState(false);
   const [isDisconnecting, setIsDisconnecting] = useState(false);
-  const [showManual, setShowManual] = useState(true);
-  const [apiKey, setApiKey] = useState("");
-  const [isSaving, setIsSaving] = useState(false);
+  const [showManual, setShowManual]           = useState(false);
+  const [apiKey, setApiKey]                   = useState("");
+  const [isSaving, setIsSaving]               = useState(false);
 
   const isActive = integration?.status === "active";
 
-  let connectedConfig: { apiKey?: string; orgName?: string } = {};
+  let connectedConfig: { authMethod?: string; orgName?: string } = {};
   if (integration?.config) {
-    try {
-      connectedConfig = JSON.parse(integration.config);
-    } catch {}
+    try { connectedConfig = JSON.parse(integration.config); } catch {}
   }
 
   useEffect(() => {
     const connected = searchParams.get("connected");
-    const error = searchParams.get("error");
+    const error     = searchParams.get("error");
     if (connected === "moneywise") toast.success("MoneyWise Pro connected successfully!");
-    if (error === "moneywise") toast.error("Failed to connect MoneyWise Pro — please try again.");
+    if (error     === "moneywise") toast.error("Failed to connect MoneyWise Pro — please try again.");
   }, [searchParams]);
 
   const handleOAuthConnect = async () => {
@@ -105,9 +104,7 @@ export default function MoneyWiseProIntegrationPage() {
     try {
       const result = await connect({ apiKey: apiKey.trim() });
       toast.success(
-        result.orgName
-          ? `Connected to ${result.orgName}!`
-          : "MoneyWise Pro connected successfully!"
+        result.orgName ? `Connected to ${result.orgName}!` : "MoneyWise Pro connected!"
       );
       setApiKey("");
       setShowManual(false);
@@ -146,7 +143,7 @@ export default function MoneyWiseProIntegrationPage() {
               <div className="flex items-start gap-3">
                 <Wallet className="size-5 text-teal-500 mt-0.5" />
                 <div>
-                  <h4 className="font-semibold text-sm">Wallets & Balances</h4>
+                  <h4 className="font-semibold text-sm">Wallets &amp; Balances</h4>
                   <p className="text-xs text-muted-foreground mt-1">
                     View all wallet accounts and live balances in real time.
                   </p>
@@ -157,7 +154,16 @@ export default function MoneyWiseProIntegrationPage() {
                 <div>
                   <h4 className="font-semibold text-sm">Transaction History</h4>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Cursor-paginated transaction feed with date-range filtering for reconciliation.
+                    Cursor-paginated feed with date-range filtering for reconciliation.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <RefreshCw className="size-5 text-orange-500 mt-0.5" />
+                <div>
+                  <h4 className="font-semibold text-sm">Auto Token Refresh</h4>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Rotating refresh tokens are handled silently — no manual reauthentication needed.
                   </p>
                 </div>
               </div>
@@ -166,16 +172,16 @@ export default function MoneyWiseProIntegrationPage() {
                 <div>
                   <h4 className="font-semibold text-sm">Payment Links</h4>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Create and manage payment links — the only write operation available.
+                    Create payment links using the customer's MoneyWise token.
                   </p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
-                <ShieldCheck className="size-5 text-orange-500 mt-0.5" />
+                <ShieldCheck className="size-5 text-violet-500 mt-0.5" />
                 <div>
-                  <h4 className="font-semibold text-sm">Bearer Token Auth</h4>
+                  <h4 className="font-semibold text-sm">OAuth 2.0 + PKCE</h4>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Your <code className="font-mono text-xs">mwp_live_…</code> key is stored encrypted and never exposed to the browser.
+                    Tokens are stored server-side and never exposed to the browser.
                   </p>
                 </div>
               </div>
@@ -185,22 +191,20 @@ export default function MoneyWiseProIntegrationPage() {
           <div className="lg:col-span-2 space-y-6">
             <Card className={cn(isActive ? "border-teal-500/30" : "border-border")}>
               <CardHeader className="border-b border-border/50 pb-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle className="text-xl flex items-center gap-2">
-                      Connection Status
-                      {isActive && (
-                        <span className="inline-flex items-center rounded-full bg-teal-500/10 px-2 py-0.5 text-xs font-medium text-teal-600 dark:text-teal-400">
-                          <CheckCircle2 className="mr-1 size-3" /> Active
-                        </span>
-                      )}
-                    </CardTitle>
-                    <CardDescription className="mt-1.5">
-                      {isActive
-                        ? `MoneyWise Pro is connected. ${READ_ENDPOINTS.length} read + ${WRITE_ENDPOINTS.length} write endpoint${WRITE_ENDPOINTS.length !== 1 ? "s" : ""} available.`
-                        : "Enter your MoneyWise Pro API key to activate the integration."}
-                    </CardDescription>
-                  </div>
+                <div>
+                  <CardTitle className="text-xl flex items-center gap-2">
+                    Connection Status
+                    {isActive && (
+                      <span className="inline-flex items-center rounded-full bg-teal-500/10 px-2 py-0.5 text-xs font-medium text-teal-600 dark:text-teal-400">
+                        <CheckCircle2 className="mr-1 size-3" /> Active
+                      </span>
+                    )}
+                  </CardTitle>
+                  <CardDescription className="mt-1.5">
+                    {isActive
+                      ? `MoneyWise Pro is connected via ${connectedConfig.authMethod === "apikey" ? "API key" : "OAuth"}. ${READ_ENDPOINTS.length + WRITE_ENDPOINTS.length} endpoints available.`
+                      : "Authorise via MoneyWise Pro to start syncing data."}
+                  </CardDescription>
                 </div>
               </CardHeader>
 
@@ -217,7 +221,9 @@ export default function MoneyWiseProIntegrationPage() {
                           {connectedConfig.orgName || "MoneyWise Pro"}
                         </p>
                         <p className="text-xs text-teal-600/70 dark:text-teal-400/70 mt-1">
-                          API key managed securely by Kaizen OS.
+                          {connectedConfig.authMethod === "apikey"
+                            ? "Connected via service account API key."
+                            : "Connected via OAuth 2.0. Tokens refresh automatically."}
                         </p>
                       </div>
                     </div>
@@ -257,56 +263,66 @@ export default function MoneyWiseProIntegrationPage() {
                     </div>
                   </>
                 ) : (
-                  <div className="space-y-4">
+                  <div className="space-y-5">
                     <p className="text-sm text-muted-foreground">
-                      Enter your MoneyWise Pro API key below. You can find it in your{" "}
-                      <span className="font-medium text-foreground">MoneyWise Pro dashboard</span> under
-                      Settings → API Keys. Keys start with <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">mwp_live_</code>.
+                      Click <strong>Connect via MoneyWise Pro</strong> below. You'll be redirected to
+                      authorise Kaizen OS, then brought back here automatically.
+                      Requires a <strong>MoneyWise Premium</strong> account.
                     </p>
 
-                    <button
-                      type="button"
-                      onClick={() => setShowManual((v) => !v)}
-                      className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                      {showManual ? (
-                        <ChevronUp className="size-3" />
-                      ) : (
-                        <ChevronDown className="size-3" />
-                      )}
-                      {showManual ? "Hide manual entry" : "Enter API key manually"}
-                    </button>
+                    {/* Manual API key — secondary / fallback */}
+                    <div className="border-t border-border/40 pt-4">
+                      <button
+                        type="button"
+                        onClick={() => setShowManual((v) => !v)}
+                        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                      >
+                        {showManual ? (
+                          <ChevronUp className="size-3" />
+                        ) : (
+                          <ChevronDown className="size-3" />
+                        )}
+                        {showManual ? "Hide manual entry" : "Use a service account API key instead"}
+                      </button>
 
-                    {showManual && (
-                      <div className="space-y-3 rounded-lg border border-border/50 bg-muted/20 p-4">
-                        <div className="space-y-1.5">
-                          <Label htmlFor="mwp-api-key">API Key</Label>
-                          <Input
-                            id="mwp-api-key"
-                            type="password"
-                            value={apiKey}
-                            onChange={(e) => setApiKey(e.target.value)}
-                            placeholder="mwp_live_..."
-                            className="font-mono text-sm"
-                          />
+                      {showManual && (
+                        <div className="mt-3 space-y-3 rounded-lg border border-border/50 bg-muted/20 p-4">
+                          <p className="text-xs text-muted-foreground">
+                            For organisations without OAuth, enter a{" "}
+                            <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">
+                              mwp_live_…
+                            </code>{" "}
+                            service account key from your MoneyWise Pro dashboard.
+                          </p>
+                          <div className="space-y-1.5">
+                            <Label htmlFor="mwp-api-key">API Key</Label>
+                            <Input
+                              id="mwp-api-key"
+                              type="password"
+                              value={apiKey}
+                              onChange={(e) => setApiKey(e.target.value)}
+                              placeholder="mwp_live_..."
+                              className="font-mono text-sm"
+                            />
+                          </div>
+                          <Button
+                            onClick={handleManualConnect}
+                            disabled={isSaving || !apiKey.trim()}
+                            size="sm"
+                            className="w-full bg-teal-600 hover:bg-teal-700 text-white"
+                          >
+                            {isSaving ? (
+                              <>
+                                <Loader2 className="mr-2 size-3.5 animate-spin" />
+                                Verifying…
+                              </>
+                            ) : (
+                              "Save & Connect"
+                            )}
+                          </Button>
                         </div>
-                        <Button
-                          onClick={handleManualConnect}
-                          disabled={isSaving || !apiKey.trim()}
-                          size="sm"
-                          className="w-full bg-teal-600 hover:bg-teal-700 text-white"
-                        >
-                          {isSaving ? (
-                            <>
-                              <Loader2 className="mr-2 size-3.5 animate-spin" />
-                              Verifying…
-                            </>
-                          ) : (
-                            "Save & Connect"
-                          )}
-                        </Button>
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </div>
                 )}
               </CardContent>

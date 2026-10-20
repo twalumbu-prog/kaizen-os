@@ -140,17 +140,18 @@ http.route({
   method: "GET",
   handler: httpAction(async (ctx, request) => {
     const url = new URL(request.url);
-    const apiKey =
-      url.searchParams.get("api_key") ?? url.searchParams.get("access_token");
+    const code  = url.searchParams.get("code");
     const state = url.searchParams.get("state");
 
-    if (!apiKey || !state) {
-      return new Response("Missing required callback parameters", { status: 400 });
+    if (!code || !state) {
+      return new Response("Missing required callback parameters (code, state)", { status: 400 });
     }
 
+    const redirectUri = `${url.origin}/api/moneywise/callback`;
     const result = await ctx.runAction(internal.moneywise.handleCallback, {
-      apiKey,
+      code,
       state,
+      redirectUri,
     });
 
     const appUrl = process.env.SITE_URL;

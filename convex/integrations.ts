@@ -179,6 +179,67 @@ export const updateIntegrationStatusInternal = internalMutation({
   }
 });
 
+const FULL_PROVIDER = v.union(
+  v.literal("quickbooks"), v.literal("resend"), v.literal("google_drive"),
+  v.literal("google_ai"), v.literal("openrouter"), v.literal("meta"),
+  v.literal("masterfees"), v.literal("moneywise")
+);
+
+/**
+ * Atomically acquires a per-integration refresh lock.
+ * Returns `{ acquired: true }` when the lock was taken, or
+ * `{ acquired: false, accessToken }` when another refresh is in flight.
+ */
+export const acquireRefreshLock = internalMutation({
+  args: { orgId: v.id("organizations"), provider: FULL_PROVIDER },
+  handler: async (ctx, { orgId, provider }) => {
+    const row = await ctx.db.query("integrations")
+      .withIndex("by_orgId_provider", q => q.eq("orgId", orgId).eq("provider", provider))
+      .first();
+    if (!row?.config) return { acquired: false as const, accessToken: undefined };
+
+    let cfg: Record<string, unknown> = {};
+    try { cfg = JSON.parse(row.config); } catch {}
+
+    const now = Date.now();
+    const refreshingAt = typeof cfg.refreshingAt === "number" ? cfg.refreshingAt : 0;
+    if (refreshingAt && now - refreshingAt < 60_000) {
+      return { acquired: false as const, accessToken: typeof cfg.accessToken === "string" ? cfg.accessToken : undefined };
+    }
+
+    cfg.refreshingAt = now;
+    await ctx.db.patch(row._id, { config: JSON.stringify(cfg) });
+    return { acquired: true as const, accessToken: undefined };
+  },
+});
+
+/** Saves rotated tokens and clears the refresh lock. */
+export const saveRefreshedTokens = internalMutation({
+  args: {
+    orgId: v.id("organizations"),
+    provider: FULL_PROVIDER,
+    accessToken: v.string(),
+    refreshToken: v.string(),
+    expiresAt: v.number(),
+  },
+  handler: async (ctx, { orgId, provider, accessToken, refreshToken, expiresAt }) => {
+    const row = await ctx.db.query("integrations")
+      .withIndex("by_orgId_provider", q => q.eq("orgId", orgId).eq("provider", provider))
+      .first();
+    if (!row) return;
+
+    let cfg: Record<string, unknown> = {};
+    try { cfg = JSON.parse(row.config ?? "{}"); } catch {}
+
+    cfg.accessToken = accessToken;
+    cfg.refreshToken = refreshToken;
+    cfg.expiresAt = expiresAt;
+    delete cfg.refreshingAt;
+
+    await ctx.db.patch(row._id, { config: JSON.stringify(cfg), status: "active" });
+  },
+});
+
 export const seedOpenRouterForAllOrgs = internalMutation({
   args: {},
   handler: async (ctx) => {
