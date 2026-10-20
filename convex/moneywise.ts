@@ -9,8 +9,12 @@ import type { Id } from "./_generated/dataModel";
 
 const MWP_BASE_URL = "https://moneywise.blueopus.cloud/api/v1";
 const MWP_AUTH_URL = "https://moneywise.blueopus.cloud/oauth/authorize";
-const MWP_TOKEN_URL = "https://moneywise.blueopus.cloud/oauth/token";
-const MWP_REVOKE_URL = "https://moneywise.blueopus.cloud/oauth/revoke";
+// The token and revoke endpoints live on the API (under /api); only the consent page is on the web app.
+const MWP_TOKEN_URL = "https://moneywise.blueopus.cloud/api/oauth/token";
+const MWP_REVOKE_URL = "https://moneywise.blueopus.cloud/api/oauth/revoke";
+// read: organisation, wallets, balance, transactions, accounts, requisitions, products, payment links.
+// write: create payment links (and products).
+const MWP_SCOPE = "read write";
 
 // ── PKCE helpers ──────────────────────────────────────────────────────────────
 
@@ -200,6 +204,7 @@ export const getAuthUrl = action({
     url.searchParams.set("client_id", clientId);
     url.searchParams.set("redirect_uri", redirectUri);
     url.searchParams.set("response_type", "code");
+    url.searchParams.set("scope", MWP_SCOPE);
     url.searchParams.set("state", state);
     url.searchParams.set("code_challenge", challenge);
     url.searchParams.set("code_challenge_method", "S256");
