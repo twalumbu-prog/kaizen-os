@@ -55,6 +55,17 @@ export const INTEGRATIONS: CatalogEntry[] = [
     iconClassName: "bg-violet-50 text-violet-600 dark:bg-violet-900/30 dark:text-violet-400",
   },
   {
+    slug: "moneywise",
+    name: "MoneyWise Pro",
+    description: "Connect MoneyWise Pro to access wallets, balances, transactions, accounts, requisitions, products, and payment links.",
+    category: "Finance",
+    kind: "native",
+    href: "/admin/integrations/moneywise",
+    domain: "moneywise.blueopus.cloud",
+    initials: "MW",
+    iconClassName: "bg-teal-50 text-teal-600 dark:bg-teal-900/30 dark:text-teal-400",
+  },
+  {
     slug: "quickbooks",
     name: "QuickBooks Online",
     description: "Sync bank accounts, fetch live transaction data, and automate reconciliation reports.",

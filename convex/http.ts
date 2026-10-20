@@ -136,6 +136,39 @@ http.route({
 });
 
 http.route({
+  path: "/api/moneywise/callback",
+  method: "GET",
+  handler: httpAction(async (ctx, request) => {
+    const url = new URL(request.url);
+    const apiKey =
+      url.searchParams.get("api_key") ?? url.searchParams.get("access_token");
+    const state = url.searchParams.get("state");
+
+    if (!apiKey || !state) {
+      return new Response("Missing required callback parameters", { status: 400 });
+    }
+
+    const result = await ctx.runAction(internal.moneywise.handleCallback, {
+      apiKey,
+      state,
+    });
+
+    const appUrl = process.env.SITE_URL;
+    if (appUrl) {
+      const dest = new URL("/admin/integrations/moneywise", appUrl);
+      dest.searchParams.set(result.success ? "connected" : "error", "moneywise");
+      return Response.redirect(dest.toString(), 302);
+    }
+
+    if (result.success) {
+      return new Response("MoneyWise Pro connected successfully! You can close this window.", { status: 200 });
+    } else {
+      return new Response("Failed to connect MoneyWise Pro.", { status: 500 });
+    }
+  }),
+});
+
+http.route({
   path: "/api/drive/callback",
   method: "GET",
   handler: httpAction(async (ctx, request) => {

@@ -312,7 +312,8 @@ export default defineSchema({
       v.literal("google_ai"),
       v.literal("openrouter"),
       v.literal("meta"),
-      v.literal("masterfees")
+      v.literal("masterfees"),
+      v.literal("moneywise")
     ),
     status: v.union(v.literal("active"), v.literal("disconnected")),
     config: v.optional(v.string()), // JSON string of integration-specific configuration
@@ -371,7 +372,7 @@ export default defineSchema({
   oauthStates: defineTable({
     token: v.string(),
     orgId: v.id("organizations"),
-    provider: v.union(v.literal("quickbooks"), v.literal("google_drive"), v.literal("masterfees")),
+    provider: v.union(v.literal("quickbooks"), v.literal("google_drive"), v.literal("masterfees"), v.literal("moneywise")),
     expiresAt: v.number(),
   }).index("by_token", ["token"]),
 });

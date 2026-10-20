@@ -48,6 +48,7 @@ import type * as lib_scoring from "../lib/scoring.js";
 import type * as masterfees from "../masterfees.js";
 import type * as meta from "../meta.js";
 import type * as migrateMultiTenancy from "../migrateMultiTenancy.js";
+import type * as moneywise from "../moneywise.js";
 import type * as organizations from "../organizations.js";
 import type * as profiles from "../profiles.js";
 import type * as quickbooks from "../quickbooks.js";
@@ -128,6 +129,7 @@ declare const fullApi: ApiFromModules<{
   masterfees: typeof masterfees;
   meta: typeof meta;
   migrateMultiTenancy: typeof migrateMultiTenancy;
+  moneywise: typeof moneywise;
   organizations: typeof organizations;
   profiles: typeof profiles;
   quickbooks: typeof quickbooks;

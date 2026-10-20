@@ -25,7 +25,7 @@ export const listByOrg = query({
 export const getIntegration = query({
   args: {
     orgId: v.id("organizations"),
-    provider: v.union(v.literal("quickbooks"), v.literal("resend"), v.literal("google_drive"), v.literal("google_ai"), v.literal("openrouter"), v.literal("meta"), v.literal("masterfees"))
+    provider: v.union(v.literal("quickbooks"), v.literal("resend"), v.literal("google_drive"), v.literal("google_ai"), v.literal("openrouter"), v.literal("meta"), v.literal("masterfees"), v.literal("moneywise"))
   },
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
@@ -80,7 +80,7 @@ export const listQbIntegrations = internalQuery({
 export const getInternalIntegration = internalQuery({
   args: {
     orgId: v.id("organizations"),
-    provider: v.union(v.literal("quickbooks"), v.literal("resend"), v.literal("google_drive"), v.literal("google_ai"), v.literal("openrouter"), v.literal("meta"), v.literal("masterfees"))
+    provider: v.union(v.literal("quickbooks"), v.literal("resend"), v.literal("google_drive"), v.literal("google_ai"), v.literal("openrouter"), v.literal("meta"), v.literal("masterfees"), v.literal("moneywise"))
   },
   handler: async (ctx, args) => {
     return await ctx.db.query("integrations")
@@ -113,7 +113,7 @@ export const getActiveAiIntegration = internalQuery({
 export const updateIntegrationStatus = mutation({
   args: {
     orgId: v.id("organizations"),
-    provider: v.union(v.literal("quickbooks"), v.literal("resend"), v.literal("google_drive"), v.literal("google_ai"), v.literal("openrouter"), v.literal("meta"), v.literal("masterfees")),
+    provider: v.union(v.literal("quickbooks"), v.literal("resend"), v.literal("google_drive"), v.literal("google_ai"), v.literal("openrouter"), v.literal("meta"), v.literal("masterfees"), v.literal("moneywise")),
     status: v.union(v.literal("active"), v.literal("disconnected")),
     config: v.optional(v.string())
   },
@@ -153,7 +153,7 @@ export const updateIntegrationStatus = mutation({
 export const updateIntegrationStatusInternal = internalMutation({
   args: {
     orgId: v.id("organizations"),
-    provider: v.union(v.literal("quickbooks"), v.literal("resend"), v.literal("google_drive"), v.literal("google_ai"), v.literal("openrouter"), v.literal("meta"), v.literal("masterfees")),
+    provider: v.union(v.literal("quickbooks"), v.literal("resend"), v.literal("google_drive"), v.literal("google_ai"), v.literal("openrouter"), v.literal("meta"), v.literal("masterfees"), v.literal("moneywise")),
     status: v.union(v.literal("active"), v.literal("disconnected")),
     config: v.optional(v.string())
   },
