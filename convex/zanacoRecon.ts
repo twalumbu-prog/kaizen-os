@@ -5,6 +5,7 @@ import { action, internalAction } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { parseBankCsv } from "./lib/parsers/csv";
+import { parseZanacoBankXls } from "./lib/parsers/zanacoBankXls";
 import type { MfTransaction } from "./masterfees";
 import { dayBounds } from "./zanacoReconDb";
 
@@ -127,8 +128,14 @@ export const parseBankFile = action({
   }> => {
     const blob = await ctx.storage.get(storageId);
     if (!blob) throw new Error("File not found in storage");
-    const text = await blob.text();
-    const parsed = parseBankCsv(text);
+
+    const isExcel =
+      blob.type === "application/vnd.ms-excel" ||
+      blob.type === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+    const parsed = isExcel
+      ? parseZanacoBankXls(await blob.arrayBuffer())
+      : parseBankCsv(await blob.text());
     const credits = parsed.transactions
       .filter((t) => t.type === "credit" && (!date || t.date === date))
       .map((t) => ({ date: t.date, description: t.description, amount: t.amount }));
