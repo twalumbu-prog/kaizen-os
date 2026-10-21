@@ -120,8 +120,8 @@ export const processDate = internalAction({
 });
 
 export const parseBankFile = action({
-  args: { storageId: v.id("_storage") },
-  handler: async (ctx, { storageId }): Promise<{
+  args: { storageId: v.id("_storage"), date: v.optional(v.string()) },
+  handler: async (ctx, { storageId, date }): Promise<{
     credits: Array<{ date: string; description: string; amount: number }>;
     total: number;
   }> => {
@@ -130,7 +130,7 @@ export const parseBankFile = action({
     const text = await blob.text();
     const parsed = parseBankCsv(text);
     const credits = parsed.transactions
-      .filter((t) => t.type === "credit")
+      .filter((t) => t.type === "credit" && (!date || t.date === date))
       .map((t) => ({ date: t.date, description: t.description, amount: t.amount }));
     const total = credits.reduce((s, t) => s + t.amount, 0);
     return { credits, total };

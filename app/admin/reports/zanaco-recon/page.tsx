@@ -78,12 +78,12 @@ export default function ZanacoReconPage() {
 
     if (recon.bankFile?.storageId && !bankData && !loadingBank) {
       setLoadingBank(true);
-      parseBankFile({ storageId: recon.bankFile.storageId as any })
+      parseBankFile({ storageId: recon.bankFile.storageId as any, date })
         .then(setBankData)
         .catch(() => toast.error("Failed to parse bank statement."))
         .finally(() => setLoadingBank(false));
     }
-  }, [recon?.mfFile?.storageId, recon?.bankFile?.storageId]);
+  }, [recon?.mfFile?.storageId, recon?.bankFile?.storageId, date]);
 
   const handleFetchMfLive = async () => {
     setLoadingMf(true);
@@ -134,7 +134,7 @@ export default function ZanacoReconPage() {
       // Parse immediately
       setLoadingBank(true);
       setBankData(null);
-      parseBankFile({ storageId })
+      parseBankFile({ storageId, date })
         .then(setBankData)
         .catch(() => toast.error("File uploaded but could not be parsed."))
         .finally(() => setLoadingBank(false));
