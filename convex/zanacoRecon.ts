@@ -87,7 +87,7 @@ export const processDate = internalAction({
       };
       for (const tx of body.data) {
         if (
-          tx.completed_at?.slice(0, 10) === date &&
+          tx.payment_date === date &&
           tx.payment_method === "bank" &&
           (tx.account_name ?? "").toLowerCase().includes("zanaco")
         ) {

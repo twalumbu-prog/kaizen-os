@@ -261,9 +261,19 @@ export type MfTransaction = {
   status: string;
   term: number;
   year: number;
+  /** Timestamp the record was created / data entered — NOT the bank deposit date. */
   completed_at: string;
+  /** The actual payment date (YYYY-MM-DD) as recorded by staff or imported. Use this for date-based filtering. */
+  payment_date: string;
+  /** How payment_date was set: "recorded_payment_date" | "import_date" | etc. */
+  payment_date_source: string;
+  initiated_at: string;
+  invoice_id?: string;
+  is_split_parent?: boolean;
   student: {
     student_id: string;
+    first_name?: string;
+    last_name?: string;
     full_name: string;
     admission_number: string;
     grade: string;
@@ -294,9 +304,8 @@ export const getZanacoInflowsForDate = action({
       };
 
       for (const tx of body.data) {
-        const txDate = tx.completed_at?.slice(0, 10);
         if (
-          txDate === date &&
+          tx.payment_date === date &&
           tx.payment_method === "bank" &&
           (tx.account_name ?? "").toLowerCase().includes("zanaco")
         ) {
