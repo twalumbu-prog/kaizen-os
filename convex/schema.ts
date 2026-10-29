@@ -337,6 +337,25 @@ export default defineSchema({
     config: v.optional(v.string()),
   }).index("by_orgId", ["orgId"]),
 
+  /**
+   * Rows a validator read out of a submission's documents (e.g. each guest on
+   * a scanned register), kept so automations can cross-check one report
+   * against another without reading the scans again.
+   */
+  extractedRecords: defineTable({
+    orgId: v.id("organizations"),
+    submissionId: v.id("submissions"),
+    /** What the rows are, e.g. "guestRegister", "receipts", "deposits". */
+    kind: v.string(),
+    /** The submission's period label — YYYY-MM-DD for daily reports. */
+    date: v.string(),
+    /** JSON array of rows, shaped per kind (see convex/lib/mew3/types.ts). */
+    rows: v.string(),
+    extractedAt: v.number(),
+  })
+    .index("by_submissionId", ["submissionId"])
+    .index("by_orgId_kind_date", ["orgId", "kind", "date"]),
+
   /** Items (e.g. email message ids) an automation has already handled, so reruns never repeat work. */
   automationProcessed: defineTable({
     automationId: v.id("automations"),

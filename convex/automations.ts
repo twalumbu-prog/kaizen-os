@@ -107,7 +107,9 @@ export const runNow = mutation({
         ? internal.recruitmentAutomation.runAutomation
         : a.kind === "canteenValidChildren"
           ? internal.canteenValidChildren.runAutomation
-          : internal.canteenAutomation.runAutomation;
+          : a.kind === "mew3DailyRecon"
+            ? internal.mew3Recon.runAutomation
+            : internal.canteenAutomation.runAutomation;
     await ctx.scheduler.runAfter(0, runner, { automationId, trigger: "manual" });
   },
 });

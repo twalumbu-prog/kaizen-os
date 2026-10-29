@@ -47,4 +47,13 @@ crons.daily(
   internal.zanacoRecon.runAllScheduled,
 );
 
+// 06:00 Lusaka: re-run MEW3 Apartments' daily reconciliation for the two
+// previous days, so revenue entered in MoneyWise after the documents were
+// submitted is picked up.
+crons.daily(
+  "mew3-daily-reconciliation",
+  { hourUTC: 4, minuteUTC: 0 },
+  internal.mew3Recon.runAllScheduled,
+);
+
 export default crons;

@@ -36,8 +36,11 @@ export async function parseUploadedFile(
     }
   }
 
-  // Both automation workbooks carry a two-column "Summary" sheet of key/values.
-  if ((validatorKey === "canteenDeviation" || validatorKey === "canteenValidChildren") && fileType === "xlsx") {
+  // The automation workbooks carry a two-column "Summary" sheet of key/values.
+  if (
+    (validatorKey === "canteenDeviation" || validatorKey === "canteenValidChildren" || validatorKey === "mew3DailyRecon") &&
+    fileType === "xlsx"
+  ) {
     return parseCanteenDeviation(buffer);
   }
 

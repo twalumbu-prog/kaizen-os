@@ -6,6 +6,13 @@ import { documentSubmissionMaxPoints, documentSubmissionValidator } from "./docu
 import { adPerformanceMaxPoints, adPerformanceValidator } from "./adPerformance";
 import { canteenDeviationMaxPoints, canteenDeviationValidator } from "./canteenDeviation";
 import { canteenValidChildrenMaxPoints, canteenValidChildrenValidator } from "./canteenValidChildren";
+import {
+  mew3DepositsValidator,
+  mew3DocumentMaxPoints,
+  mew3GuestRegisterValidator,
+  mew3ReceiptsValidator,
+} from "./mew3Documents";
+import { mew3DailyReconMaxPoints, mew3DailyReconValidator } from "./mew3DailyRecon";
 import type { ParsedFile, ValidationContext, ValidationResult, ValidationRule } from "./types";
 
 type AsyncValidator = (
@@ -27,6 +34,10 @@ export const VALIDATOR_REGISTRY: Record<string, AsyncValidator> = {
   adPerformance: adPerformanceValidator,
   canteenDeviation: canteenDeviationValidator,
   canteenValidChildren: canteenValidChildrenValidator,
+  mew3GuestRegister: mew3GuestRegisterValidator,
+  mew3Receipts: mew3ReceiptsValidator,
+  mew3Deposits: mew3DepositsValidator,
+  mew3DailyRecon: mew3DailyReconValidator,
 };
 
 export function getValidator(validatorKey: string): AsyncValidator {
@@ -52,6 +63,10 @@ export const MAX_POINTS_REGISTRY: Record<string, MaxPointsFn> = {
   adPerformance: adPerformanceMaxPoints,
   canteenDeviation: canteenDeviationMaxPoints,
   canteenValidChildren: canteenValidChildrenMaxPoints,
+  mew3GuestRegister: mew3DocumentMaxPoints,
+  mew3Receipts: mew3DocumentMaxPoints,
+  mew3Deposits: mew3DocumentMaxPoints,
+  mew3DailyRecon: mew3DailyReconMaxPoints,
 };
 
 export function getMaxPossibleScore(validatorKey: string, rules: ValidationRule[]): number {

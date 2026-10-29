@@ -21,6 +21,12 @@ export interface ValidationResult {
   carryForward?: { closingBalance?: number };
   /** Period closing balance of the internal ledger, persisted so the bank-vs-ledger variance can be charted. */
   ledgerClosingBalance?: number;
+  /**
+   * Rows a validator read out of the documents, saved (extractedRecords) for
+   * automations that cross-check one report against another. `summary` is
+   * also shown as each file's extracted data.
+   */
+  records?: { kind: string; rows: unknown[]; summary: Record<string, string | number | null> };
 }
 
 export interface ValidationRule {

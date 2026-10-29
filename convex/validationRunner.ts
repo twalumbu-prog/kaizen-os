@@ -10,9 +10,17 @@ import type { SpreadsheetRole } from "./lib/parsers/excel";
 import { getValidator } from "./validators/registry";
 import type { AiConfig, ParsedFile, ParsedStatement, ValidationContext } from "./validators/types";
 import { extractDataWithAi } from "./lib/aiExtract";
+import { MEW3_DOC_VALIDATORS } from "./validators/mew3Documents";
 
 /** Validators that review the uploaded document itself instead of extracting figures from it. */
-const RAW_DOCUMENT_VALIDATORS = new Set(["documentSubmission"]);
+const RAW_DOCUMENT_VALIDATORS = new Set(["documentSubmission", ...Object.keys(MEW3_DOC_VALIDATORS)]);
+
+/**
+ * Validators whose own reading of the file is authoritative, so the generic AI
+ * extraction is skipped: automation workbooks, and documents a validator
+ * already reads with its own AI prompt.
+ */
+const SKIP_GENERIC_AI_EXTRACT = new Set(["canteenDeviation", "mew3DailyRecon", ...Object.keys(MEW3_DOC_VALIDATORS)]);
 
 const MIME_TYPES: Record<string, string> = {
   pdf: "application/pdf",
@@ -162,8 +170,7 @@ export const runValidation = internalAction({
       let aiClosing: number | undefined = undefined;
       let aiTxCount = 0;
 
-      // canteenDeviation workbooks are machine-generated; their Summary sheet is authoritative.
-      if (aiConfig && template.validatorKey !== "canteenDeviation") {
+      if (aiConfig && !SKIP_GENERIC_AI_EXTRACT.has(template.validatorKey)) {
         console.log(`[ValidationRunner] Running AI document analysis & extraction on ${file.label}...`);
         const customFields = [
           ...(template.aiExtractionFields ?? []),
@@ -271,8 +278,20 @@ export const runValidation = internalAction({
       for (const update of extractedUpdates) {
         if (update.extracted.metadata) {
           update.extracted.metadata.documentValidationStatus = result.summary;
+          if (result.records) Object.assign(update.extracted.metadata, result.records.summary);
         }
+        if (result.records) update.extracted.transactionCount = result.records.rows.length;
       }
+    }
+
+    if (result.records && orgId) {
+      await ctx.runMutation(internal.mew3.saveExtractedRecords, {
+        orgId,
+        submissionId,
+        kind: result.records.kind,
+        date: submission.periodLabel,
+        rows: JSON.stringify(result.records.rows),
+      });
     }
 
     if (extractedUpdates.length > 0) {
@@ -292,6 +311,11 @@ export const runValidation = internalAction({
     // The recon's figures are saved now, so the valid-children list can be rebuilt from it.
     if (triggerAutomations && orgId && template.validatorKey === "canteenSalesRecon") {
       await ctx.scheduler.runAfter(0, internal.canteenValidChildren.runOnReconSubmitted, { orgId });
+    }
+
+    // Once a day's guest register, receipts and proof of deposit are all in, reconcile that day.
+    if (triggerAutomations && orgId && template.validatorKey in MEW3_DOC_VALIDATORS) {
+      await ctx.scheduler.runAfter(0, internal.mew3Recon.runOnDocumentSubmitted, { orgId, date: submission.periodLabel });
     }
   },
 });

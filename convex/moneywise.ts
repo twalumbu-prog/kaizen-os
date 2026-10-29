@@ -112,9 +112,13 @@ async function doTokenRefresh(
 async function getMwpToken(ctx: ActionCtx): Promise<{ token: string; orgId: Id<"organizations"> }> {
   const profile = await ctx.runQuery(api.profiles.getMe, {});
   if (!profile) throw new Error("Not authenticated");
+  return { token: await tokenForOrg(ctx, profile.orgId), orgId: profile.orgId };
+}
 
+/** Returns a valid Bearer token for an org's MoneyWise connection, refreshing if needed — for background jobs with no signed-in user. */
+async function tokenForOrg(ctx: ActionCtx, orgId: Id<"organizations">): Promise<string> {
   const integration = await ctx.runQuery(internal.integrations.getInternalIntegration, {
-    orgId: profile.orgId,
+    orgId,
     provider: "moneywise",
   });
   if (!integration || integration.status !== "active" || !integration.config) {
@@ -126,7 +130,7 @@ async function getMwpToken(ctx: ActionCtx): Promise<{ token: string; orgId: Id<"
   // API-key path — always valid
   if (cfg.authMethod === "apikey") {
     if (!cfg.apiKey) throw new Error("MoneyWise Pro API key missing — please reconnect.");
-    return { token: cfg.apiKey, orgId: profile.orgId };
+    return cfg.apiKey;
   }
 
   // OAuth path — check expiry
@@ -136,19 +140,19 @@ async function getMwpToken(ctx: ActionCtx): Promise<{ token: string; orgId: Id<"
 
   const needsRefresh = !cfg.expiresAt || cfg.expiresAt - Date.now() < REFRESH_BUFFER_MS;
   if (!needsRefresh) {
-    return { token: cfg.accessToken, orgId: profile.orgId };
+    return cfg.accessToken;
   }
 
   // Acquire the refresh lock (Convex mutation is serialised — safe)
   const lock = await ctx.runMutation(internal.integrations.acquireRefreshLock, {
-    orgId: profile.orgId,
+    orgId,
     provider: "moneywise",
   });
 
   if (!lock.acquired) {
     // Another action is refreshing; use the current token if it hasn't expired yet
     const current = lock.accessToken ?? cfg.accessToken;
-    if (cfg.expiresAt && cfg.expiresAt > Date.now()) return { token: current, orgId: profile.orgId };
+    if (cfg.expiresAt && cfg.expiresAt > Date.now()) return current;
     throw new Error("Token refresh in progress — please retry in a moment.");
   }
 
@@ -162,15 +166,15 @@ async function getMwpToken(ctx: ActionCtx): Promise<{ token: string; orgId: Id<"
   try {
     const tokens = await doTokenRefresh(cfg, redirectUri);
     await ctx.runMutation(internal.integrations.saveRefreshedTokens, {
-      orgId: profile.orgId,
+      orgId,
       provider: "moneywise",
       ...tokens,
     });
-    return { token: tokens.accessToken, orgId: profile.orgId };
-  } catch (e: any) {
+    return tokens.accessToken;
+  } catch {
     // Refresh refused → disconnect so the UI shows the reconnect prompt
     await ctx.runMutation(internal.integrations.updateIntegrationStatusInternal, {
-      orgId: profile.orgId,
+      orgId,
       provider: "moneywise",
       status: "disconnected",
       config: JSON.stringify({}),
@@ -178,6 +182,77 @@ async function getMwpToken(ctx: ActionCtx): Promise<{ token: string; orgId: Id<"
     throw new Error("MoneyWise Pro session expired — please reconnect.");
   }
 }
+
+// ── Recon helper (no user auth required) ─────────────────────────────────────
+
+export const fetchTransactionsForRecon = internalAction({
+  args: { from: v.string(), to: v.string(), orgId: v.optional(v.id("organizations")) },
+  handler: async (ctx, { from, to, orgId }): Promise<unknown> => {
+    const integration = orgId
+      ? await ctx.runQuery(internal.integrations.getInternalIntegration, { orgId, provider: "moneywise" })
+      : await ctx.runQuery(internal.integrations.getActiveMoneyWise, {});
+    if (!integration?.config || integration.status !== "active") throw new Error("No active MoneyWise integration found");
+
+    const cfg = JSON.parse(integration.config) as StoredConfig;
+
+    let token: string;
+    if (cfg.authMethod === "apikey") {
+      token = cfg.apiKey;
+    } else {
+      const needsRefresh = !cfg.expiresAt || cfg.expiresAt - Date.now() < REFRESH_BUFFER_MS;
+      if (needsRefresh) {
+        const siteUrl = process.env.SITE_URL ?? process.env.NEXT_PUBLIC_CONVEX_SITE_URL ?? "";
+        const redirectUri = `${siteUrl}/api/moneywise/callback`;
+        const tokens = await doTokenRefresh(cfg, redirectUri);
+        await ctx.runMutation(internal.integrations.saveRefreshedTokens, {
+          orgId: integration.orgId,
+          provider: "moneywise",
+          ...tokens,
+        });
+        token = tokens.accessToken;
+      } else {
+        token = cfg.accessToken;
+      }
+    }
+    if (!token) throw new Error("MoneyWise token missing — please reconnect");
+
+    // 1. List external wallets (Zanaco, Natsave, etc.)
+    const externalWallets = await mwpFetch(token, "/external-wallets").catch(() => null) as {
+      data?: Array<{ id: string; name: string; bank?: string; currency?: string; ledger_balance?: number }>;
+      count?: number;
+    } | null;
+
+    // 2. Find the Zanaco external wallet
+    const zanacoWallet = externalWallets?.data?.find((w) =>
+      w.name?.toLowerCase().includes("zanaco") || w.bank?.toLowerCase().includes("zanaco")
+    );
+
+    // 3. Fetch all ledger transactions recorded against the Zanaco external wallet
+    const mwLedgerEntries: unknown[] = [];
+    if (zanacoWallet?.id) {
+      let cursor: string | undefined;
+      do {
+        const params = new URLSearchParams({
+          external_wallet_id: zanacoWallet.id,
+          start_date: from,
+          end_date: to,
+          limit: "200",
+        });
+        if (cursor) params.set("cursor", cursor);
+        const page = await mwpFetch(token, `/transactions?${params.toString()}`) as {
+          data?: unknown[];
+          next_cursor?: string;
+        };
+        mwLedgerEntries.push(...(page.data ?? []));
+        cursor = page.next_cursor;
+      } while (cursor);
+    }
+
+    const organization = await mwpFetch(token, "/organization").catch(() => null);
+    const allMwIntegrations = await ctx.runQuery(internal.integrations.listAllMoneyWise, {});
+    return { organization, allMwIntegrations, externalWallets, zanacoWalletId: zanacoWallet?.id ?? null, mwLedgerEntries };
+  },
+});
 
 // ── OAuth connect flow ────────────────────────────────────────────────────────
 
@@ -469,5 +544,38 @@ export const createPaymentLink = action({
         ...(expiresAt ? { expires_at: expiresAt } : {}),
       }),
     });
+  },
+});
+
+// ── Daily reconciliation feed ─────────────────────────────────────────────────
+
+/**
+ * Every MoneyWise transaction dated `date` (YYYY-MM-DD) for an org, raw as the
+ * API returns them — the reconciliation normalises them (lib/mew3/moneywise.ts).
+ * Asks for the day either side as well, since the API's day boundary may be UTC
+ * and the business runs on Lusaka time.
+ */
+export const fetchDayTransactions = internalAction({
+  args: { orgId: v.id("organizations"), date: v.string() },
+  handler: async (ctx, { orgId, date }): Promise<unknown[]> => {
+    const token = await tokenForOrg(ctx, orgId);
+    const day = (offset: number) => new Date(Date.parse(`${date}T00:00:00Z`) + offset * 86_400_000).toISOString().slice(0, 10);
+    const txns: unknown[] = [];
+    let cursor: string | undefined;
+    for (let page = 0; page < 50; page++) {
+      const params = new URLSearchParams({ start_date: day(-1), end_date: day(1), from: day(-1), to: day(1), limit: "200" });
+      if (cursor) params.set("cursor", cursor);
+      const res = (await mwpFetch(token, `/transactions?${params.toString()}`)) as
+        | { data?: unknown[]; next_cursor?: string | null }
+        | unknown[];
+      if (Array.isArray(res)) {
+        txns.push(...res);
+        break;
+      }
+      txns.push(...(res.data ?? []));
+      cursor = res.next_cursor ?? undefined;
+      if (!cursor) break;
+    }
+    return txns;
   },
 });
