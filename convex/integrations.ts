@@ -89,6 +89,40 @@ export const getInternalIntegration = internalQuery({
   }
 });
 
+export const getActiveMoneyWise = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.db.query("integrations")
+      .withIndex("by_orgId_provider")
+      .filter(q => q.eq(q.field("provider"), "moneywise"))
+      .filter(q => q.eq(q.field("status"), "active"))
+      .first();
+  },
+});
+
+export const listAllMoneyWise = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db.query("integrations")
+      .withIndex("by_orgId_provider")
+      .filter(q => q.eq(q.field("provider"), "moneywise"))
+      .collect();
+    return rows.map(r => {
+      let cfg: Record<string, unknown> = {};
+      try { cfg = JSON.parse(r.config ?? "{}"); } catch {}
+      return {
+        _id: r._id,
+        orgId: r.orgId,
+        status: r.status,
+        orgName: cfg.orgName ?? null,
+        expiresAt: cfg.expiresAt ? new Date(cfg.expiresAt as number).toISOString() : null,
+        hasAccessToken: !!cfg.accessToken,
+        hasRefreshToken: !!cfg.refreshToken,
+      };
+    });
+  },
+});
+
 export const getActiveAiIntegration = internalQuery({
   args: {},
   handler: async (ctx) => {
