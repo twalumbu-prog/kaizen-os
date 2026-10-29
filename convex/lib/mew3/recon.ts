@@ -257,6 +257,8 @@ export interface GuestLine {
   receiptedNights: number | null;
   receiptedAmount: number;
   nightsAgree: boolean | null;
+  /** Register's "amount paid" against the receipts, when both are there — the stand-in for length of stay, since receipts rarely show nights. */
+  amountAgrees: boolean | null;
   note: string;
 }
 
@@ -357,6 +359,7 @@ export function reconcileDay(input: DayInput): DayResult {
     const receiptedNights = paid.length && receiptNights.every((n) => n !== null) ? sum(receiptNights as number[]) : null;
     const nightsAgree = registerNights !== null && receiptedNights !== null ? registerNights === receiptedNights : null;
     const receiptedAmount = sum(paid.map((r) => r.amount));
+    const amountAgrees = g.amount !== null && g.amount > 0 && paid.length ? near(g.amount, receiptedAmount) : null;
     const notes: string[] = [];
     if (g.checkIn && g.checkIn !== date) notes.push(`Register says check-in ${g.checkIn}`);
     if (g.amount !== null && paid.length && !near(g.amount, receiptedAmount))
@@ -370,6 +373,7 @@ export function reconcileDay(input: DayInput): DayResult {
       receiptedNights,
       receiptedAmount,
       nightsAgree,
+      amountAgrees,
       note: notes.join("; "),
     };
   });
@@ -442,17 +446,23 @@ export function reconcileDay(input: DayInput): DayResult {
           `${orphanReceipts.length} receipts match nobody on today's or a recent register: ${list(orphanReceipts.map((l) => receiptLabel(l.receipt)))}.`, "high"),
   );
 
-  // C. Durations agree.
-  const comparable = guestLines.filter((l) => l.nightsAgree !== null).length;
+  // C. Durations agree. Receipts seldom show nights, so where they don't, the register's amount paid
+  // against the receipted amount stands in for it (nights × rate).
+  const amountMismatches = guestLines.filter((l) => l.nightsAgree === null && l.amountAgrees === false);
+  const comparable = guestLines.filter((l) => l.nightsAgree !== null || l.amountAgrees !== null).length;
+  const receipted = guestLines.length - unreceipted.length;
   checks.push(
-    nightsMismatches.length > 0
+    nightsMismatches.length + amountMismatches.length > 0
       ? check("durationsMatch", "Stay durations match the receipts", 15, "fail",
-          `Nights differ for ${nightsMismatches.length} guests: ${list(nightsMismatches.map((l) => `${l.guest.guestName} (register ${l.registerNights}, receipt ${l.receiptedNights})`))}.`, "high")
+          [
+            nightsMismatches.length ? `Nights differ for ${list(nightsMismatches.map((l) => `${l.guest.guestName} (register ${l.registerNights}, receipt ${l.receiptedNights})`))}.` : "",
+            amountMismatches.length ? `Register amount differs from the receipt for ${list(amountMismatches.map((l) => `${l.guest.guestName} (register ${kwacha(l.guest.amount ?? 0)}, receipted ${kwacha(l.receiptedAmount)})`))} — the stay may have been receipted for a different length.` : "",
+          ].filter(Boolean).join(" "), "high")
       : comparable === 0
         ? check("durationsMatch", "Stay durations match the receipts", 15, guests.length ? "warning" : "pass",
-            guests.length ? "Nights could not be compared — the register or the receipts do not show the length of stay." : "No stays to compare.", "medium")
-        : check("durationsMatch", "Stay durations match the receipts", 15, comparable < guestLines.length - unreceipted.length ? "warning" : "pass",
-            `Nights agree for all ${comparable} stays that show them.` + (comparable < guestLines.length - unreceipted.length ? " Some stays do not show a length on one of the documents." : ""), "low"),
+            guests.length ? "Not comparable — the receipts show no nights and the register shows no amount paid." : "No stays to compare.", "medium")
+        : check("durationsMatch", "Stay durations match the receipts", 15, comparable < receipted ? "warning" : "pass",
+            `Length of stay agrees for all ${comparable} stays that can be compared (nights where written, otherwise the register's amount paid against the receipt).` + (comparable < receipted ? " Some stays could not be compared." : ""), "low"),
   );
 
   // D. Revenue recorded in MoneyWise.
@@ -483,11 +493,16 @@ export function reconcileDay(input: DayInput): DayResult {
 
   // E. Cash banked.
   const cashAvailable = sum([cashDeposited + unspecifiedDeposited]);
+  // The receipt book has no tick-box for how it was paid, so many receipts name no method at all.
+  const unknownReceipted = sum(receipts.filter((r) => r.paymentMethod === "unknown").map((r) => r.amount));
   checks.push(
     byChannel.cash === 0 && cashDeposited === 0
       ? check("cashDeposited", "Cash takings deposited", 10, "pass", "No cash was taken today.", "low")
       : near(byChannel.cash, cashDeposited)
         ? check("cashDeposited", "Cash takings deposited", 10, "pass", `Cash receipted and cash deposited are both ${kwacha(byChannel.cash)}.`, "low")
+        : near(byChannel.cash + unknownReceipted, cashAvailable)
+          ? check("cashDeposited", "Cash takings deposited", 10, "warning",
+              `Balances only if the ${kwacha(unknownReceipted)} on receipts with no payment method written was cash — ask Finance to write the method on each receipt.`, "medium")
         : near(byChannel.cash, cashAvailable)
           ? check("cashDeposited", "Cash takings deposited", 10, "warning",
               `Cash receipted is ${kwacha(byChannel.cash)}; that balances only if the ${kwacha(unspecifiedDeposited)} deposited without a stated source was cash.`, "medium")

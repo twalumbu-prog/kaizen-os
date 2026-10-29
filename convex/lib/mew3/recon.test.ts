@@ -190,4 +190,17 @@ describe("buildMasterRegister", () => {
     expect(by["John Phiri"]).toMatchObject({ status: "Paid", inHouse: false });
     expect(by["Peter Mwale"]).toMatchObject({ status: "Unpaid", inHouse: true });
   });
+
+  it("compares register amount to the receipt when receipts show no nights", () => {
+    const D = "2026-09-25";
+    const guest = { guestName: "Manasseh Banda", room: "Room 1", checkIn: D, checkOut: "2026-10-01", nights: null, guests: 1, phone: null, receiptNumber: null, amount: 2700, paymentMethod: null };
+    const rec = (amount: number) => ({ receiptNumber: "149", date: D, guestName: "Manasseh Banda", room: null, checkIn: null, checkOut: null, nights: null, amount, paymentMethod: "unknown" as const, methodWritten: null });
+    const run = (amount: number) =>
+      reconcileDay({ date: D, guests: [guest], receipts: [rec(amount)], deposits: [{ date: D, amount: 2700, source: "cash", destination: null, reference: null }], moneywise: { ok: false, reason: "x" }, earlierGuests: [], earlierReceipts: [] });
+    const ok = run(2700);
+    expect(ok.guests[0].registerNights).toBe(6);
+    expect(ok.checks.find((c) => c.key === "durationsMatch")?.status).toBe("pass");
+    expect(ok.checks.find((c) => c.key === "cashDeposited")?.status).toBe("warning");
+    expect(run(2250).checks.find((c) => c.key === "durationsMatch")?.status).toBe("fail");
+  });
 });
