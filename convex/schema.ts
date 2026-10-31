@@ -152,6 +152,7 @@ export default defineSchema({
      * e.g. [0, 1, 6] for Sunday, Monday, Saturday.
      */
     excludedDaysOfWeek: v.optional(v.array(v.number())),
+    dueSameDay: v.optional(v.boolean()),
     /** Explicit YYYY-MM-DD date strings to exclude from reporting (e.g. holidays). */
     excludedDates: v.optional(v.array(v.string())),
     /** Target outcome benchmarks and reference line settings. */

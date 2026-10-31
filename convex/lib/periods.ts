@@ -33,6 +33,12 @@ export interface Schedule {
   excludedDaysOfWeek?: number[] | null;
   /** Explicit YYYY-MM-DD date strings to exclude from reporting (e.g. holidays). */
   excludedDates?: string[] | null;
+  /**
+   * Daily / weekday reports only: the day's report is due at the end of that
+   * same day (the 28th's paperwork is filed on the 28th) instead of the usual
+   * next valid day.
+   */
+  dueSameDay?: boolean | null;
 }
 
 export type ScheduleInput = Cadence | Schedule;
@@ -231,12 +237,12 @@ function boundsFromStart(schedule: Schedule, start: Date): PeriodBounds {
   if (cadence === "daily") {
     end = endOfUTCDay(start);
     periodLabel = start.toISOString().slice(0, 10);
-    due = nextValidDay(start, schedule);
+    due = schedule.dueSameDay ? start : nextValidDay(start, schedule);
   } else if (cadence === "weekday") {
     end = endOfUTCDay(start);
     periodLabel = start.toISOString().slice(0, 10);
     // Friday's report is due Monday — the weekend is not a working day.
-    due = nextWeekday(start);
+    due = schedule.dueSameDay ? start : nextWeekday(start);
   } else if (cadence === "weekly") {
     const endDay = new Date(start);
     endDay.setUTCDate(endDay.getUTCDate() + 6); // Fri..Thu inclusive
@@ -256,11 +262,13 @@ function boundsFromStart(schedule: Schedule, start: Date): PeriodBounds {
     due = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, dueDay));
   }
 
+  const sameDay = !!schedule.dueSameDay && (cadence === "daily" || cadence === "weekday");
   return {
     periodLabel,
     periodStart: start.getTime(),
     periodEnd: end.getTime(),
-    dueAt: atDueHour(due).getTime(),
+    // A same-day report stays on time until its own day closes.
+    dueAt: sameDay ? end.getTime() : atDueHour(due).getTime(),
   };
 }
 
@@ -335,7 +343,9 @@ export function boundsForDueAt(schedule: ScheduleInput, dueAt: number): PeriodBo
   }
 
   const probe = new Date(dueAt);
-  probe.setUTCDate(probe.getUTCDate() - 1);
+  if (!(normalized.dueSameDay && (normalized.cadence === "daily" || normalized.cadence === "weekday"))) {
+    probe.setUTCDate(probe.getUTCDate() - 1);
+  }
   probe.setUTCHours(12, 0, 0, 0);
   return periodContaining(schedule, probe.getTime());
 }

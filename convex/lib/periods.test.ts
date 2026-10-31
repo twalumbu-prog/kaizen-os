@@ -283,4 +283,22 @@ describe("excluded days of week and exception rules (e.g. Canteen Sat/Sun/Mon ex
     const next = nextPeriod(holidaySchedule, dec24);
     expect(next.periodLabel).toBe("2026-12-26");
   });
+
+  describe("dueSameDay", () => {
+    const day = Date.UTC(2026, 9, 28, 9, 0);
+    it("is due at the end of its own day, not the next one", () => {
+      const normal = periodContaining({ cadence: "daily" }, day);
+      const same = periodContaining({ cadence: "daily", dueSameDay: true }, day);
+      expect(normal.periodLabel).toBe("2026-10-28");
+      expect(new Date(normal.dueAt).toISOString().slice(0, 10)).toBe("2026-10-29");
+      expect(same.periodLabel).toBe("2026-10-28");
+      expect(new Date(same.dueAt).toISOString().slice(0, 10)).toBe("2026-10-28");
+      expect(same.dueAt).toBeGreaterThan(day);
+    });
+    it("maps a calendar day back to that same day's period", () => {
+      const sched = { cadence: "daily" as const, dueSameDay: true };
+      expect(boundsForDueAt(sched, Date.UTC(2026, 9, 29)).periodLabel).toBe("2026-10-29");
+      expect(boundsForDueAt({ cadence: "daily" }, Date.UTC(2026, 9, 29)).periodLabel).toBe("2026-10-28");
+    });
+  });
 });

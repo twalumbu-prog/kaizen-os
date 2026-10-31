@@ -51,12 +51,15 @@ async function ensureTemplate(
     if (spec.allowMultiple && found.requiredFiles.some((f) => !f.allowMultiple)) {
       await ctx.db.patch(found._id, { requiredFiles: found.requiredFiles.map((f) => ({ ...f, allowMultiple: true })) });
     }
+    if (spec.allowMultiple && !found.dueSameDay) await ctx.db.patch(found._id, { dueSameDay: true });
     return { id: found._id, created: false };
   }
   const id = await ctx.db.insert("reportTemplates", {
     departmentId,
     name: spec.name,
     cadence: "daily",
+    // The day's paperwork is filed on the day itself, not the morning after.
+    ...(spec.allowMultiple ? { dueSameDay: true } : {}),
     validatorKey: spec.validatorKey,
     weight: 1,
     // One register, one receipt bundle and one deposit proof per day, however many people can file it.
