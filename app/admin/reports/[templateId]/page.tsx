@@ -171,12 +171,14 @@ function normalizeRequiredFile(rf: {
   fileType?: FileType;
   fileTypes?: FileType[];
   required: boolean;
+  allowMultiple?: boolean;
   referenceFile?: ReferenceFile;
-}): { label: string; fileTypes: FileType[]; required: boolean; referenceFile?: ReferenceFile } {
+}): { label: string; fileTypes: FileType[]; required: boolean; allowMultiple?: boolean; referenceFile?: ReferenceFile } {
   return {
     label: rf.label,
     fileTypes: acceptedFileTypes(rf),
     required: rf.required,
+    ...(rf.allowMultiple ? { allowMultiple: true } : {}),
     ...(rf.referenceFile ? { referenceFile: rf.referenceFile } : {}),
   };
 }
@@ -978,6 +980,20 @@ export default function ReportConfigPage({
                   <div className="flex items-center justify-between">
                     <span>{f.label}</span>
                     <div className="flex items-center gap-2">
+                      <Label className="text-xs text-muted-foreground">Several files</Label>
+                      <Switch
+                        checked={!!f.allowMultiple}
+                        onCheckedChange={(checked) =>
+                          updateTemplate({
+                            templateId,
+                            requiredFiles: template.requiredFiles.map((rf, i) =>
+                              i === idx
+                                ? { ...normalizeRequiredFile(rf), allowMultiple: checked }
+                                : normalizeRequiredFile(rf),
+                            ),
+                          })
+                        }
+                      />
                       <Label className="text-xs text-muted-foreground">Required</Label>
                       <Switch
                         checked={f.required}

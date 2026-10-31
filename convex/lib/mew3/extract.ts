@@ -151,6 +151,41 @@ export type Extraction =
   | { kind: "receipts"; rows: Receipt[]; documentDate: string | null; unreadable: string | null }
   | { kind: "deposits"; rows: Deposit[]; documentDate: string | null; unreadable: string | null };
 
+/** Files sent to the model per request — a stack of phone photos in one call is slow and can exceed request limits. */
+const MAX_FILES_PER_CALL = 4;
+const MAX_BYTES_PER_CALL = 12 * 1024 * 1024;
+
+export function batchFiles(files: RawFile[]): RawFile[][] {
+  const batches: RawFile[][] = [];
+  let current: RawFile[] = [];
+  let bytes = 0;
+  for (const f of files) {
+    const size = f.byteLength;
+    if (current.length && (current.length >= MAX_FILES_PER_CALL || bytes + size > MAX_BYTES_PER_CALL)) {
+      batches.push(current);
+      current = [];
+      bytes = 0;
+    }
+    current.push(f);
+    bytes += size;
+  }
+  if (current.length) batches.push(current);
+  return batches;
+}
+
+/** Overlapping photos of the same page must not count a guest or receipt twice. */
+function dedupe<T>(rows: T[], keyOf: (r: T) => string | null): T[] {
+  const seen = new Set<string>();
+  return rows.filter((r) => {
+    const k = keyOf(r);
+    if (!k) return true;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+}
+const norm = (x: string | null) => (x ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
 /** Reads every attached file of one document kind into rows. Throws when the model cannot be reached or answers nonsense. */
 export async function extractMew3Document(
   kind: Mew3DocKind,
@@ -158,13 +193,42 @@ export async function extractMew3Document(
   ai: AiConfig,
   periodLabel: string,
 ): Promise<Extraction> {
-  const reply = await callModel(ai, prompt(kind, periodLabel), files);
-  const match = reply.match(/\{[\s\S]*\}/);
-  if (!match) throw new Error("The AI reader returned no JSON.");
-  const parsed = JSON.parse(match[0]) as { documentDate?: unknown; rows?: unknown; unreadable?: unknown };
-  const raw = Array.isArray(parsed.rows) ? (parsed.rows.filter((r) => r && typeof r === "object") as Record<string, unknown>[]) : [];
-  const common = { documentDate: date(parsed.documentDate), unreadable: str(parsed.unreadable) };
-  if (kind === "guestRegister") return { kind, rows: raw.map(toGuest).filter((x): x is GuestStay => !!x), ...common };
-  if (kind === "receipts") return { kind, rows: raw.map(toReceipt).filter((x): x is Receipt => !!x), ...common };
-  return { kind, rows: raw.map(toDeposit).filter((x): x is Deposit => !!x), ...common };
+  const batches = batchFiles(files);
+  const raw: Record<string, unknown>[] = [];
+  const unreadable: string[] = [];
+  let documentDate: string | null = null;
+  let failure: unknown = null;
+  let succeeded = 0;
+
+  for (const [i, batch] of batches.entries()) {
+    try {
+      const reply = await callModel(ai, prompt(kind, periodLabel), batch);
+      const match = reply.match(/\{[\s\S]*\}/);
+      if (!match) throw new Error("The AI reader returned no JSON.");
+      const parsed = JSON.parse(match[0]) as { documentDate?: unknown; rows?: unknown; unreadable?: unknown };
+      if (Array.isArray(parsed.rows)) raw.push(...(parsed.rows.filter((r) => r && typeof r === "object") as Record<string, unknown>[]));
+      documentDate ??= date(parsed.documentDate);
+      const note = str(parsed.unreadable);
+      if (note) unreadable.push(note);
+      succeeded++;
+    } catch (err) {
+      failure = err;
+      // One bad batch must not hide the rest; say which files were skipped.
+      unreadable.push(`files ${batch.map((f) => f.fileName).join(", ")} could not be read (batch ${i + 1} of ${batches.length})`);
+    }
+  }
+  // Nothing readable at all is an error; a partial read is reported through "unreadable".
+  if (succeeded === 0) throw failure instanceof Error ? failure : new Error("The AI reader returned no JSON.");
+
+  const common = { documentDate, unreadable: unreadable.length ? unreadable.join("; ") : null };
+  if (kind === "guestRegister") {
+    const rows = dedupe(raw.map(toGuest).filter((x): x is GuestStay => !!x), (g) => `${norm(g.guestName)}|${norm(g.room)}|${g.checkIn ?? ""}`);
+    return { kind, rows, ...common };
+  }
+  if (kind === "receipts") {
+    const rows = dedupe(raw.map(toReceipt).filter((x): x is Receipt => !!x), (r) => (r.receiptNumber ? `${norm(r.receiptNumber)}|${r.amount}` : null));
+    return { kind, rows, ...common };
+  }
+  const rows = dedupe(raw.map(toDeposit).filter((x): x is Deposit => !!x), (d) => (d.reference ? `${norm(d.reference)}|${d.amount}` : null));
+  return { kind, rows, ...common };
 }

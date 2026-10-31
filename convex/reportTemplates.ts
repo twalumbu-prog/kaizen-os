@@ -59,6 +59,7 @@ const REQUIRED_FILES = v.array(
     label: v.string(),
     fileTypes: v.array(FILE_TYPE),
     required: v.boolean(),
+    allowMultiple: v.optional(v.boolean()),
     referenceFile: v.optional(REFERENCE_FILE),
   }),
 );

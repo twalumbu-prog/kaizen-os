@@ -43,10 +43,16 @@ async function ensureTemplate(
   ctx: MutationCtx,
   departmentId: Id<"departments">,
   existing: Doc<"reportTemplates">[],
-  spec: { validatorKey: string; name: string; fileLabel: string; fileTypes: Array<"pdf" | "jpg" | "png" | "xlsx">; metricKey: string; metricLabel: string },
+  spec: { validatorKey: string; name: string; fileLabel: string; fileTypes: Array<"pdf" | "jpg" | "png" | "xlsx">; allowMultiple?: boolean; metricKey: string; metricLabel: string },
 ): Promise<{ id: Id<"reportTemplates">; created: boolean }> {
   const found = existing.find((t) => t.validatorKey === spec.validatorKey);
-  if (found) return { id: found._id, created: false };
+  if (found) {
+    // Templates set up before multi-file slots existed pick the setting up on the next run.
+    if (spec.allowMultiple && found.requiredFiles.some((f) => !f.allowMultiple)) {
+      await ctx.db.patch(found._id, { requiredFiles: found.requiredFiles.map((f) => ({ ...f, allowMultiple: true })) });
+    }
+    return { id: found._id, created: false };
+  }
   const id = await ctx.db.insert("reportTemplates", {
     departmentId,
     name: spec.name,
@@ -55,7 +61,7 @@ async function ensureTemplate(
     weight: 1,
     // One register, one receipt bundle and one deposit proof per day, however many people can file it.
     sharingMode: "shared",
-    requiredFiles: [{ label: spec.fileLabel, fileTypes: spec.fileTypes, required: true }],
+    requiredFiles: [{ label: spec.fileLabel, fileTypes: spec.fileTypes, required: true, ...(spec.allowMultiple ? { allowMultiple: true } : {}) }],
     validationRules: [],
     outcomeBenchmark: { metricKey: spec.metricKey, metricLabel: spec.metricLabel, showBenchmarkOnChart: false },
   });
@@ -87,7 +93,7 @@ export const setupMew3Finance = internalMutation({
 
     const existing = await ctx.db.query("reportTemplates").withIndex("by_departmentId", (q) => q.eq("departmentId", departmentId)).collect();
     for (const r of DOC_REPORTS) {
-      const t = await ensureTemplate(ctx, departmentId, existing, { ...r, fileTypes: ["pdf", "jpg", "png"] });
+      const t = await ensureTemplate(ctx, departmentId, existing, { ...r, fileTypes: ["pdf", "jpg", "png"], allowMultiple: true });
       if (t.created) created.push(`report: ${r.name}`);
     }
     const output = await ensureTemplate(ctx, departmentId, existing, {

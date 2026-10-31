@@ -46,7 +46,7 @@ export default function UploadReportPage({
   );
 
   const [submissionId, setSubmissionId] = useState<Id<"submissions"> | null>(null);
-  const [selectedFiles, setSelectedFiles] = useState<Record<string, File | null>>({});
+  const [selectedFiles, setSelectedFiles] = useState<Record<string, File[]>>({});
   const [submitting, setSubmitting] = useState(false);
   const [qbPayrollSynced, setQbPayrollSynced] = useState(false);
   const [qbPayrollStorageId, setQbPayrollStorageId] = useState<Id<"_storage"> | null>(null);
@@ -89,7 +89,7 @@ export default function UploadReportPage({
   });
 
   const missingRequired = visibleRequirements.some(
-    (f) => f.required && !selectedFiles[f.label],
+    (f) => f.required && !selectedFiles[f.label]?.length,
   );
 
   async function handleSyncPayrollQb() {
@@ -144,27 +144,27 @@ export default function UploadReportPage({
       }
 
       for (const requirement of visibleRequirements) {
-        const file = selectedFiles[requirement.label];
-        if (!file) continue;
-        const fileType = inferFileType(file, acceptedFileTypes(requirement));
-        if (!fileType) {
-          toast.error(`"${file.name}" isn't one of the accepted formats for ${requirement.label}.`);
-          setSubmitting(false);
-          return;
+        for (const file of selectedFiles[requirement.label] ?? []) {
+          const fileType = inferFileType(file, acceptedFileTypes(requirement));
+          if (!fileType) {
+            toast.error(`"${file.name}" isn't one of the accepted formats for ${requirement.label}.`);
+            setSubmitting(false);
+            return;
+          }
+          const uploadUrl = await generateUploadUrl();
+          const response = await fetch(uploadUrl, {
+            method: "POST",
+            headers: { "Content-Type": file.type || "application/octet-stream" },
+            body: file,
+          });
+          const { storageId } = await response.json();
+          uploaded.push({
+            storageId,
+            label: requirement.label,
+            fileType,
+            fileName: file.name,
+          });
         }
-        const uploadUrl = await generateUploadUrl();
-        const response = await fetch(uploadUrl, {
-          method: "POST",
-          headers: { "Content-Type": file.type || "application/octet-stream" },
-          body: file,
-        });
-        const { storageId } = await response.json();
-        uploaded.push({
-          storageId,
-          label: requirement.label,
-          fileType,
-          fileName: file.name,
-        });
       }
 
       await submitReport({ submissionId, files: uploaded });
@@ -253,22 +253,31 @@ export default function UploadReportPage({
                   <input
                     id={requirement.label}
                     type="file"
+                    multiple={!!requirement.allowMultiple}
                     accept={accepted.map((t) => ACCEPT[t]).join(",")}
                     onChange={(e) => {
-                      const file = e.target.files?.[0] ?? null;
-                      if (file && !inferFileType(file, accepted)) {
+                      const picked = Array.from(e.target.files ?? []);
+                      const bad = picked.find((f) => !inferFileType(f, accepted));
+                      if (bad) {
                         toast.error(
-                          `"${file.name}" isn't one of the accepted formats for ${requirement.label} (${accepted
+                          `"${bad.name}" isn't one of the accepted formats for ${requirement.label} (${accepted
                             .map((t) => fileTypeLabel(t))
                             .join(", ")}).`,
                         );
                         e.target.value = "";
                         return;
                       }
-                      setSelectedFiles((prev) => ({ ...prev, [requirement.label]: file }));
+                      setSelectedFiles((prev) => ({ ...prev, [requirement.label]: picked }));
                     }}
                     className="text-sm file:mr-3 file:rounded-md file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium"
                   />
+                  {requirement.allowMultiple && (
+                    <p className="text-xs text-muted-foreground">
+                      {selectedFiles[requirement.label]?.length
+                        ? `${selectedFiles[requirement.label].length} file${selectedFiles[requirement.label].length === 1 ? "" : "s"} selected.`
+                        : "You can select several files at once — e.g. one photo per page."}
+                    </p>
+                  )}
                 </div>
               );
             })}

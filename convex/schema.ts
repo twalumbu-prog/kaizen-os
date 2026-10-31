@@ -163,6 +163,8 @@ export default defineSchema({
         fileTypes: v.optional(v.array(FILE_TYPE)),
         fileType: v.optional(FILE_TYPE),
         required: v.boolean(),
+        /** The submitter may attach several files to this slot (e.g. one phone photo per page). */
+        allowMultiple: v.optional(v.boolean()),
         /**
          * A reference file an admin has attached for this slot: either a
          * blank "template" to fill in and submit, or a "sample" of what a
