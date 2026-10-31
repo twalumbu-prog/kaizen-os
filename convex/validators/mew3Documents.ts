@@ -34,7 +34,8 @@ function rowDates(e: Extraction): Array<string | null> {
 }
 
 function summarize(e: Extraction): Record<string, string | number | null> {
-  const base = { rowsRead: e.rows.length, documentDate: e.documentDate, unreadable: e.unreadable };
+  // Row count is shown as the file's transaction count; "unreadable" only when something could not be read.
+  const base = { documentDate: e.documentDate, ...(e.unreadable ? { unreadable: e.unreadable } : {}) };
   if (e.kind === "guestRegister") {
     return { ...base, checkIns: e.rows.length, people: e.rows.reduce((s, r) => s + (r.guests ?? 1), 0) };
   }

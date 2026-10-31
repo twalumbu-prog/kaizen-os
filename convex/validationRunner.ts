@@ -1,5 +1,6 @@
 "use node";
 
+import { fieldValues } from "./lib/mew3/fieldValues";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalAction } from "./_generated/server";
@@ -279,7 +280,19 @@ export const runValidation = internalAction({
       for (const update of extractedUpdates) {
         if (update.extracted.metadata) {
           update.extracted.metadata.documentValidationStatus = result.summary;
-          if (result.records) Object.assign(update.extracted.metadata, result.records.summary);
+          if (result.records) {
+            // The configured fields lead the panel, then the headline figures.
+            const { fileName, fileType, fileSize, documentValidationStatus, ...rest } = update.extracted.metadata;
+            update.extracted.metadata = {
+              fileName,
+              fileType,
+              fileSize,
+              documentValidationStatus,
+              ...fieldValues(result.records.rows as Array<Record<string, unknown>>, template.aiExtractionFields ?? []),
+              ...rest,
+              ...result.records.summary,
+            };
+          }
         }
         if (result.records) update.extracted.transactionCount = result.records.rows.length;
       }
