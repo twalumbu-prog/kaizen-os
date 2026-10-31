@@ -283,6 +283,50 @@ function ExtractedData({ extracted }: { extracted: ExtractedFileData }) {
   );
 }
 
+const RECORD_COLUMNS: Record<string, Array<[string, string]>> = {
+  guestRegister: [["guestName", "Guest"], ["room", "Room"], ["checkIn", "Arrival"], ["checkOut", "Check-out"], ["nights", "Nights"], ["phone", "Phone"], ["address", "Address"], ["nationality", "Nationality"], ["idNumber", "NRC / passport"], ["email", "Email"], ["amount", "Amount paid"], ["receiptNumber", "Receipt no."]],
+  receipts: [["receiptNumber", "Receipt no."], ["date", "Date"], ["guestName", "Received from"], ["amount", "Amount"], ["methodWritten", "Method written"], ["paymentMethod", "Method"]],
+  deposits: [["date", "Date"], ["amount", "Amount"], ["source", "Source"], ["destination", "Destination"], ["reference", "Reference"]],
+};
+
+/** The rows an AI reader pulled out of a MEW3 document, laid out as a table. */
+function ExtractedRecords({ submissionId }: { submissionId: Id<"submissions"> }) {
+  const records = useQuery(api.mew3.recordsForSubmission, { submissionId });
+  if (!records) return null;
+  const columns = (RECORD_COLUMNS[records.kind] ?? []).filter(([key]) => records.rows.some((r) => r[key] !== null && r[key] !== undefined && r[key] !== ""));
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Extracted records ({records.rows.length})</CardTitle>
+      </CardHeader>
+      <CardContent className="overflow-x-auto">
+        {records.rows.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Nothing could be read from the upload.</p>
+        ) : (
+          <table className="w-full text-left text-sm">
+            <thead>
+              <tr className="border-b text-xs text-muted-foreground">
+                {columns.map(([key, label]) => (
+                  <th key={key} className="whitespace-nowrap px-2 py-1.5 font-medium">{label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {records.rows.map((row, i) => (
+                <tr key={i} className="border-b last:border-0">
+                  {columns.map(([key]) => (
+                    <td key={key} className="whitespace-nowrap px-2 py-1.5">{row[key] ?? "—"}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 /** "Open" on a file — a modal with the document itself on one tab and whatever was extracted from it on the other. */
 function FileViewerDialog({
   submissionId,
@@ -655,6 +699,8 @@ export default function SubmissionDetailPage({
             </CardContent>
           </Card>
         </div>
+
+        <ExtractedRecords submissionId={submissionId} />
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">

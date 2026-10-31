@@ -1,5 +1,6 @@
 import { v } from "convex/values";
-import { internalMutation, internalQuery } from "./_generated/server";
+import { internalMutation, internalQuery, query } from "./_generated/server";
+import { requireProfile } from "./lib/roles";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { addDays } from "./lib/mew3/recon";
@@ -149,6 +150,17 @@ export const saveExtractedRecords = internalMutation({
     const old = await ctx.db.query("extractedRecords").withIndex("by_submissionId", (q) => q.eq("submissionId", args.submissionId)).collect();
     for (const r of old) await ctx.db.delete(r._id);
     await ctx.db.insert("extractedRecords", { ...args, extractedAt: Date.now() });
+  },
+});
+
+/** The rows read from a submission's documents, for showing on its page. Null when nothing was read. */
+export const recordsForSubmission = query({
+  args: { submissionId: v.id("submissions") },
+  handler: async (ctx, { submissionId }) => {
+    const profile = await requireProfile(ctx);
+    const rec = await ctx.db.query("extractedRecords").withIndex("by_submissionId", (q) => q.eq("submissionId", submissionId)).first();
+    if (!rec || rec.orgId !== profile.orgId) return null;
+    return { kind: rec.kind, date: rec.date, extractedAt: rec.extractedAt, rows: JSON.parse(rec.rows) as Array<Record<string, string | number | null>> };
   },
 });
 

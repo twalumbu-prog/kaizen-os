@@ -16,8 +16,8 @@ const VISION_FALLBACK_MODEL = "google/gemini-2.5-flash";
 const SHAPES: Record<Mew3DocKind, { what: string; shape: string; rules: string }> = {
   guestRegister: {
     what: "a hotel/apartment GUEST REGISTER — usually several handwritten pages, one line per guest or party checking in",
-    shape: `{"documentDate": "YYYY-MM-DD or null", "rows": [{"guestName": "", "room": "", "checkIn": "YYYY-MM-DD", "checkOut": "YYYY-MM-DD", "nights": 0, "guests": 1, "phone": "", "receiptNumber": "", "amount": 0, "paymentMethod": ""}], "unreadable": "pages or lines you could not read, or empty"}`,
-    rules: "The register is a printed form, one guest (or party) per page, photographed or scanned — read every page, one row per page that names a guest. Form fields: NAME OF GUEST, PHONE NUMBER, ROOM NUMBER (e.g. 'Room 1'), NUMBER OF DAYS OF STAY, DATE OF ARRIVAL (checkIn), DATE OF CHECK-OUT (checkOut), AMOUNT PAID (amount), RECEIPT NUMBER. Many fields are left blank — use null for a blank field, never guess; in particular NUMBER OF DAYS and RECEIPT NUMBER are often blank. If SINGLE / DOUBLE OCCUPANCY is ticked, guests is 1 or 2. Ignore the faint show-through of the neighbouring page and skip blank pages.",
+    shape: `{"documentDate": "YYYY-MM-DD or null", "rows": [{"guestName": "", "room": "", "checkIn": "YYYY-MM-DD", "checkOut": "YYYY-MM-DD", "nights": 0, "guests": 1, "phone": "", "address": "", "nationality": "", "idNumber": "", "email": "", "company": "", "occupancy": "single | double", "receiptNumber": "", "amount": 0, "paymentMethod": ""}], "unreadable": "pages or lines you could not read, or empty"}`,
+    rules: "The register is a printed form, one guest (or party) per page, photographed or scanned — read every page, one row per page that names a guest. Form fields: NAME OF GUEST, ADDRESS, PHONE NUMBER, NRC / PASSPORT NUMBER (idNumber), NATIONALITY, EMAIL ADDRESS, COMPANY / BUSINESS, ROOM NUMBER (e.g. 'Room 1'), NUMBER OF DAYS OF STAY, DATE OF ARRIVAL (checkIn), DATE OF CHECK-OUT (checkOut), AMOUNT PAID (amount), RECEIPT NUMBER. Many fields are left blank — use null for a blank field, never guess; in particular NUMBER OF DAYS and RECEIPT NUMBER are often blank. If SINGLE / DOUBLE OCCUPANCY is ticked, guests is 1 or 2. Ignore the faint show-through of the neighbouring page and skip blank pages.",
   },
   receipts: {
     what: "RECEIPTS issued to apartment guests for accommodation — often several receipt-book pages or photos",
@@ -113,6 +113,12 @@ function toGuest(r: Record<string, unknown>): GuestStay | null {
     receiptNumber: str(r.receiptNumber),
     amount: num(r.amount),
     paymentMethod: method ? normalizeMethod(method) : null,
+    address: str(r.address),
+    nationality: str(r.nationality),
+    idNumber: str(r.idNumber),
+    email: str(r.email),
+    company: str(r.company),
+    occupancy: str(r.occupancy),
   };
 }
 

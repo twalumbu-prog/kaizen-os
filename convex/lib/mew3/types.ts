@@ -25,6 +25,15 @@ export interface GuestStay {
   /** Amount written on the register, when the register has an amount column. */
   amount: number | null;
   paymentMethod: PaymentMethod | null;
+  /** Further register fields, kept for the record. Optional: rows saved before they were read lack them. */
+  address?: string | null;
+  nationality?: string | null;
+  /** NRC or passport number. */
+  idNumber?: string | null;
+  email?: string | null;
+  company?: string | null;
+  /** "single" or "double" occupancy, as ticked. */
+  occupancy?: string | null;
 }
 
 export interface Receipt {
