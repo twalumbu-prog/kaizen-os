@@ -34,6 +34,8 @@ export interface GuestStay {
   company?: string | null;
   /** "single" or "double" occupancy, as ticked. */
   occupancy?: string | null;
+  /** Columns an admin added under "AI Data Extraction Fields", keyed by field key. */
+  extra?: Record<string, string | null>;
 }
 
 export interface Receipt {
@@ -49,6 +51,7 @@ export interface Receipt {
   paymentMethod: PaymentMethod;
   /** The method exactly as written, for the report. */
   methodWritten: string | null;
+  extra?: Record<string, string | null>;
 }
 
 /** One deposit slip or transfer confirmation on the proof of deposit. */
@@ -60,6 +63,7 @@ export interface Deposit {
   /** Where it went — e.g. "MoneyWise", "Zanaco". */
   destination: string | null;
   reference: string | null;
+  extra?: Record<string, string | null>;
 }
 
 /** A MoneyWise transaction, reduced to what the reconciliation needs. */

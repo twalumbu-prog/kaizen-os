@@ -289,23 +289,29 @@ const RECORD_COLUMNS: Record<string, Array<[string, string]>> = {
   deposits: [["date", "Date"], ["amount", "Amount"], ["source", "Source"], ["destination", "Destination"], ["reference", "Reference"]],
 };
 
-/** The rows an AI reader pulled out of a MEW3 document, laid out as a table. */
+/** The rows an AI reader pulled out of a MEW3 document, one column per configured "AI Data Extraction Field". */
 function ExtractedRecords({ submissionId }: { submissionId: Id<"submissions"> }) {
   const records = useQuery(api.mew3.recordsForSubmission, { submissionId });
   if (!records) return null;
-  const columns = (RECORD_COLUMNS[records.kind] ?? []).filter(([key]) => records.rows.some((r) => r[key] !== null && r[key] !== undefined && r[key] !== ""));
+  const cell = (row: Record<string, unknown>, key: string) => {
+    const extra = row.extra && typeof row.extra === "object" ? (row.extra as Record<string, unknown>)[key] : undefined;
+    const v = row[key] ?? extra;
+    return v === null || v === undefined || v === "" ? null : String(v);
+  };
+  const configured: Array<[string, string]> = records.fields.length
+    ? records.fields.map((f): [string, string] => [f.key, f.label])
+    : (RECORD_COLUMNS[records.kind] ?? []);
+  const columns = configured.filter(([key]) => records.rows.some((r) => cell(r, key) !== null));
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Extracted records ({records.rows.length})</CardTitle>
-      </CardHeader>
-      <CardContent className="overflow-x-auto">
-        {records.rows.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Nothing could be read from the upload.</p>
-        ) : (
+    <div className="mb-4 flex flex-col gap-2">
+      <p className="text-sm font-medium">Records read from the document ({records.rows.length})</p>
+      {records.rows.length === 0 ? (
+        <p className="text-sm text-muted-foreground">Nothing could be read from the upload.</p>
+      ) : (
+        <div className="overflow-x-auto rounded-md border">
           <table className="w-full text-left text-sm">
             <thead>
-              <tr className="border-b text-xs text-muted-foreground">
+              <tr className="border-b bg-muted/40 text-xs text-muted-foreground">
                 {columns.map(([key, label]) => (
                   <th key={key} className="whitespace-nowrap px-2 py-1.5 font-medium">{label}</th>
                 ))}
@@ -315,15 +321,15 @@ function ExtractedRecords({ submissionId }: { submissionId: Id<"submissions"> })
               {records.rows.map((row, i) => (
                 <tr key={i} className="border-b last:border-0">
                   {columns.map(([key]) => (
-                    <td key={key} className="whitespace-nowrap px-2 py-1.5">{row[key] ?? "—"}</td>
+                    <td key={key} className="whitespace-nowrap px-2 py-1.5">{cell(row, key) ?? "—"}</td>
                   ))}
                 </tr>
               ))}
             </tbody>
           </table>
-        )}
-      </CardContent>
-    </Card>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -382,6 +388,7 @@ function FileViewerDialog({
             <FilePreview fileName={fileName} fileType={fileType} url={url} />
           </TabsContent>
           <TabsContent value="extracted" className="min-h-0 flex-1 overflow-y-auto py-2">
+            {submissionId && <ExtractedRecords submissionId={submissionId} />}
             {extracted ? (
               <ExtractedData extracted={extracted} />
             ) : (
@@ -699,8 +706,6 @@ export default function SubmissionDetailPage({
             </CardContent>
           </Card>
         </div>
-
-        <ExtractedRecords submissionId={submissionId} />
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">

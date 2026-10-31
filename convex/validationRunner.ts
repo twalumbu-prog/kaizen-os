@@ -267,6 +267,7 @@ export const runValidation = internalAction({
       periodLabel: submission.periodLabel,
       requiredFiles: template.requiredFiles.map((f: { label: string; required: boolean }) => ({ label: f.label, required: f.required })),
       ai: aiConfig,
+      aiFields: template.aiExtractionFields,
     };
 
     console.log(`[ValidationRunner] Running validation logic...`);

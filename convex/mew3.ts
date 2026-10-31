@@ -14,6 +14,39 @@ import { addDays } from "./lib/mew3/recon";
 
 export const KIND = "mew3DailyRecon";
 
+type Field = { key: string; label: string; description?: string };
+// Labels are chosen so the admin screen's label→key rule gives back the same key.
+const GUEST_FIELDS: Field[] = [
+  { key: "guestName", label: "Guest Name", description: "Name of guest" },
+  { key: "room", label: "Room", description: "Room number, e.g. Room 1" },
+  { key: "checkIn", label: "Check In", description: "Date of arrival" },
+  { key: "checkOut", label: "Check Out", description: "Date of check-out" },
+  { key: "nights", label: "Nights", description: "Number of days of stay, when written" },
+  { key: "phone", label: "Phone", description: "Phone number" },
+  { key: "address", label: "Address" },
+  { key: "nationality", label: "Nationality" },
+  { key: "idNumber", label: "Id Number", description: "NRC / passport number" },
+  { key: "email", label: "Email", description: "Email address" },
+  { key: "company", label: "Company", description: "Company / business" },
+  { key: "occupancy", label: "Occupancy", description: "Single or double occupancy, as ticked" },
+  { key: "amount", label: "Amount", description: "Amount paid" },
+  { key: "receiptNumber", label: "Receipt Number" },
+];
+const RECEIPT_FIELDS: Field[] = [
+  { key: "receiptNumber", label: "Receipt Number", description: "Red receipt number" },
+  { key: "date", label: "Date" },
+  { key: "guestName", label: "Guest Name", description: "Received from" },
+  { key: "amount", label: "Amount", description: "Total received in Kwacha" },
+  { key: "paymentMethod", label: "Payment Method", description: "Cash / Cheque No. line or ticked box" },
+];
+const DEPOSIT_FIELDS: Field[] = [
+  { key: "date", label: "Date" },
+  { key: "amount", label: "Amount" },
+  { key: "source", label: "Source", description: "Cash or mobile money" },
+  { key: "destination", label: "Destination", description: "Account or wallet credited" },
+  { key: "reference", label: "Reference" },
+];
+
 const DOC_REPORTS = [
   {
     validatorKey: "mew3GuestRegister",
@@ -21,6 +54,7 @@ const DOC_REPORTS = [
     fileLabel: "Guest Register",
     metricKey: "checkIns",
     metricLabel: "Check-ins",
+    aiFields: GUEST_FIELDS,
   },
   {
     validatorKey: "mew3Receipts",
@@ -28,6 +62,7 @@ const DOC_REPORTS = [
     fileLabel: "Receipts",
     metricKey: "totalReceived",
     metricLabel: "Total receipted (K)",
+    aiFields: RECEIPT_FIELDS,
   },
   {
     validatorKey: "mew3Deposits",
@@ -35,6 +70,7 @@ const DOC_REPORTS = [
     fileLabel: "Proof of Deposit",
     metricKey: "totalDeposited",
     metricLabel: "Total deposited (K)",
+    aiFields: DEPOSIT_FIELDS,
   },
 ] as const;
 
@@ -44,7 +80,7 @@ async function ensureTemplate(
   ctx: MutationCtx,
   departmentId: Id<"departments">,
   existing: Doc<"reportTemplates">[],
-  spec: { validatorKey: string; name: string; fileLabel: string; fileTypes: Array<"pdf" | "jpg" | "png" | "xlsx">; allowMultiple?: boolean; metricKey: string; metricLabel: string },
+  spec: { validatorKey: string; name: string; fileLabel: string; fileTypes: Array<"pdf" | "jpg" | "png" | "xlsx">; allowMultiple?: boolean; aiFields?: readonly Field[]; metricKey: string; metricLabel: string },
 ): Promise<{ id: Id<"reportTemplates">; created: boolean }> {
   const found = existing.find((t) => t.validatorKey === spec.validatorKey);
   if (found) {
@@ -53,6 +89,7 @@ async function ensureTemplate(
       await ctx.db.patch(found._id, { requiredFiles: found.requiredFiles.map((f) => ({ ...f, allowMultiple: true })) });
     }
     if (spec.allowMultiple && !found.dueSameDay) await ctx.db.patch(found._id, { dueSameDay: true });
+    if (spec.aiFields && !found.aiExtractionFields?.length) await ctx.db.patch(found._id, { aiExtractionFields: [...spec.aiFields] });
     return { id: found._id, created: false };
   }
   const id = await ctx.db.insert("reportTemplates", {
@@ -61,6 +98,7 @@ async function ensureTemplate(
     cadence: "daily",
     // The day's paperwork is filed on the day itself, not the morning after.
     ...(spec.allowMultiple ? { dueSameDay: true } : {}),
+    ...(spec.aiFields ? { aiExtractionFields: [...spec.aiFields] } : {}),
     validatorKey: spec.validatorKey,
     weight: 1,
     // One register, one receipt bundle and one deposit proof per day, however many people can file it.
@@ -160,7 +198,15 @@ export const recordsForSubmission = query({
     const profile = await requireProfile(ctx);
     const rec = await ctx.db.query("extractedRecords").withIndex("by_submissionId", (q) => q.eq("submissionId", submissionId)).first();
     if (!rec || rec.orgId !== profile.orgId) return null;
-    return { kind: rec.kind, date: rec.date, extractedAt: rec.extractedAt, rows: JSON.parse(rec.rows) as Array<Record<string, string | number | null>> };
+    const submission = await ctx.db.get(submissionId);
+    const template = submission ? await ctx.db.get(submission.templateId) : null;
+    return {
+      kind: rec.kind,
+      date: rec.date,
+      extractedAt: rec.extractedAt,
+      fields: (template?.aiExtractionFields ?? []).map((f) => ({ key: f.key, label: f.label })),
+      rows: JSON.parse(rec.rows) as Array<Record<string, unknown>>,
+    };
   },
 });
 

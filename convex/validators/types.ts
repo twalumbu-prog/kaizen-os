@@ -100,6 +100,8 @@ export interface ValidationContext {
   requiredFiles?: { label: string; required: boolean }[];
   /** Present when the org has an active AI integration; absent when it does not. */
   ai?: AiConfig;
+  /** The report's "AI Data Extraction Fields" — columns an admin wants read from the document. */
+  aiFields?: { key: string; label: string; description?: string }[];
 }
 
 /** A validator turns the parsed uploaded files + configured rules into a result. */

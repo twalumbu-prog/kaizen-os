@@ -74,7 +74,7 @@ function makeValidator(kind: Mew3DocKind) {
       recommendations.push("Connect an AI integration so documents can be read for the daily reconciliation.");
     } else {
       try {
-        extraction = await extractMew3Document(kind, raws, context.ai, date);
+        extraction = await extractMew3Document(kind, raws, context.ai, date, context.aiFields ?? []);
         const n = extraction.rows.length;
         const s = summarize(extraction);
         const total = kind === "guestRegister" ? "" : ` totalling ${kwacha(Number(s.totalReceived ?? s.totalDeposited ?? 0))}`;
