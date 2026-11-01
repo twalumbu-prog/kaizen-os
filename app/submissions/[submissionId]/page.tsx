@@ -3,7 +3,7 @@
 import { useQuery, useMutation, useAction } from "convex/react";
 import { Fragment, use, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { ArrowLeft, CheckCircle2, XCircle, AlertTriangle, FileText, Upload, Loader2, Trash2, UserCog, ExternalLink, RefreshCw, Sparkles } from "lucide-react";
+import { ArrowLeft, CheckCircle2, XCircle, AlertTriangle, FileText, Upload, Loader2, Trash2, UserCog, ExternalLink, RefreshCw, Sparkles, Pencil, Check, X } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { AppShell } from "@/components/layout/app-shell";
@@ -195,8 +195,83 @@ function FilePreview({
   );
 }
 
+/** A small text box with save / cancel, used to correct a figure the AI misread. */
+function InlineEditor({ initial, onSave, onCancel }: { initial: string; onSave: (value: string) => Promise<void>; onCancel: () => void }) {
+  const [text, setText] = useState(initial);
+  const [saving, setSaving] = useState(false);
+  async function save() {
+    setSaving(true);
+    try {
+      await onSave(text);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message.replace(/^[\s\S]*Uncaught Error: /, "").split("\n")[0] : "Could not save the change.");
+      setSaving(false);
+    }
+  }
+  return (
+    <span className="flex items-center gap-1.5">
+      <input
+        autoFocus
+        value={text}
+        disabled={saving}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") void save();
+          if (e.key === "Escape") onCancel();
+        }}
+        className="h-7 min-w-0 flex-1 rounded-md border bg-background px-2 font-mono text-sm"
+      />
+      <Button size="icon" variant="ghost" className="size-7" disabled={saving} onClick={() => void save()} title="Save">
+        {saving ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
+      </Button>
+      <Button size="icon" variant="ghost" className="size-7" disabled={saving} onClick={onCancel} title="Cancel">
+        <X className="size-3.5" />
+      </Button>
+    </span>
+  );
+}
+
+/** One row of Extracted Metrics & Figures: an edit icon to the left of the label, and the value turns into a text box while editing. */
+function MetricRow({ label, value, onSave }: { label: string; value: string | number | null; onSave?: (value: string) => Promise<void> }) {
+  const [editing, setEditing] = useState(false);
+  return (
+    <>
+      <span className="flex items-center gap-1.5 font-medium text-muted-foreground">
+        {onSave ? (
+          <button
+            type="button"
+            title={`Edit ${label}`}
+            aria-label={`Edit ${label}`}
+            onClick={() => setEditing(true)}
+            className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <Pencil className="size-3.5" />
+          </button>
+        ) : (
+          <span className="size-4" />
+        )}
+        {label}
+      </span>
+      <span className="col-span-1 font-mono font-semibold sm:col-span-2">
+        {editing && onSave ? (
+          <InlineEditor
+            initial={value === null ? "" : String(value)}
+            onCancel={() => setEditing(false)}
+            onSave={async (v) => {
+              await onSave(v);
+              setEditing(false);
+            }}
+          />
+        ) : (
+          formatMetadataValue(value)
+        )}
+      </span>
+    </>
+  );
+}
+
 /** The figures a validator's parser actually read out of one file — opening/closing balance, transaction count, and any format-specific metadata (payment totals, dates, reference numbers, ...). */
-function ExtractedData({ extracted }: { extracted: ExtractedFileData }) {
+function ExtractedData({ extracted, onSaveMetric }: { extracted: ExtractedFileData; onSaveMetric?: (key: string, value: string) => Promise<void> }) {
   const metadataEntries = Object.entries(extracted.metadata ?? {});
   const hasBalances = extracted.openingBalance !== undefined || extracted.closingBalance !== undefined;
 
@@ -267,10 +342,12 @@ function ExtractedData({ extracted }: { extracted: ExtractedFileData }) {
               </>
             )}
             {metricEntries.map(([key, value]) => (
-              <Fragment key={key}>
-                <span className="text-muted-foreground font-medium">{prettifyKey(key)}</span>
-                <span className="col-span-1 sm:col-span-2 font-mono font-semibold">{formatMetadataValue(value)}</span>
-              </Fragment>
+              <MetricRow
+                key={key}
+                label={prettifyKey(key)}
+                value={value}
+                onSave={onSaveMetric ? (v) => onSaveMetric(key, v) : undefined}
+              />
             ))}
           </div>
         </div>
@@ -290,8 +367,39 @@ const RECORD_COLUMNS: Record<string, Array<[string, string]>> = {
 };
 
 /** The rows an AI reader pulled out of a MEW3 document, one column per configured "AI Data Extraction Field". */
+function RecordCell({ text, onSave }: { text: string | null; onSave: (value: string) => Promise<void> }) {
+  const [editing, setEditing] = useState(false);
+  if (editing) {
+    return (
+      <InlineEditor
+        initial={text ?? ""}
+        onCancel={() => setEditing(false)}
+        onSave={async (v) => {
+          await onSave(v);
+          setEditing(false);
+        }}
+      />
+    );
+  }
+  return (
+    <span className="group flex items-center gap-1.5">
+      <button
+        type="button"
+        title="Edit"
+        aria-label="Edit"
+        onClick={() => setEditing(true)}
+        className="rounded p-0.5 text-muted-foreground opacity-40 hover:bg-muted hover:text-foreground group-hover:opacity-100"
+      >
+        <Pencil className="size-3" />
+      </button>
+      {text ?? "—"}
+    </span>
+  );
+}
+
 function ExtractedRecords({ submissionId }: { submissionId: Id<"submissions"> }) {
   const records = useQuery(api.mew3.recordsForSubmission, { submissionId });
+  const setRecordValue = useMutation(api.mew3.setRecordValue);
   if (!records) return null;
   const cell = (row: Record<string, unknown>, key: string) => {
     const extra = row.extra && typeof row.extra === "object" ? (row.extra as Record<string, unknown>)[key] : undefined;
@@ -321,7 +429,9 @@ function ExtractedRecords({ submissionId }: { submissionId: Id<"submissions"> })
               {records.rows.map((row, i) => (
                 <tr key={i} className="border-b last:border-0">
                   {columns.map(([key]) => (
-                    <td key={key} className="whitespace-nowrap px-2 py-1.5">{cell(row, key) ?? "—"}</td>
+                    <td key={key} className="whitespace-nowrap px-2 py-1.5">
+                      <RecordCell text={cell(row, key)} onSave={async (value) => { await setRecordValue({ submissionId, key, value, rowIndex: i }); }} />
+                    </td>
                   ))}
                 </tr>
               ))}
@@ -336,6 +446,7 @@ function ExtractedRecords({ submissionId }: { submissionId: Id<"submissions"> })
 /** "Open" on a file — a modal with the document itself on one tab and whatever was extracted from it on the other. */
 function FileViewerDialog({
   submissionId,
+  fileId,
   fileName,
   label,
   fileType,
@@ -343,6 +454,7 @@ function FileViewerDialog({
   extracted,
 }: {
   submissionId?: Id<"submissions">;
+  fileId?: Id<"submissionFiles">;
   fileName: string;
   label: string;
   fileType: string;
@@ -350,7 +462,20 @@ function FileViewerDialog({
   extracted?: ExtractedFileData;
 }) {
   const revalidate = useAction(api.submissions.revalidateSubmission);
+  const updateMetric = useMutation(api.submissions.updateExtractedMetric);
+  const setRecordValue = useMutation(api.mew3.setRecordValue);
+  const records = useQuery(api.mew3.recordsForSubmission, submissionId ? { submissionId } : "skip");
   const [isExtracting, setIsExtracting] = useState(false);
+
+  // A figure that is a column of the rows the AI read is corrected on the rows, so the reconciliation uses the correction too.
+  async function saveMetric(key: string, value: string) {
+    if (submissionId && records?.fields.some((f) => f.key === key)) {
+      await setRecordValue({ submissionId, key, value });
+    } else if (fileId) {
+      await updateMetric({ fileId, key, value });
+    }
+    toast.success("Saved.");
+  }
 
   async function handleExtract() {
     if (!submissionId) return;
@@ -390,7 +515,7 @@ function FileViewerDialog({
           <TabsContent value="extracted" className="min-h-0 flex-1 overflow-y-auto py-2">
             {submissionId && <ExtractedRecords submissionId={submissionId} />}
             {extracted ? (
-              <ExtractedData extracted={extracted} />
+              <ExtractedData extracted={extracted} onSaveMetric={fileId ? saveMetric : undefined} />
             ) : (
               <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
                 <p className="text-sm text-muted-foreground">
@@ -693,6 +818,7 @@ export default function SubmissionDetailPage({
                     </div>
                     <FileViewerDialog
                       submissionId={submissionId}
+                      fileId={f._id}
                       fileName={f.fileName}
                       label={f.label}
                       fileType={f.fileType}

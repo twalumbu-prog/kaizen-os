@@ -309,7 +309,7 @@ export const backfillAllMissingSubmissions = internalMutation({
  * responsible for filing NAPSA can submit the one receipt on the team's
  * behalf. Admins/managers are unrestricted, as before.
  */
-async function assertCanActOnSubmission(
+export async function assertCanActOnSubmission(
   ctx: MutationCtx,
   profile: Doc<"profiles">,
   submission: Doc<"submissions">,
@@ -361,6 +361,39 @@ export const submitReport = mutation({
       submissionId,
       triggerAutomations: true,
     });
+    return null;
+  },
+});
+
+/** Metadata entries the system writes about a file; they are not figures read from the document. */
+const SYSTEM_METADATA_KEYS = new Set(["fileName", "fileType", "fileSize", "documentValidationStatus", "extractedDocumentType", "summaryNotes", "aiReview"]);
+
+/**
+ * Corrects one figure the AI read from a file. The new value keeps the old
+ * one's type: a number stays a number, anything else is text. An empty value
+ * clears it. Validation is not re-run — that would read the document again
+ * and overwrite the correction.
+ */
+export const updateExtractedMetric = mutation({
+  args: { fileId: v.id("submissionFiles"), key: v.string(), value: v.string() },
+  handler: async (ctx, { fileId, key, value }) => {
+    const profile = await requireProfile(ctx);
+    const file = await ctx.db.get(fileId);
+    if (!file?.extracted) throw new Error("Nothing has been extracted from this file yet");
+    const submission = await ctx.db.get(file.submissionId);
+    if (!submission) throw new Error("Submission not found");
+    await assertCanActOnSubmission(ctx, profile, submission, "edit");
+    if (SYSTEM_METADATA_KEYS.has(key)) throw new Error("That entry is not an extracted figure");
+
+    const old = file.extracted.metadata?.[key];
+    const text = value.trim();
+    let next: string | number | null = text === "" ? null : text;
+    if (next !== null && typeof old === "number") {
+      const n = Number(text.replace(/,/g, ""));
+      if (!Number.isFinite(n)) throw new Error("This figure must be a number");
+      next = n;
+    }
+    await ctx.db.patch(fileId, { extracted: { ...file.extracted, metadata: { ...file.extracted.metadata, [key]: next } } });
     return null;
   },
 });

@@ -1,6 +1,10 @@
 import { v } from "convex/values";
-import { internalMutation, internalQuery, query } from "./_generated/server";
+import { internal } from "./_generated/api";
+import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { requireProfile } from "./lib/roles";
+import { assertCanActOnSubmission } from "./submissions";
+import { fieldValues } from "./lib/mew3/fieldValues";
+import { normalizeDate, normalizeMethod } from "./lib/mew3/recon";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { addDays } from "./lib/mew3/recon";
@@ -207,6 +211,83 @@ export const recordsForSubmission = query({
       fields: (template?.aiExtractionFields ?? []).map((f) => ({ key: f.key, label: f.label })),
       rows: JSON.parse(rec.rows) as Array<Record<string, unknown>>,
     };
+  },
+});
+
+const NUMERIC_KEYS = new Set(["amount", "nights", "guests"]);
+const DATE_KEYS = new Set(["checkIn", "checkOut", "date"]);
+
+function coerce(key: string, raw: string): string | number | null {
+  const text = raw.trim();
+  if (text === "") return null;
+  if (NUMERIC_KEYS.has(key)) {
+    const n = Number(text.replace(/,/g, ""));
+    if (!Number.isFinite(n)) throw new Error(`${key} must be a number`);
+    return n;
+  }
+  if (DATE_KEYS.has(key)) {
+    const d = normalizeDate(text);
+    if (!d) throw new Error("Enter the date as YYYY-MM-DD or DD/MM/YYYY");
+    return d;
+  }
+  return text;
+}
+
+/**
+ * Corrects a value read from a MEW3 document. With `rowIndex` it changes that
+ * row. Without, it changes the field for the whole document: directly when
+ * there is one row, or by splitting "A; B" across the rows when the parts
+ * match them. The reconciliation then re-runs for the day on the corrected rows.
+ */
+export const setRecordValue = mutation({
+  args: { submissionId: v.id("submissions"), key: v.string(), value: v.string(), rowIndex: v.optional(v.number()) },
+  handler: async (ctx, { submissionId, key, value, rowIndex }) => {
+    const profile = await requireProfile(ctx);
+    const submission = await ctx.db.get(submissionId);
+    if (!submission) throw new Error("Submission not found");
+    await assertCanActOnSubmission(ctx, profile, submission, "edit");
+    const rec = await ctx.db.query("extractedRecords").withIndex("by_submissionId", (q) => q.eq("submissionId", submissionId)).first();
+    if (!rec || rec.orgId !== profile.orgId) throw new Error("No records were read from this submission");
+    const rows = JSON.parse(rec.rows) as Array<Record<string, unknown>>;
+
+    const apply = (row: Record<string, unknown>, raw: string) => {
+      const v2 = coerce(key, raw);
+      const isExtra = !(key in row) && row.extra && typeof row.extra === "object" && key in (row.extra as object);
+      if (isExtra) (row.extra as Record<string, unknown>)[key] = v2;
+      else row[key] = v2;
+      if (key === "paymentMethod" && "methodWritten" in row) {
+        row.methodWritten = v2;
+        row.paymentMethod = normalizeMethod(v2 === null ? null : String(v2));
+      } else if (key === "paymentMethod") {
+        row.paymentMethod = v2 === null ? null : normalizeMethod(String(v2));
+      }
+    };
+
+    if (rowIndex !== undefined) {
+      if (!rows[rowIndex]) throw new Error("That row no longer exists");
+      apply(rows[rowIndex], value);
+    } else if (rows.length === 1) {
+      apply(rows[0], value);
+    } else {
+      const parts = value.split(";").map((p) => p.trim());
+      if (NUMERIC_KEYS.has(key) || parts.length !== rows.length) {
+        throw new Error(`This value comes from ${rows.length} rows — edit them one at a time in the records table.`);
+      }
+      rows.forEach((row, i) => apply(row, parts[i]));
+    }
+
+    await ctx.db.patch(rec._id, { rows: JSON.stringify(rows) });
+
+    // Keep the Extracted Metrics & Figures panel of every file in step with the rows.
+    const template = await ctx.db.get(submission.templateId);
+    const values = fieldValues(rows, template?.aiExtractionFields ?? []);
+    const files = await ctx.db.query("submissionFiles").withIndex("by_submissionId", (q) => q.eq("submissionId", submissionId)).collect();
+    for (const f of files) {
+      if (f.extracted) await ctx.db.patch(f._id, { extracted: { ...f.extracted, metadata: { ...f.extracted.metadata, ...values } } });
+    }
+
+    await ctx.scheduler.runAfter(0, internal.mew3Recon.runOnDocumentSubmitted, { orgId: rec.orgId, date: rec.date });
+    return null;
   },
 });
 

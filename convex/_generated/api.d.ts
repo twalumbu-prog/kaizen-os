@@ -28,6 +28,7 @@ import type * as leaderboard from "../leaderboard.js";
 import type * as lib_aiExtract from "../lib/aiExtract.js";
 import type * as lib_canteenValidity from "../lib/canteenValidity.js";
 import type * as lib_mew3_extract from "../lib/mew3/extract.js";
+import type * as lib_mew3_fieldValues from "../lib/mew3/fieldValues.js";
 import type * as lib_mew3_moneywise from "../lib/mew3/moneywise.js";
 import type * as lib_mew3_recon from "../lib/mew3/recon.js";
 import type * as lib_mew3_types from "../lib/mew3/types.js";
@@ -118,6 +119,7 @@ declare const fullApi: ApiFromModules<{
   "lib/aiExtract": typeof lib_aiExtract;
   "lib/canteenValidity": typeof lib_canteenValidity;
   "lib/mew3/extract": typeof lib_mew3_extract;
+  "lib/mew3/fieldValues": typeof lib_mew3_fieldValues;
   "lib/mew3/moneywise": typeof lib_mew3_moneywise;
   "lib/mew3/recon": typeof lib_mew3_recon;
   "lib/mew3/types": typeof lib_mew3_types;
