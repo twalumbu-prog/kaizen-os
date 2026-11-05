@@ -11,7 +11,26 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CalendarStrip } from "@/components/employee/calendar-strip";
 import { FullCalendarDialog } from "@/components/employee/full-calendar-dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ReportOptionsMenu } from "@/components/calendar/report-options-menu";
+
+function AutomationStatus({ templateId, periodLabel }: { templateId: CalendarItems[number]["templateId"]; periodLabel: string }) {
+  const status = useQuery(api.automations.periodStatus, { templateId, periodLabel });
+  if (status === undefined) return <Skeleton className="h-16 w-full" />;
+  if (status === null) return <p className="text-sm text-muted-foreground">This report is filed by an automation, but it is not set up any more.</p>;
+  return (
+    <div className="flex flex-col gap-2 text-sm">
+      <p>{status.automationName} has not filed this report yet.</p>
+      <p className="rounded-md bg-muted p-3">
+        {status.message ?? "No run has looked at this date yet. It checks every morning and whenever a source document is submitted."}
+      </p>
+      <p className="text-xs text-muted-foreground">
+        {status.enabled ? "It files the report by itself as soon as everything it needs is submitted and read." : "This automation is turned off."}
+        {status.checkedAt ? ` Last checked ${new Date(status.checkedAt).toLocaleString()}.` : ""}
+      </p>
+    </div>
+  );
+}
 
 function todayMidnightUTC(): number {
   const d = new Date();
@@ -104,6 +123,7 @@ export function WorkCalendar({ viewSwitcher }: { viewSwitcher?: ReactNode }) {
 
   // Keep showing the last-known data while a wider range loads, so growing the
   // window doesn't flash the whole view back to a loading skeleton.
+  const [waiting, setWaiting] = useState<CalendarItems[number] | null>(null);
   const [lastSelected, setLastSelected] = useState(selectedDayCalendar);
   if (selectedDayCalendar !== undefined && selectedDayCalendar !== lastSelected) {
     setLastSelected(selectedDayCalendar);
@@ -207,9 +227,15 @@ export function WorkCalendar({ viewSwitcher }: { viewSwitcher?: ReactNode }) {
                     Submit
                   </Button>
                 ) : (
-                  <span className="text-xs capitalize text-muted-foreground">
-                    {item.automated ? "Automated" : item.unassigned ? "Unassigned" : item.status}
-                  </span>
+                  item.automated && !item.submissionId ? (
+                    <Button size="sm" variant="outline" onClick={() => setWaiting(item)}>
+                      View status
+                    </Button>
+                  ) : (
+                    <span className="text-xs capitalize text-muted-foreground">
+                      {item.automated ? "Automated" : item.unassigned ? "Unassigned" : item.status}
+                    </span>
+                  )
                 )}
                 <ReportOptionsMenu templateId={item.templateId} canViewConfig={canViewConfig} />
               </div>
@@ -217,6 +243,15 @@ export function WorkCalendar({ viewSwitcher }: { viewSwitcher?: ReactNode }) {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={waiting !== null} onOpenChange={(o) => !o && setWaiting(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{waiting?.templateName} · {waiting?.periodLabel}</DialogTitle>
+          </DialogHeader>
+          {waiting && <AutomationStatus templateId={waiting.templateId} periodLabel={waiting.periodLabel} />}
+        </DialogContent>
+      </Dialog>
 
       <Card>
         <CardHeader>

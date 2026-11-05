@@ -92,7 +92,7 @@ async function ensureTemplate(
     if (spec.allowMultiple && found.requiredFiles.some((f) => !f.allowMultiple)) {
       await ctx.db.patch(found._id, { requiredFiles: found.requiredFiles.map((f) => ({ ...f, allowMultiple: true })) });
     }
-    if (spec.allowMultiple && !found.dueSameDay) await ctx.db.patch(found._id, { dueSameDay: true });
+    if (!found.dueSameDay) await ctx.db.patch(found._id, { dueSameDay: true });
     if (spec.aiFields && !found.aiExtractionFields?.length) await ctx.db.patch(found._id, { aiExtractionFields: [...spec.aiFields] });
     return { id: found._id, created: false };
   }
@@ -101,7 +101,7 @@ async function ensureTemplate(
     name: spec.name,
     cadence: "daily",
     // The day's paperwork is filed on the day itself, not the morning after.
-    ...(spec.allowMultiple ? { dueSameDay: true } : {}),
+    dueSameDay: true,
     ...(spec.aiFields ? { aiExtractionFields: [...spec.aiFields] } : {}),
     validatorKey: spec.validatorKey,
     weight: 1,

@@ -113,3 +113,37 @@ export const runNow = mutation({
     await ctx.scheduler.runAfter(0, runner, { automationId, trigger: "manual" });
   },
 });
+
+/**
+ * Why an automated report has not been filed yet: the latest run that looked
+ * at the period, in plain words. Powers the calendar's status view for
+ * automation-owned items that have no submission to open.
+ */
+export const periodStatus = query({
+  args: { templateId: v.id("reportTemplates"), periodLabel: v.string() },
+  handler: async (ctx, { templateId, periodLabel }) => {
+    const profile = await requireProfile(ctx);
+    const automation = await ctx.db
+      .query("automations")
+      .withIndex("by_orgId", (q) => q.eq("orgId", profile.orgId))
+      .filter((q) => q.eq(q.field("outputTemplateId"), templateId))
+      .first();
+    if (!automation) return null;
+    const date = /\d{4}-\d{2}-\d{2}/.exec(periodLabel)?.[0] ?? null;
+    const runs = await ctx.db
+      .query("automationRuns")
+      .withIndex("by_automationId", (q) => q.eq("automationId", automation._id))
+      .order("desc")
+      .take(100);
+    const hit = date ? runs.find((r) => r.message.includes(date)) : undefined;
+    const lastRun = runs[0];
+    return {
+      automationName: automation.name,
+      enabled: automation.enabled,
+      date,
+      message: hit?.message ?? null,
+      checkedAt: hit?.startedAt ?? null,
+      lastRunAt: lastRun?.startedAt ?? null,
+    };
+  },
+});
