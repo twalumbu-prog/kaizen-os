@@ -1,7 +1,9 @@
 "use client";
 
 import { useAuthActions } from "@convex-dev/auth/react";
+import { useMutation } from "convex/react";
 import { useRouter } from "next/navigation";
+import { api } from "@/convex/_generated/api";
 import { FormEvent, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,6 +14,7 @@ import { Eye, EyeOff } from "lucide-react";
 
 export function AuthForm({ flow }: { flow: "signIn" | "signUp" }) {
   const { signIn } = useAuthActions();
+  const joinOrg = useMutation(api.organizations.joinOrgByInviteCode);
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -23,6 +26,11 @@ export function AuthForm({ flow }: { flow: "signIn" | "signUp" }) {
     formData.set("flow", flow);
     try {
       await signIn("password", formData);
+      // Signing up with an email that already has an account just signs in, so
+      // the auth callback never sees the invite code. Join explicitly; this is
+      // a no-op for brand-new users who were already added by the callback.
+      const inviteCode = flow === "signUp" ? String(formData.get("orgName") ?? "").trim() : "";
+      if (inviteCode) await joinOrg({ inviteCode });
       router.push("/");
     } catch (err: any) {
       console.error("Auth Error:", err);
