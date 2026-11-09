@@ -261,6 +261,8 @@ export const runOnDocumentSubmitted = internalAction({
     for (const a of await ctx.runQuery(internal.mew3.listEnabled, { orgId })) {
       await runDates(ctx, a._id, "submission", [date]);
     }
+    // Receipts become draft MoneyWise sales, waiting for Finance's approval.
+    await ctx.runAction(internal.mew3Sales.prepareDay, { orgId, date }).catch(() => undefined);
   },
 });
 

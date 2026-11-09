@@ -688,6 +688,113 @@ function ReassignSubmission({
   );
 }
 
+const LEDGER_OPTIONS = [
+  { value: "CASH", label: "Cash" },
+  { value: "AIRTEL_MONEY", label: "Airtel Money" },
+  { value: "BANK", label: "Bank" },
+] as const;
+
+const SALE_STATUS: Record<string, { label: string; className: string }> = {
+  draft: { label: "Awaiting approval", className: "text-muted-foreground" },
+  inMoneyWise: { label: "Already in MoneyWise", className: "text-emerald-600 dark:text-emerald-400" },
+  skipped: { label: "Won't be posted", className: "text-muted-foreground" },
+  approved: { label: "Posting…", className: "text-amber-600 dark:text-amber-400" },
+  posted: { label: "Posted", className: "text-emerald-600 dark:text-emerald-400" },
+  failed: { label: "Failed", className: "text-red-600 dark:text-red-400" },
+};
+
+/** MEW3 receipts on their way to MoneyWise as sales: pick the ledger where needed, then approve the day. */
+function MoneyWiseSales({ submissionId }: { submissionId: Id<"submissions"> }) {
+  const data = useQuery(api.mew3Sales.forSubmission, { submissionId });
+  const setLedger = useMutation(api.mew3Sales.setLedger);
+  const setSkipped = useMutation(api.mew3Sales.setSkipped);
+  const approveDay = useMutation(api.mew3Sales.approveDay);
+  const [busy, setBusy] = useState(false);
+  if (!data || data.sales.length === 0) return null;
+
+  const open = data.sales.filter((s) => s.status === "draft" || s.status === "failed");
+  const ready = open.filter((s) => s.ledger).length;
+  const errorText = (err: unknown) => (err instanceof Error ? err.message.replace(/^[\s\S]*Uncaught Error: /, "").split("\n")[0] : "Something went wrong.");
+  const editable = (status: string) => data.canApprove && (status === "draft" || status === "failed" || status === "skipped");
+
+  async function approve() {
+    setBusy(true);
+    try {
+      const r = await approveDay({ submissionId });
+      toast.success(`Posting ${r.approved} sale${r.approved === 1 ? "" : "s"} to MoneyWise.` + (r.needLedger ? ` ${r.needLedger} still need a payment method.` : ""));
+    } catch (err) {
+      toast.error(errorText(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between gap-3">
+        <div>
+          <CardTitle className="text-base">MoneyWise Sales</CardTitle>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Each receipt for {data.date} becomes a sale in MoneyWise once approved. Check the figures above first.
+          </p>
+        </div>
+        {data.canApprove && open.length > 0 && (
+          <Button size="sm" disabled={busy || ready === 0} onClick={approve}>
+            {busy && <Loader2 className="mr-1.5 size-3.5 animate-spin" />}
+            Approve & post {ready > 0 ? ready : ""}
+          </Button>
+        )}
+      </CardHeader>
+      <CardContent className="flex flex-col divide-y text-sm">
+        {data.sales.map((s) => (
+          <div key={s._id} className="flex flex-wrap items-center gap-3 py-2.5">
+            <div className="min-w-0 flex-1">
+              <div className="font-medium">
+                {s.guestName}
+                {s.receiptNumber ? <span className="font-normal text-muted-foreground"> · Receipt #{s.receiptNumber}</span> : null}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                K{s.amount.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                {s.room ? ` · Room ${s.room}` : ""}
+                {s.checkIn ? ` · ${s.checkIn}${s.checkOut ? ` to ${s.checkOut}` : ""}` : ""}
+              </div>
+              {s.error && <div className="mt-0.5 text-xs text-red-600 dark:text-red-400">{s.error}</div>}
+            </div>
+            {editable(s.status) && s.status !== "skipped" ? (
+              <Select value={s.ledger ?? undefined} onValueChange={(value) => setLedger({ saleId: s._id, ledger: value as "CASH" }).catch((e) => toast.error(errorText(e)))}>
+                <SelectTrigger className="h-8 w-36">
+                  <SelectValue placeholder="Paid how?" />
+                </SelectTrigger>
+                <SelectContent>
+                  {LEDGER_OPTIONS.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              s.ledger && <span className="text-xs text-muted-foreground">{LEDGER_OPTIONS.find((o) => o.value === s.ledger)?.label}</span>
+            )}
+            <span className={`w-36 text-right text-xs ${SALE_STATUS[s.status]?.className ?? ""}`}>
+              {SALE_STATUS[s.status]?.label ?? s.status}
+              {s.moneywiseRef && (s.status === "posted" || s.status === "inMoneyWise") ? ` · ${s.moneywiseRef}` : ""}
+            </span>
+            {editable(s.status) && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 text-xs"
+                onClick={() => setSkipped({ saleId: s._id, skipped: s.status !== "skipped" }).catch((e) => toast.error(errorText(e)))}
+              >
+                {s.status === "skipped" ? "Include" : "Skip"}
+              </Button>
+            )}
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function SubmissionDetailPage({
   params,
 }: {
@@ -832,6 +939,8 @@ export default function SubmissionDetailPage({
             </CardContent>
           </Card>
         </div>
+
+        <MoneyWiseSales submissionId={submissionId} />
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">

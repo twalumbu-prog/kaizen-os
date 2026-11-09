@@ -359,6 +359,45 @@ export default defineSchema({
     .index("by_submissionId", ["submissionId"])
     .index("by_orgId_kind_date", ["orgId", "kind", "date"]),
 
+  /**
+   * MEW3 receipts on their way to MoneyWise as sales. Drafted from each day's
+   * receipts; Finance picks the ledger where the receipt doesn't say and approves
+   * the day; approved rows are then posted once (keyed by `key`).
+   */
+  mew3Sales: defineTable({
+    orgId: v.id("organizations"),
+    date: v.string(),
+    /** Sent as MoneyWise's external_reference. */
+    key: v.string(),
+    receiptNumber: v.union(v.string(), v.null()),
+    guestName: v.string(),
+    phone: v.union(v.string(), v.null()),
+    room: v.union(v.string(), v.null()),
+    checkIn: v.union(v.string(), v.null()),
+    checkOut: v.union(v.string(), v.null()),
+    amount: v.number(),
+    ledger: v.union(v.literal("CASH"), v.literal("AIRTEL_MONEY"), v.literal("BANK"), v.null()),
+    /** Finance picked the ledger, so a re-read receipt doesn't overwrite it. */
+    ledgerChosen: v.optional(v.boolean()),
+    status: v.union(
+      v.literal("draft"),
+      /** Already entered in MoneyWise by hand — nothing to post. */
+      v.literal("inMoneyWise"),
+      v.literal("skipped"),
+      v.literal("approved"),
+      v.literal("posted"),
+      v.literal("failed"),
+    ),
+    /** The MoneyWise entry or receipt number recording it. */
+    moneywiseRef: v.optional(v.string()),
+    error: v.optional(v.string()),
+    approvedBy: v.optional(v.id("users")),
+    approvedAt: v.optional(v.number()),
+    postedAt: v.optional(v.number()),
+  })
+    .index("by_orgId_date", ["orgId", "date"])
+    .index("by_orgId_key", ["orgId", "key"]),
+
   /** Items (e.g. email message ids) an automation has already handled, so reruns never repeat work. */
   automationProcessed: defineTable({
     automationId: v.id("automations"),

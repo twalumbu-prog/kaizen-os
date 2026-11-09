@@ -591,3 +591,34 @@ export const fetchDayTransactions = internalAction({
     return txns;
   },
 });
+// ── Sales ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Records a sale in MoneyWise (POST /sales, `write` scope). Never throws: the
+ * caller stores the outcome. A repeat of the same external_reference returns
+ * the sale MoneyWise already has rather than creating another.
+ */
+export const postSale = internalAction({
+  args: { orgId: v.id("organizations"), body: v.string() },
+  handler: async (ctx, { orgId, body }): Promise<{ ok: true; ref: string } | { ok: false; error: string }> => {
+    let token: string;
+    try {
+      token = await tokenForOrg(ctx, orgId);
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+    const res = await fetch(`${MWP_BASE_URL}/sales`, { method: "POST", headers: { ...mwpHeaders(token), "Content-Type": "application/json" }, body });
+    const text = await res.text().catch(() => "");
+    let json: { data?: { receipt_number?: string; id?: string }; error?: string; message?: string } = {};
+    try {
+      json = JSON.parse(text);
+    } catch {
+      /* not JSON */
+    }
+    if (res.ok) return { ok: true, ref: json.data?.receipt_number ?? json.data?.id ?? "posted" };
+    if (res.status === 404 || res.status === 405) return { ok: false, error: "MoneyWise doesn't accept sales over the API yet (POST /sales is not live)." };
+    if (res.status === 401 || res.status === 403) return { ok: false, error: "MoneyWise refused: the connection needs the write permission. Reconnect MoneyWise with write access." };
+    return { ok: false, error: `MoneyWise ${res.status}: ${(json.error ?? json.message ?? text).slice(0, 300)}` };
+  },
+});
+
