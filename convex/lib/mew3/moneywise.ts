@@ -34,6 +34,7 @@ export function lusakaDate(raw: unknown): string | null {
 export function normalizeMwTxn(raw: unknown, index: number): MwTxn | null {
   if (!raw || typeof raw !== "object") return null;
   const o = raw as Obj;
+  if (typeof o.debit === "number" || typeof o.credit === "number") return fromCashbook(o, index);
   const rawAmount = pick(o, ["amount", "value", "total", "net_amount"]);
   const signed = typeof rawAmount === "number" ? rawAmount : typeof rawAmount === "string" ? Number(rawAmount.replace(/[^0-9.\-]/g, "")) : NaN;
   if (!Number.isFinite(signed) || signed === 0) return null;
@@ -57,5 +58,47 @@ export function normalizeMwTxn(raw: unknown, index: number): MwTxn | null {
     category,
     wallet: text(pick(o, ["wallet", "wallet_name", "external_wallet", "account_wallet", "source"])),
     isRevenue: /revenue|income|sales?\b|accommodation|lodging|rent|room/i.test(`${category ?? ""} ${kind}`),
+  };
+}
+
+const LEDGER_NAMES: Record<string, string> = {
+  MONEYWISE_WALLET: "MoneyWise Wallet",
+  CASH: "Cash",
+  AIRTEL_MONEY: "Airtel Money",
+  BANK: "Bank",
+};
+
+/**
+ * A MoneyWise Pro cashbook entry, as GET /transactions returns it. Debit is money
+ * coming into the ledger, credit money leaving it. Sales are INFLOW entries,
+ * described "Sale: ..." and booked against an income account; adjustments and
+ * opening balances move money between ledgers and are not takings.
+ */
+function fromCashbook(o: Obj, index: number): MwTxn | null {
+  const debit = Number(o.debit ?? 0) || 0;
+  const credit = Number(o.credit ?? 0) || 0;
+  if (debit === 0 && credit === 0) return null;
+  const type = String(o.type ?? o.entry_type ?? "").toUpperCase();
+  const account = o.account && typeof o.account === "object" ? (o.account as Obj) : null;
+  const category = text(account?.name) ?? null;
+  const payer = text(o.payer_name);
+  const description = [text(o.description), payer ? `from ${payer}` : null].filter(Boolean).join(" ");
+  const inflow = debit > 0 && (type === "INFLOW" || type === "");
+  const isRevenue =
+    inflow &&
+    (/^sale:/i.test(text(o.description) ?? "") ||
+      /revenue|income|sales?\b|accommodation|lodging|rent|room/i.test(category ?? "") ||
+      !/transfer|deposit|withdraw|float|top.?up/i.test(description));
+  const ledger = text(o.ledger);
+  return {
+    id: text(o.id) ?? `row-${index + 1}`,
+    date: lusakaDate(o.date ?? o.created_at),
+    amount: debit > 0 ? debit : credit,
+    direction: debit > 0 ? (inflow ? "in" : "transfer") : "out",
+    description,
+    reference: text(o.reference) ?? text(o.external_reference),
+    category,
+    wallet: ledger ? (LEDGER_NAMES[ledger] ?? ledger) : null,
+    isRevenue,
   };
 }

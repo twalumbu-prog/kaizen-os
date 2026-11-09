@@ -555,26 +555,38 @@ export const createPaymentLink = action({
  * Asks for the day either side as well, since the API's day boundary may be UTC
  * and the business runs on Lusaka time.
  */
+/** MoneyWise's built-in ledgers: its own wallet, plus cash, Airtel Money and bank takings. */
+const INTERNAL_LEDGERS = ["MONEYWISE_WALLET", "CASH", "AIRTEL_MONEY", "BANK"];
+
 export const fetchDayTransactions = internalAction({
   args: { orgId: v.id("organizations"), date: v.string() },
   handler: async (ctx, { orgId, date }): Promise<unknown[]> => {
     const token = await tokenForOrg(ctx, orgId);
     const day = (offset: number) => new Date(Date.parse(`${date}T00:00:00Z`) + offset * 86_400_000).toISOString().slice(0, 10);
+    // Each payment method is its own ledger in MoneyWise, and /transactions returns only the
+    // MoneyWise Wallet one unless told otherwise; cash and Airtel sales live in the others.
+    const external = (await mwpFetch(token, "/external-wallets").catch(() => null)) as { data?: Array<{ id: string }> } | null;
+    const ledgers: Array<Record<string, string>> = [
+      ...INTERNAL_LEDGERS.map((ledger) => ({ ledger })),
+      ...(external?.data ?? []).map((w) => ({ external_wallet_id: w.id })),
+    ];
     const txns: unknown[] = [];
-    let cursor: string | undefined;
-    for (let page = 0; page < 50; page++) {
-      const params = new URLSearchParams({ start_date: day(-1), end_date: day(1), from: day(-1), to: day(1), limit: "200" });
-      if (cursor) params.set("cursor", cursor);
-      const res = (await mwpFetch(token, `/transactions?${params.toString()}`)) as
-        | { data?: unknown[]; next_cursor?: string | null }
-        | unknown[];
-      if (Array.isArray(res)) {
-        txns.push(...res);
-        break;
+    for (const which of ledgers) {
+      let cursor: string | undefined;
+      for (let page = 0; page < 50; page++) {
+        const params = new URLSearchParams({ ...which, start_date: day(-1), end_date: day(1), limit: "200" });
+        if (cursor) params.set("cursor", cursor);
+        const res = (await mwpFetch(token, `/transactions?${params.toString()}`)) as
+          | { data?: unknown[]; next_cursor?: string | null }
+          | unknown[];
+        if (Array.isArray(res)) {
+          txns.push(...res);
+          break;
+        }
+        txns.push(...(res.data ?? []));
+        cursor = res.next_cursor ?? undefined;
+        if (!cursor) break;
       }
-      txns.push(...(res.data ?? []));
-      cursor = res.next_cursor ?? undefined;
-      if (!cursor) break;
     }
     return txns;
   },

@@ -71,7 +71,8 @@ export interface MwTxn {
   id: string;
   date: string | null;
   amount: number;
-  direction: "in" | "out";
+  /** "transfer" is money moved in from another ledger: neither takings nor spending. */
+  direction: "in" | "out" | "transfer";
   description: string;
   reference: string | null;
   category: string | null;
