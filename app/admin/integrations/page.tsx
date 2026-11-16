@@ -18,6 +18,7 @@ export default function IntegrationsPage() {
     org ? { orgId: org._id } : "skip"
   );
   const listConnectedComposioApps = useAction(api.composio.listConnectedApps);
+  const inboxAccounts = useQuery(api.inbox.listAccounts);
 
   const [composioConnected, setComposioConnected] = useState<Set<string>>(new Set());
   const [category, setCategory] = useState<IntegrationCategory | "All">("All");
@@ -37,6 +38,9 @@ export default function IntegrationsPage() {
   const isConnected = (entry: (typeof INTEGRATIONS)[number]) => {
     if (entry.kind === "native") {
       return nativeIntegrations?.find((i) => i.provider === entry.slug)?.status === "active";
+    }
+    if (entry.kind === "messaging") {
+      return Boolean(inboxAccounts?.some((a) => a.channel === entry.slug && a.status === "active"));
     }
     return composioConnected.has(entry.slug);
   };

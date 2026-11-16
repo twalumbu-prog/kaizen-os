@@ -54,7 +54,7 @@ export function InboxView() {
           </div>
         </div>
         <div className="flex gap-2 text-sm">
-          <Link href="/inbox/channels" className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 hover:bg-muted">
+          <Link href="/admin/integrations" className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 hover:bg-muted">
             <Plug className="size-4" /> Channels
           </Link>
           <Link href="/agents" className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 hover:bg-muted">
@@ -66,7 +66,7 @@ export function InboxView() {
       {noAccounts && (
         <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
           No channels are connected yet.{" "}
-          <Link href="/inbox/channels" className="font-medium text-foreground underline">
+          <Link href="/admin/integrations" className="font-medium text-foreground underline">
             Connect Gmail, WhatsApp, Instagram or Facebook
           </Link>{" "}
           to start receiving messages here.

@@ -25,8 +25,10 @@ export type CatalogEntry = {
   description: string;
   category: IntegrationCategory;
   /** "native" integrations have their own dedicated Convex actions and OAuth flow.
-   *  "composio" integrations are connected generically through Composio. */
-  kind: "native" | "composio";
+   *  "composio" integrations are connected generically through Composio.
+   *  "messaging" integrations are inbox channels (Gmail, WhatsApp, Facebook, Instagram) that can be
+   *  connected either through Composio or directly with Meta, and are added to the master inbox. */
+  kind: "native" | "composio" | "messaging";
   /** Route to navigate to when the tile is selected. */
   href: string;
   /** Domain used to load the brand logo via Google's favicon service (e.g. "slack.com").
@@ -137,14 +139,39 @@ export const INTEGRATIONS: CatalogEntry[] = [
     iconClassName: "bg-pink-50 text-pink-600 dark:bg-pink-900/30 dark:text-pink-400",
   },
 
+  // ── Messaging channels (master inbox) ───────────────────────────────────
+  {
+    slug: "facebook",
+    name: "Facebook Messenger",
+    description: "Receive and answer Facebook Page messages in the master inbox, through Meta or Composio.",
+    category: "Communication",
+    kind: "messaging",
+    href: "/admin/integrations/messaging/facebook",
+    domain: "facebook.com",
+    logoUrl: "https://cdn.simpleicons.org/messenger/0084FF",
+    initials: "Fb",
+    iconClassName: "bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400",
+  },
+  {
+    slug: "instagram",
+    name: "Instagram Direct Messages",
+    description: "Receive and answer Instagram DMs in the master inbox, through Meta or Composio.",
+    category: "Communication",
+    kind: "messaging",
+    href: "/admin/integrations/messaging/instagram",
+    domain: "instagram.com",
+    initials: "Ig",
+    iconClassName: "bg-pink-50 text-pink-600 dark:bg-pink-900/30 dark:text-pink-400",
+  },
+
   // ── Composio-backed apps ────────────────────────────────────────────────
   {
     slug: "gmail",
     name: "Gmail",
-    description: "Read, search, and send email through a connected Gmail account.",
+    description: "Connect a Gmail mailbox to the master inbox so agents can read and answer email.",
     category: "Communication",
-    kind: "composio",
-    href: "/admin/integrations/composio/gmail",
+    kind: "messaging",
+    href: "/admin/integrations/messaging/gmail",
     domain: "gmail.com",
     logoUrl: "https://logos.composio.dev/api/gmail",
     initials: "Gm",
@@ -237,10 +264,10 @@ export const INTEGRATIONS: CatalogEntry[] = [
   {
     slug: "whatsapp",
     name: "WhatsApp",
-    description: "Send messages and notifications over WhatsApp.",
+    description: "Receive and answer WhatsApp messages in the master inbox, through Meta or Composio.",
     category: "Communication",
-    kind: "composio",
-    href: "/admin/integrations/composio/whatsapp",
+    kind: "messaging",
+    href: "/admin/integrations/messaging/whatsapp",
     domain: "whatsapp.com",
     logoUrl: "https://logos.composio.dev/api/whatsapp",
     initials: "Wa",
