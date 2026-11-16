@@ -85,7 +85,13 @@ export const listAccounts = query({
       .withIndex("by_orgId", (q) => q.eq("orgId", profile.orgId))
       .collect();
     // config holds access tokens, which never leave the server.
-    return rows.map((row) => ({ ...row, config: undefined }));
+    return rows.map((row) => {
+      let provider: "meta" | "composio" = "meta";
+      try {
+        if (JSON.parse(row.config ?? "{}").provider === "composio") provider = "composio";
+      } catch {}
+      return { ...row, config: undefined, provider };
+    });
   },
 });
 

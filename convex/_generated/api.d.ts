@@ -60,6 +60,7 @@ import type * as lib_periods from "../lib/periods.js";
 import type * as lib_qbExtract from "../lib/qbExtract.js";
 import type * as lib_roles from "../lib/roles.js";
 import type * as lib_scoring from "../lib/scoring.js";
+import type * as lib_socialParse from "../lib/socialParse.js";
 import type * as masterfees from "../masterfees.js";
 import type * as meta from "../meta.js";
 import type * as mew3 from "../mew3.js";
@@ -162,6 +163,7 @@ declare const fullApi: ApiFromModules<{
   "lib/qbExtract": typeof lib_qbExtract;
   "lib/roles": typeof lib_roles;
   "lib/scoring": typeof lib_scoring;
+  "lib/socialParse": typeof lib_socialParse;
   masterfees: typeof masterfees;
   meta: typeof meta;
   mew3: typeof mew3;

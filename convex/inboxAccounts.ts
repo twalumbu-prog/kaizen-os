@@ -83,6 +83,22 @@ export const disconnect = mutation({
   },
 });
 
+/** Facebook / Instagram accounts connected through Composio, which are polled like Gmail. */
+export const listActiveComposioSocial = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const all = await ctx.db.query("channelAccounts").collect();
+    return all.filter((a) => {
+      if (a.status !== "active" || (a.channel !== "facebook" && a.channel !== "instagram")) return false;
+      try {
+        return JSON.parse(a.config ?? "{}").provider === "composio";
+      } catch {
+        return false;
+      }
+    });
+  },
+});
+
 export const listActiveGmail = internalQuery({
   args: {},
   handler: async (ctx) => {

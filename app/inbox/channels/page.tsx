@@ -29,10 +29,12 @@ export default function ChannelsPage() {
   const connectGmail = useAction(api.inboxChannels.connectGmail);
   const syncNow = useAction(api.inboxChannels.syncNow);
   const addMeta = useMutation(api.inboxAccounts.addMetaAccount);
+  const connectComposio = useAction(api.inboxChannels.connectComposioChannel);
   const disconnect = useMutation(api.inboxAccounts.disconnect);
   const isAdmin = me?.role === "admin";
 
   const [busy, setBusy] = useState<string | null>(null);
+  const [method, setMethod] = useState<"meta" | "composio">("meta");
   const [kind, setKind] = useState<keyof typeof META_HELP>("whatsapp");
   const [label, setLabel] = useState("");
   const [externalId, setExternalId] = useState("");
@@ -93,7 +95,13 @@ export default function ChannelsPage() {
                                 ? a.lastSyncAt
                                   ? `Synced ${timeAgo(a.lastSyncAt)} ago`
                                   : "Waiting for first sync"
-                                : "Receiving via webhook"}
+                                : a.provider === "composio" && a.channel !== "whatsapp"
+                                  ? a.lastSyncAt
+                                    ? `Via Composio · synced ${timeAgo(a.lastSyncAt)} ago`
+                                    : "Via Composio · waiting for first sync"
+                                  : a.provider === "composio"
+                                    ? "Sends via Composio · receives via webhook"
+                                    : "Via Meta · receiving by webhook"}
                             {a.lastError && <span className="text-destructive"> · {a.lastError}</span>}
                           </p>
                         </div>
@@ -146,7 +154,7 @@ export default function ChannelsPage() {
                 <div>
                   <h2 className="text-base font-semibold">WhatsApp, Instagram &amp; Facebook</h2>
                   <p className="text-sm text-muted-foreground">
-                    These arrive through a Meta webhook. In your Meta app, set the callback URL to{" "}
+                    Choose how each account connects. Accounts connected directly receive messages through a Meta webhook: in your Meta app, set the callback URL to{" "}
                     <code className="rounded bg-muted px-1 py-0.5 text-xs">{webhookUrl}</code> and use the verify token you stored as{" "}
                     <code className="rounded bg-muted px-1 py-0.5 text-xs">META_WEBHOOK_VERIFY_TOKEN</code>; also set{" "}
                     <code className="rounded bg-muted px-1 py-0.5 text-xs">META_APP_SECRET</code> on the Convex deployment.
@@ -165,18 +173,52 @@ export default function ChannelsPage() {
                     <Label htmlFor="meta-label">Display name</Label>
                     <Input id="meta-label" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Main WhatsApp line" />
                   </div>
-                  <div className="grid gap-1.5">
+                  <div className="grid gap-1.5 sm:col-span-2">
+                    <Label>Connection method</Label>
+                    <div className="flex flex-wrap gap-2">
+                      {(
+                        [
+                          ["meta", "Direct with Meta", "Webhook and access token from your Meta app."],
+                          ["composio", "Through Composio", "Connect the account in Composio; no Meta app setup."],
+                        ] as const
+                      ).map(([id, title, help]) => (
+                        <button
+                          key={id}
+                          type="button"
+                          aria-pressed={method === id}
+                          onClick={() => setMethod(id)}
+                          className={cn("flex-1 rounded-lg border p-3 text-left text-sm transition-colors", method === id ? "border-primary bg-primary/5" : "hover:bg-muted")}
+                        >
+                          <span className="font-medium">{title}</span>
+                          <span className="block text-xs text-muted-foreground">{help}</span>
+                        </button>
+                      ))}
+                    </div>
+                    {method === "composio" && (
+                      <p className="text-xs text-muted-foreground">
+                        Connect {kind === "whatsapp" ? "WhatsApp" : kind === "facebook" ? "Facebook" : "Instagram"} under{" "}
+                        <Link href="/admin/integrations" className="underline">
+                          Integrations
+                        </Link>{" "}
+                        first.{" "}
+                        {kind === "whatsapp"
+                          ? "Composio can send WhatsApp messages but cannot receive them, so incoming messages still need the Meta webhook."
+                          : "New messages are pulled every 5 minutes."}
+                      </p>
+                    )}
+                  </div>
+                  <div className={cn("grid gap-1.5", method === "composio" && kind !== "whatsapp" && "hidden")}>
                     <Label htmlFor="meta-id">{META_HELP[kind].id}</Label>
                     <Input id="meta-id" value={externalId} onChange={(e) => setExternalId(e.target.value)} />
                     <p className="text-xs text-muted-foreground">{META_HELP[kind].hint}</p>
                   </div>
-                  {kind === "instagram" && (
+                  {kind === "instagram" && method === "meta" && (
                     <div className="grid gap-1.5">
                       <Label htmlFor="meta-page">Linked Facebook Page ID</Label>
                       <Input id="meta-page" value={pageId} onChange={(e) => setPageId(e.target.value)} />
                     </div>
                   )}
-                  <div className="grid gap-1.5 sm:col-span-2">
+                  <div className={cn("grid gap-1.5 sm:col-span-2", method === "composio" && "hidden")}>
                     <Label htmlFor="meta-token">Access token (optional)</Label>
                     <Input id="meta-token" type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} />
                     <p className="text-xs text-muted-foreground">Leave empty to use the token from your Meta integration. Stored on the server and never shown again.</p>
@@ -184,11 +226,16 @@ export default function ChannelsPage() {
                 </div>
                 <div className="flex justify-end">
                   <Button
-                    disabled={busy !== null || !externalId.trim()}
+                    disabled={busy !== null || (method === "meta" || kind === "whatsapp" ? !externalId.trim() : false)}
                     onClick={() =>
                       run(
                         "meta",
                         async () => {
+                          if (method === "composio") {
+                            await connectComposio({ channel: kind, externalId: externalId.trim() || undefined });
+                            setExternalId("");
+                            return;
+                          }
                           await addMeta({ channel: kind, label, externalId, accessToken: token || undefined, pageId: pageId || undefined });
                           setLabel("");
                           setExternalId("");

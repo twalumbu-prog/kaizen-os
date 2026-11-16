@@ -56,7 +56,9 @@ crons.daily(
   internal.mew3Recon.runAllScheduled,
 );
 
-// Pull new mail into the master inbox (WhatsApp / Messenger / Instagram arrive by webhook).
+// Pull new messages into the master inbox. Gmail and Composio-connected Facebook/Instagram are polled;
+// direct-Meta accounts and WhatsApp arrive by webhook.
 crons.interval("inbox-gmail-sync", { minutes: 5 }, internal.inboxChannels.syncAllGmail);
+crons.interval("inbox-composio-social-sync", { minutes: 5 }, internal.inboxChannels.syncAllComposioSocial);
 
 export default crons;
