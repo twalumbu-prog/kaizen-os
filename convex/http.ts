@@ -241,6 +241,26 @@ http.route({
       return new Response("Bad request", { status: 400 });
     }
 
+    // Meta allows one callback URL per app. Other systems that share the app (e.g. another
+    // service reading the same WhatsApp number) get the identical delivery, signature included.
+    const forwards = (process.env.META_WEBHOOK_FORWARD_URLS ?? "")
+      .split(",")
+      .map((u) => u.trim())
+      .filter((u) => u.startsWith("https://"));
+    await Promise.allSettled(
+      forwards.map((url) =>
+        fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Hub-Signature-256": request.headers.get("x-hub-signature-256") ?? "",
+          },
+          body: raw,
+          signal: AbortSignal.timeout(5000),
+        }),
+      ),
+    );
+
     for (const m of parseMetaWebhook(payload)) {
       const account = await ctx.runQuery(internal.inboxAccounts.getByExternalId, {
         channel: m.channel,
