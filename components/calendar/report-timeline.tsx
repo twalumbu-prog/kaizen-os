@@ -54,6 +54,7 @@ const STATE_STYLES: Record<string, { dot: string; label: string }> = {
   complete: { dot: "bg-emerald-500", label: "Submitted" },
   partial: { dot: "bg-amber-500", label: "Partly submitted" },
   overdue: { dot: "bg-red-500", label: "Overdue" },
+  skipped: { dot: "bg-sky-500", label: "Skipped — no activity" },
   upcoming: { dot: "bg-foreground/35", label: "Due" },
   unassigned: { dot: "bg-muted-foreground/30 ring-1 ring-inset ring-border", label: "Nobody assigned" },
 };

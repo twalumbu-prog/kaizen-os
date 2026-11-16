@@ -97,12 +97,15 @@ export function FullCalendarDialog({
                 const d = new Date(day.date);
                 const inMonth = d.getUTCMonth() === viewMonth;
                 const hasItems = day.items.length > 0;
-                const allDone = hasItems && day.items.every((i) => i.completed);
+                const allDone = hasItems && day.items.every((i) => i.completed || i.skipped);
+                const onlySkipped = allDone && day.items.every((i) => i.skipped);
                 const isOverdue = hasItems && !allDone && day.date < todayMs;
                 const dotColor = !hasItems
                   ? "bg-transparent"
                   : allDone
-                    ? "bg-emerald-500"
+                    ? onlySkipped
+                    ? "bg-sky-500"
+                    : "bg-emerald-500"
                     : isOverdue
                       ? "bg-red-500"
                       : "bg-blue-400";

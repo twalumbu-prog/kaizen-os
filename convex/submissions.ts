@@ -330,6 +330,109 @@ export async function assertCanActOnSubmission(
   throw new Error(`You can only ${action} your own reports`);
 }
 
+/**
+ * Marks one period of a report as skipped — there was nothing to file (no
+ * activity), as opposed to someone forgetting. Only reports an admin has
+ * flagged `allowSkip` accept this. A skipped period shows blue on the calendar
+ * and is left out of missing counts and scores. Uploading a file against it
+ * later simply turns it into a normal submission.
+ *
+ * `userId` lets an admin/manager skip a period on someone else's behalf; it is
+ * ignored for a shared report, whose one row belongs to the whole team.
+ */
+export const skipPeriod = mutation({
+  args: {
+    templateId: v.id("reportTemplates"),
+    dueAt: v.number(),
+    userId: v.optional(v.id("users")),
+  },
+  handler: async (ctx, { templateId, dueAt, userId }) => {
+    const profile = await requireProfile(ctx);
+    const template = await ctx.db.get(templateId);
+    if (!template) throw new Error("Report template not found");
+    const department = await ctx.db.get(template.departmentId);
+    if (!department || department.orgId !== profile.orgId) throw new Error("Report template not found");
+    if (!template.allowSkip) throw new Error("This report cannot be skipped");
+
+    const bounds = boundsForDueAt(template, dueAt);
+    const owner = userId ?? profile.userId;
+    if (owner !== profile.userId && profile.role === "employee") {
+      throw new Error("You can only skip your own reports");
+    }
+
+    const byPeriod = ctx.db
+      .query("submissions")
+      .withIndex("by_templateId_periodLabel", (q) =>
+        q.eq("templateId", templateId).eq("periodLabel", bounds.periodLabel),
+      );
+    const existing = isShared(template)
+      ? await byPeriod.first()
+      : await byPeriod.filter((q) => q.eq(q.field("userId"), owner)).first();
+
+    let submissionId: Id<"submissions">;
+    if (existing) {
+      await assertCanActOnSubmission(ctx, profile, existing, "skip");
+      if (existing.status === "submitted" || existing.status === "late") {
+        throw new Error("This report has already been submitted");
+      }
+      submissionId = existing._id;
+      await ctx.db.patch(existing._id, {
+        status: "skipped",
+        submittedAt: undefined,
+        submissionScore: undefined,
+        finalScore: undefined,
+      });
+    } else {
+      if (isShared(template) && profile.role === "employee") {
+        const assignment = await ctx.db
+          .query("reportAssignments")
+          .withIndex("by_templateId", (q) => q.eq("templateId", templateId))
+          .filter((q) => q.eq(q.field("userId"), profile.userId))
+          .unique();
+        if (!assignment) throw new Error("You can only skip your own reports");
+      }
+      submissionId = await ctx.db.insert("submissions", {
+        templateId,
+        userId: owner,
+        periodLabel: bounds.periodLabel,
+        periodStart: bounds.periodStart,
+        periodEnd: bounds.periodEnd,
+        dueAt: bounds.dueAt,
+        status: "skipped",
+      });
+    }
+
+    await ctx.scheduler.runAfter(0, internal.scores.recomputeDepartmentScore, {
+      departmentId: template.departmentId,
+    });
+    return submissionId;
+  },
+});
+
+/** Reverses a skip: the period goes back to pending (or missing, if it is already overdue). */
+export const unskipPeriod = mutation({
+  args: { submissionId: v.id("submissions") },
+  handler: async (ctx, { submissionId }) => {
+    const profile = await requireProfile(ctx);
+    const submission = await ctx.db.get(submissionId);
+    if (!submission) throw new Error("Submission not found");
+    await assertCanActOnSubmission(ctx, profile, submission, "change");
+    if (submission.status !== "skipped") throw new Error("This period is not skipped");
+
+    await ctx.db.patch(submissionId, {
+      status: Date.now() <= submission.dueAt ? "pending" : "missing",
+    });
+
+    const template = await ctx.db.get(submission.templateId);
+    if (template) {
+      await ctx.scheduler.runAfter(0, internal.scores.recomputeDepartmentScore, {
+        departmentId: template.departmentId,
+      });
+    }
+    return null;
+  },
+});
+
 export const submitReport = mutation({
   args: {
     submissionId: v.id("submissions"),
@@ -1026,6 +1129,9 @@ export const myCalendar = query({
             submissionId: submission?._id ?? null,
             status: submission?.status ?? (row.userId || automation ? "pending" : "unassigned"),
             completed: submission?.status === "submitted" || submission?.status === "late",
+            skipped: submission?.status === "skipped",
+            allowSkip: template.allowSkip === true,
+            ownerId: shared ? (submission?.userId ?? row.userId) : row.userId,
             score: submission?.finalScore ?? null,
             /** Set only when overseeing someone else's report — drives read-only UI. */
             assigneeName: automation
@@ -1072,6 +1178,9 @@ export const myCalendar = query({
             submissionId: s._id,
             status: s.status,
             completed: true,
+            skipped: false,
+            allowSkip: template.allowSkip === true,
+            ownerId: s.userId,
             score: s.finalScore ?? null,
             assigneeName: automation
               ? automationLabel(automation)
@@ -1150,7 +1259,11 @@ export const myReportScores = query({
             const submission = matches.find((s) => s.status !== "missing") ?? matches[0];
 
             let earned = 0;
-            let possible = getMaxPossibleScore(template.validatorKey, template.validationRules);
+            // A skipped period had nothing to file, so it adds nothing to what was possible.
+            let possible =
+              submission?.status === "skipped"
+                ? 0
+                : getMaxPossibleScore(template.validatorKey, template.validationRules);
             let checklist: Doc<"validationChecklistItems">[] = [];
 
             if (submission) {
@@ -1206,7 +1319,7 @@ export const myReportScores = query({
 // ─── Timeline ─────────────────────────────────────────────────────────────────
 
 /** How each report's due date looks once every assignee is accounted for. */
-type DueState = "complete" | "partial" | "overdue" | "upcoming" | "unassigned";
+type DueState = "complete" | "partial" | "overdue" | "upcoming" | "unassigned" | "skipped";
 
 /**
  * Every report due inside a date window, grouped by department — the data
@@ -1321,11 +1434,16 @@ export const reportTimeline = query({
               if (isExcluded && done.length === 0) {
                 // Categorized as skipped with no submission — omit dot completely from timeline
               } else {
+                const skippedCount = forPeriod.filter((s) => s.status === "skipped").length;
                 let state: DueState;
                 if (expectedCount === 0) {
                   state = "unassigned";
                 } else if (done.length >= expectedCount) {
                   state = "complete";
+                } else if (done.length + skippedCount >= expectedCount) {
+                  // Everyone has either filed or skipped: all-skipped reads as
+                  // skipped, a mix as complete.
+                  state = done.length > 0 ? "complete" : "skipped";
                 } else if (done.length > 0) {
                   state = "partial";
                 } else if (cursor.dueAt < now) {

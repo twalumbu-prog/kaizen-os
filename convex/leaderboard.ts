@@ -173,6 +173,9 @@ async function accumulate(
           if (!submission && cursor.dueAt < assignment._creationTime) continue;
 
           const status = submission?.status ?? "missing";
+          // A deliberately skipped period (no activity) is neither earned nor
+          // owed — leave it out of points, maxPoints and every count.
+          if (status === "skipped") continue;
           const points = computeSubmissionScore({
             status,
             dueAt: cursor.dueAt,

@@ -58,6 +58,8 @@ export const SUBMISSION_STATUS = v.union(
   v.literal("submitted"),
   v.literal("late"),
   v.literal("missing"),
+  /** Deliberately not filed because there was no activity — not a gap, not scored. */
+  v.literal("skipped"),
 );
 
 export const CHECKLIST_STATUS = v.union(
@@ -145,6 +147,12 @@ export default defineSchema({
      * report created before this field existed keeps its current behavior.
      */
     sharingMode: v.optional(v.union(v.literal("individual"), v.literal("shared"))),
+    /**
+     * When true, a period can be marked "skipped" from the Work Calendar —
+     * for reports with nothing to file on quiet days (no activity), so a
+     * deliberate skip is not read as a missing submission.
+     */
+    allowSkip: v.optional(v.boolean()),
     /** Admin-entered opening balance for the first-ever period, when there's no prior period to roll forward from. */
     startingBalance: v.optional(v.number()),
     /**

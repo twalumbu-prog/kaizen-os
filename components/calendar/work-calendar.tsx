@@ -4,7 +4,7 @@ import { useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState, type ReactNode } from "react";
-import { CalendarDays, CheckCircle2, Circle } from "lucide-react";
+import { CalendarDays, CheckCircle2, Circle, MinusCircle } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -154,8 +154,22 @@ export function WorkCalendar({ viewSwitcher }: { viewSwitcher?: ReactNode }) {
   }
 
   const items = displaySelectedCalendar[0]?.items ?? [];
-  const todoItems = items.filter((item) => !item.completed);
-  const doneItems = items.filter((item) => item.completed);
+  const todoItems = items.filter((item) => !item.completed && !item.skipped);
+  // Skipped periods sit with the finished ones — settled, but in blue so they
+  // are never mistaken for a submitted report (or for one nobody filed).
+  const doneItems = items.filter((item) => item.completed || item.skipped);
+
+  /** Skip controls for a row, when the report allows it and the viewer may act on it. */
+  function skipFor(item: (typeof items)[number]) {
+    if (!item.allowSkip || item.completed || item.unassigned || item.automated) return undefined;
+    if (!item.canSubmit && me?.role === "employee") return undefined;
+    return {
+      dueAt: item.dueAt,
+      ownerId: item.ownerId,
+      skipped: item.skipped,
+      submissionId: item.submissionId,
+    };
+  }
 
   function goToUpload(item: (typeof items)[number]) {
     router.push(`/employee/reports/${item.templateId}?due=${item.dueAt}`);
@@ -237,7 +251,7 @@ export function WorkCalendar({ viewSwitcher }: { viewSwitcher?: ReactNode }) {
                     </span>
                   )
                 )}
-                <ReportOptionsMenu templateId={item.templateId} canViewConfig={canViewConfig} />
+                <ReportOptionsMenu templateId={item.templateId} canViewConfig={canViewConfig} skip={skipFor(item)} />
               </div>
             ))
           )}
@@ -260,7 +274,7 @@ export function WorkCalendar({ viewSwitcher }: { viewSwitcher?: ReactNode }) {
         <CardContent className="flex flex-col divide-y">
           {doneItems.length === 0 ? (
             <p className="py-2 text-sm text-muted-foreground">
-              Nothing submitted on this date yet.
+              Nothing submitted or skipped on this date yet.
             </p>
           ) : (
             doneItems.map((item, index) => (
@@ -270,10 +284,15 @@ export function WorkCalendar({ viewSwitcher }: { viewSwitcher?: ReactNode }) {
               >
                 <button
                   type="button"
+                  disabled={item.skipped}
                   onClick={() => goToSubmission(item)}
-                  className="flex flex-1 items-center gap-3 text-left hover:opacity-80"
+                  className="flex flex-1 items-center gap-3 text-left hover:opacity-80 disabled:cursor-default disabled:hover:opacity-100"
                 >
-                  <CheckCircle2 className="size-5 shrink-0 text-emerald-500" />
+                  {item.skipped ? (
+                    <MinusCircle className="size-5 shrink-0 text-sky-500" />
+                  ) : (
+                    <CheckCircle2 className="size-5 shrink-0 text-emerald-500" />
+                  )}
                   <div className="flex-1">
                     <div className="font-medium">{item.templateName}</div>
                     <div className="text-xs text-muted-foreground">{ownerLine(item)}</div>
@@ -295,8 +314,14 @@ export function WorkCalendar({ viewSwitcher }: { viewSwitcher?: ReactNode }) {
                     )}
                   </div>
                 </button>
-                <span className="text-xs capitalize text-muted-foreground">{item.status}</span>
-                <ReportOptionsMenu templateId={item.templateId} canViewConfig={canViewConfig} />
+                {item.skipped ? (
+                  <span className="rounded-sm bg-sky-500/10 px-1.5 py-0.5 text-[10px] font-bold uppercase text-sky-600 dark:text-sky-400">
+                    Skipped · no activity
+                  </span>
+                ) : (
+                  <span className="text-xs capitalize text-muted-foreground">{item.status}</span>
+                )}
+                <ReportOptionsMenu templateId={item.templateId} canViewConfig={canViewConfig} skip={skipFor(item)} />
               </div>
             ))
           )}

@@ -1,8 +1,9 @@
 "use client";
 
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
+import { toast } from "sonner";
 import { useRouter } from "next/navigation";
-import { Download, Eye, MoreVertical, Settings } from "lucide-react";
+import { Download, Eye, MinusCircle, MoreVertical, RotateCcw, Settings } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
@@ -25,12 +26,41 @@ import {
 export function ReportOptionsMenu({
   templateId,
   canViewConfig,
+  skip,
 }: {
   templateId: Id<"reportTemplates">;
   /** Admins only — everyone else never sees "View configuration". */
   canViewConfig: boolean;
+  /**
+   * Present only when this row's report allows skipping a period and the
+   * viewer may act on the row. `submissionId` is set once a row exists, and
+   * `skipped` says whether to offer "Skip" or "Undo skip".
+   */
+  skip?: {
+    dueAt: number;
+    ownerId: Id<"users"> | null;
+    skipped: boolean;
+    submissionId: Id<"submissions"> | null;
+  };
 }) {
   const router = useRouter();
+  const skipPeriod = useMutation(api.submissions.skipPeriod);
+  const unskipPeriod = useMutation(api.submissions.unskipPeriod);
+
+  async function runSkip() {
+    if (!skip) return;
+    try {
+      if (skip.skipped && skip.submissionId) {
+        await unskipPeriod({ submissionId: skip.submissionId });
+        toast.success("Skip removed");
+      } else {
+        await skipPeriod({ templateId, dueAt: skip.dueAt, userId: skip.ownerId ?? undefined });
+        toast.success("Marked as skipped — no activity");
+      }
+    } catch (err: any) {
+      toast.error(err?.data ?? err?.message ?? "Could not update this report");
+    }
+  }
   const references = useQuery(api.reportTemplates.listReferenceFiles, { templateId });
 
   return (
@@ -83,6 +113,27 @@ export function ReportOptionsMenu({
             </>
           )}
         </DropdownMenuGroup>
+
+        {skip && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuGroup>
+              <DropdownMenuItem className="gap-2" onClick={runSkip}>
+                {skip.skipped ? (
+                  <RotateCcw className="size-4 shrink-0 text-muted-foreground" />
+                ) : (
+                  <MinusCircle className="size-4 shrink-0 text-sky-500" />
+                )}
+                <div className="min-w-0 flex-1">
+                  <div>{skip.skipped ? "Undo skip" : "Skip"}</div>
+                  {!skip.skipped && (
+                    <div className="text-xs text-muted-foreground">No activity — nothing to submit</div>
+                  )}
+                </div>
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
+          </>
+        )}
 
         {canViewConfig && (
           <>

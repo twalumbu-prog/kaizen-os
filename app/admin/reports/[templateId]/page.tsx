@@ -944,6 +944,21 @@ export default function ReportConfigPage({
                 ? "Any assignee can submit the one copy everyone shares — e.g. NAPSA/NHIMA/PAYE, where only one receipt exists no matter who's responsible for filing it."
                 : "Each assignee owes their own submission for every period — e.g. individual sales targets."}
             </p>
+            <div className="flex items-center gap-4">
+              <Label htmlFor="allow-skip" className="w-32">Allow skipping</Label>
+              <Switch
+                id="allow-skip"
+                checked={!!template.allowSkip}
+                onCheckedChange={(checked) => {
+                  updateTemplate({ templateId, allowSkip: checked });
+                  toast.success(checked ? "Skipping enabled" : "Skipping disabled");
+                }}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Adds a &quot;Skip&quot; option to this report&apos;s menu on the Work Calendar, for days with no
+              activity. A skipped period shows in blue and is not counted as missing or scored.
+            </p>
           </CardContent>
         </Card>
 

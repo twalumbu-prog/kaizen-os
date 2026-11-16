@@ -27,7 +27,7 @@ const QUALITY_WEIGHT = 0.6;
  * the deadline; missing reports score 0.
  */
 export function submissionScore(params: {
-  status: "submitted" | "late" | "missing" | "pending";
+  status: "submitted" | "late" | "missing" | "pending" | "skipped";
   dueAt: number;
   submittedAt?: number;
   lateGraceHours?: number;
@@ -41,7 +41,7 @@ export function submissionScore(params: {
   lateFloor?: number;
 }): number {
   const { status, dueAt, submittedAt, lateGraceHours = 48, lateFloor = 10 } = params;
-  if (status === "missing" || status === "pending") return 0;
+  if (status === "missing" || status === "pending" || status === "skipped") return 0;
   if (status === "submitted") return 100;
   // late
   if (submittedAt === undefined) return 0;
@@ -83,9 +83,10 @@ export function organizationHealthScore(
 }
 
 export function submissionRate(
-  statuses: ("submitted" | "late" | "missing" | "pending")[],
+  statuses: ("submitted" | "late" | "missing" | "pending" | "skipped")[],
 ): number {
-  const relevant = statuses.filter((s) => s !== "pending");
+  // A skipped period had nothing to file, so it counts neither for nor against.
+  const relevant = statuses.filter((s) => s !== "pending" && s !== "skipped");
   if (relevant.length === 0) return 100;
   const submitted = relevant.filter((s) => s === "submitted" || s === "late").length;
   return Math.round((submitted / relevant.length) * 100);
