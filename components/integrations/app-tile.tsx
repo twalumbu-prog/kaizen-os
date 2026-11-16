@@ -9,9 +9,11 @@ import type { CatalogEntry } from "@/lib/integrations-catalog";
 interface AppTileProps {
   entry: CatalogEntry;
   connected: boolean;
+  /** Small extra line under the description, e.g. a next step. */
+  note?: string;
 }
 
-export function AppTile({ entry, connected }: AppTileProps) {
+export function AppTile({ entry, connected, note }: AppTileProps) {
   const [imgFailed, setImgFailed] = useState(false);
 
   return (
@@ -63,6 +65,7 @@ export function AppTile({ entry, connected }: AppTileProps) {
         <p className="mt-1 text-xs text-muted-foreground line-clamp-2 leading-relaxed">
           {entry.description}
         </p>
+        {note && <p className="mt-1.5 text-xs font-medium text-amber-600 dark:text-amber-400">{note}</p>}
       </div>
     </Link>
   );

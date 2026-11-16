@@ -30,31 +30,45 @@ async function runTool(composio: Composio, userId: string, slug: string, connect
 
 // ── Gmail ────────────────────────────────────────────────────────────────────
 
+/**
+ * Production hides the message of an error thrown from an action behind a generic "Server Error",
+ * so user-facing failures from the connect actions are returned as values instead.
+ */
+export type ConnectResult =
+  | { ok: true; label: string }
+  | { ok: false; message: string; /** Facebook: Pages to choose from. */ choices?: { id: string; name: string }[] };
+
+const fail = (message: string, choices?: { id: string; name: string }[]): ConnectResult => ({ ok: false, message, choices });
+const reason = (e: unknown) => (e instanceof Error ? e.message : String(e)).slice(0, 300);
+
 /** Links the organisation's Composio-connected Gmail mailbox to the inbox. */
 export const connectGmail = action({
   args: {},
-  handler: async (ctx): Promise<{ email: string }> => {
+  handler: async (ctx): Promise<ConnectResult> => {
     const profile = await ctx.runQuery(api.profiles.getMe, {});
-    if (!profile || profile.role !== "admin") throw new Error("Unauthorized");
+    if (!profile || profile.role !== "admin") return fail("Only an admin can connect channels.");
     const orgId = profile.orgId as string;
+    try {
+      const composio = composioClient();
+      const list = await composio.connectedAccounts.list({ userIds: [orgId], toolkitSlugs: ["gmail"], statuses: ["ACTIVE"] });
+      const connectedAccountId = list.items?.[0]?.id;
+      if (!connectedAccountId) return fail("Gmail is not authorised in Composio yet.");
 
-    const composio = composioClient();
-    const list = await composio.connectedAccounts.list({ userIds: [orgId], toolkitSlugs: ["gmail"], statuses: ["ACTIVE"] });
-    const connectedAccountId = list.items?.[0]?.id;
-    if (!connectedAccountId) throw new Error("Gmail is not connected yet. Connect it under Integrations first.");
+      const data = await runTool(composio, orgId, "GMAIL_GET_PROFILE", connectedAccountId, { user_id: "me" });
+      const email = String(data?.emailAddress ?? data?.response_data?.emailAddress ?? "").toLowerCase();
+      if (!email) return fail("Could not read the Gmail address for this connection.");
 
-    const data = await runTool(composio, orgId, "GMAIL_GET_PROFILE", connectedAccountId, { user_id: "me" });
-    const email = String(data?.emailAddress ?? data?.response_data?.emailAddress ?? "").toLowerCase();
-    if (!email) throw new Error("Could not read the Gmail address for this connection.");
-
-    await ctx.runMutation(internal.inboxAccounts.upsert, {
-      orgId: profile.orgId as Id<"organizations">,
-      channel: "gmail",
-      label: email,
-      externalId: email,
-      config: JSON.stringify({ connectedAccountId }),
-    });
-    return { email };
+      await ctx.runMutation(internal.inboxAccounts.upsert, {
+        orgId: profile.orgId as Id<"organizations">,
+        channel: "gmail",
+        label: email,
+        externalId: email,
+        config: JSON.stringify({ connectedAccountId }),
+      });
+      return { ok: true, label: email };
+    } catch (e) {
+      return fail(reason(e));
+    }
   },
 });
 
@@ -151,58 +165,61 @@ export const connectComposioChannel = action({
     /** Facebook Page id (when the user manages several), or the WhatsApp phone number id. */
     externalId: v.optional(v.string()),
   },
-  handler: async (ctx, args): Promise<{ label: string }> => {
+  handler: async (ctx, args): Promise<ConnectResult> => {
     const profile = await ctx.runQuery(api.profiles.getMe, {});
-    if (!profile || profile.role !== "admin") throw new Error("Unauthorized");
+    if (!profile || profile.role !== "admin") return fail("Only an admin can connect channels.");
     const orgId = profile.orgId as string;
 
-    const composio = composioClient();
-    const list = await composio.connectedAccounts.list({ userIds: [orgId], toolkitSlugs: [TOOLKIT[args.channel]], statuses: ["ACTIVE"] });
-    const composioAccountId = list.items?.[0]?.id;
-    if (!composioAccountId) throw new Error(`${args.channel} is not connected in Composio yet. Connect it under Integrations first.`);
+    try {
+      const composio = composioClient();
+      const list = await composio.connectedAccounts.list({ userIds: [orgId], toolkitSlugs: [TOOLKIT[args.channel]], statuses: ["ACTIVE"] });
+      const composioAccountId = list.items?.[0]?.id;
+      if (!composioAccountId) return fail(`${args.channel} is not authorised in Composio yet.`);
 
-    let externalId = args.externalId?.trim() ?? "";
-    let label = externalId;
-    if (args.channel === "facebook") {
-      const pages = extractList(await runTool(composio, orgId, "FACEBOOK_LIST_MANAGED_PAGES", composioAccountId, {}));
-      const page = externalId ? pages.find((p) => String(p.id) === externalId) : pages.length === 1 ? pages[0] : undefined;
-      if (!page) {
-        throw new Error(
-          pages.length === 0
-            ? "No Facebook Pages were found for this connection."
-            : `Several Pages found; enter one Page ID: ${pages.map((p) => `${p.name} (${p.id})`).join(", ")}`,
-        );
+      let externalId = args.externalId?.trim() ?? "";
+      let label = externalId;
+      let selfUsername: string | undefined;
+      if (args.channel === "facebook") {
+        const pages = extractList(await runTool(composio, orgId, "FACEBOOK_LIST_MANAGED_PAGES", composioAccountId, {}));
+        const choices = pages.map((p) => ({ id: String(p.id), name: String(p.name ?? p.id) }));
+        if (choices.length === 0) return fail("No Facebook Pages were found for this connection.");
+        const page = externalId ? choices.find((p) => p.id === externalId) : choices.length === 1 ? choices[0] : undefined;
+        if (!page) return fail(externalId ? "That Page is not managed by this connection." : "Choose which Page to add.", choices);
+        externalId = page.id;
+        label = page.name;
+      } else if (args.channel === "instagram") {
+        const data = await runTool(composio, orgId, "INSTAGRAM_GET_USER_INFO", composioAccountId, {});
+        const info = (data?.response_data ?? data) as Record<string, any>;
+        externalId = String(info?.id ?? info?.data?.id ?? externalId);
+        label = String(info?.username ?? info?.name ?? info?.data?.username ?? externalId);
+        selfUsername = info?.username ? String(info.username) : undefined;
+        if (!externalId) return fail("Could not read the Instagram account for this connection.");
+      } else if (!externalId) {
+        return fail("Enter the WhatsApp phone number ID.");
       }
-      externalId = String(page.id);
-      label = String(page.name ?? externalId);
-    } else if (args.channel === "instagram") {
-      const data = await runTool(composio, orgId, "INSTAGRAM_GET_USER_INFO", composioAccountId, {});
-      const info = (data?.response_data ?? data) as Record<string, any>;
-      externalId = String(info?.id ?? info?.data?.id ?? externalId);
-      label = String(info?.username ?? info?.data?.username ?? externalId);
-      if (!externalId) throw new Error("Could not read the Instagram account for this connection.");
-    } else if (!externalId) {
-      throw new Error("Enter the WhatsApp phone number ID.");
-    }
 
-    await ctx.runMutation(internal.inboxAccounts.upsert, {
-      orgId: profile.orgId as Id<"organizations">,
-      channel: args.channel,
-      label,
-      externalId,
-      config: JSON.stringify({ provider: "composio", composioAccountId }),
-    });
-    return { label };
+      await ctx.runMutation(internal.inboxAccounts.upsert, {
+        orgId: profile.orgId as Id<"organizations">,
+        channel: args.channel,
+        label,
+        externalId,
+        config: JSON.stringify({ provider: "composio", composioAccountId, selfUsername }),
+      });
+      return { ok: true, label };
+    } catch (e) {
+      return fail(reason(e));
+    }
   },
 });
 
 async function syncComposioSocialAccount(
   ctx: { runMutation: Function },
   composio: Composio,
-  account: { _id: Id<"channelAccounts">; orgId: Id<"organizations">; channel: "facebook" | "instagram"; externalId: string; config?: string; lastSyncAt?: number },
+  account: { _id: Id<"channelAccounts">; orgId: Id<"organizations">; channel: "facebook" | "instagram"; externalId: string; label: string; config?: string; lastSyncAt?: number },
 ) {
-  const cfg = JSON.parse(account.config ?? "{}") as { composioAccountId?: string };
+  const cfg = JSON.parse(account.config ?? "{}") as { composioAccountId?: string; selfUsername?: string };
   if (!cfg.composioAccountId) throw new Error("Connection is missing; reconnect it.");
+  const own = { ids: [account.externalId], username: cfg.selfUsername ?? (account.channel === "instagram" ? account.label : undefined) };
   const user = account.orgId as string;
   const since = account.lastSyncAt ? account.lastSyncAt - 3_600_000 : Date.now() - FIRST_SYNC_DAYS * 86_400_000;
 
@@ -223,7 +240,7 @@ async function syncComposioSocialAccount(
   for (const conv of extractList(convs)) {
     const updated = Date.parse(String(conv.updated_time ?? ""));
     if (Number.isFinite(updated) && updated < since) continue;
-    const contact = otherParticipant(conv, account.externalId);
+    const contact = otherParticipant(conv, own);
     if (!contact || !conv.id) continue;
 
     const msgs =
@@ -240,7 +257,7 @@ async function syncComposioSocialAccount(
             fields: "id,message,from,created_time",
           });
 
-    for (const m of inboundMessages(msgs, account.externalId)) {
+    for (const m of inboundMessages(msgs, own)) {
       if (m.at < since) continue;
       await ctx.runMutation(internal.inbox.ingestMessage, {
         orgId: account.orgId,

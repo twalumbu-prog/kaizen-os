@@ -52,6 +52,7 @@ export default function MessagingIntegrationPage({ params }: { params: Promise<{
   const [externalId, setExternalId] = useState("");
   const [pageId, setPageId] = useState("");
   const [token, setToken] = useState("");
+  const [pageChoices, setPageChoices] = useState<{ id: string; name: string }[]>([]);
 
   const checkComposio = useCallback(
     () =>
@@ -99,16 +100,27 @@ export default function MessagingIntegrationPage({ params }: { params: Promise<{
       "Authenticate in the new tab, then come back and press “Check connection”.",
     );
 
-  const addToInbox = () =>
-    run(
-      "add",
-      async () => {
-        if (channel === "gmail") await connectGmail({});
-        else await connectComposio({ channel, externalId: externalId.trim() || undefined });
+  const addToInbox = async (pickedId?: string) => {
+    setBusy("add");
+    try {
+      const res =
+        channel === "gmail"
+          ? await connectGmail({})
+          : await connectComposio({ channel: channel as "facebook" | "instagram" | "whatsapp", externalId: (pickedId ?? externalId).trim() || undefined });
+      if (res.ok) {
+        toast.success(`Added ${res.label} to the inbox`);
         setExternalId("");
-      },
-      "Added to the inbox",
-    );
+        setPageChoices([]);
+      } else {
+        setPageChoices(res.choices ?? []);
+        toast.error(res.message);
+      }
+    } catch (e) {
+      toast.error(errText(e, "Something went wrong"));
+    } finally {
+      setBusy(null);
+    }
+  };
 
   const webhookUrl = `${process.env.NEXT_PUBLIC_CONVEX_SITE_URL ?? "<your Convex site URL>"}/api/meta/webhook`;
   const showMethodChoice = channel !== "gmail";
@@ -276,9 +288,22 @@ export default function MessagingIntegrationPage({ params }: { params: Promise<{
                       </div>
                     )}
 
+                    {pageChoices.length > 0 && (
+                      <div className="grid gap-2 rounded-lg border p-3">
+                        <p className="text-sm font-medium">Which Page do you want in the inbox?</p>
+                        <div className="flex flex-wrap gap-2">
+                          {pageChoices.map((p) => (
+                            <Button key={p.id} variant="outline" size="sm" disabled={busy !== null} onClick={() => addToInbox(p.id)}>
+                              {p.name}
+                            </Button>
+                          ))}
+                        </div>
+                        <p className="text-xs text-muted-foreground">You can add the others afterwards.</p>
+                      </div>
+                    )}
                     <div className="flex items-center justify-between gap-3">
                       <p className="text-sm font-medium">2. Add it to the inbox</p>
-                      <Button disabled={busy !== null || composioReady !== "yes" || (needsId && !externalId.trim())} onClick={addToInbox}>
+                      <Button disabled={busy !== null || composioReady !== "yes" || (needsId && !externalId.trim())} onClick={() => addToInbox()}>
                         {busy === "add" ? "Adding…" : "Add to inbox"}
                       </Button>
                     </div>

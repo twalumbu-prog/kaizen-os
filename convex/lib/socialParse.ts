@@ -19,15 +19,21 @@ export function extractList(payload: unknown): Record<string, any>[] {
   return [];
 }
 
+/** How to recognise our own account: Instagram reports it under an id that differs from the one the API returns, so the username is checked too. */
+export type Own = { ids: string[]; username?: string };
+
+const isOwn = (p: Record<string, any>, own: Own) =>
+  own.ids.includes(String(p.id)) || (!!own.username && String(p.username ?? p.name ?? "").toLowerCase() === own.username.toLowerCase());
+
 /** The participant of a conversation that is not our own account. */
-export function otherParticipant(conv: Record<string, any>, ownId: string): { id: string; name: string } | null {
+export function otherParticipant(conv: Record<string, any>, own: Own): { id: string; name: string } | null {
   const people = extractList(conv.participants);
-  const other = people.find((p) => String(p.id) !== ownId);
+  const other = people.find((p) => !isOwn(p, own));
   return other ? { id: String(other.id), name: String(other.name ?? other.username ?? other.id) } : null;
 }
 
 /** Inbound (from the contact) text messages of a conversation, oldest first. */
-export function inboundMessages(payload: unknown, ownId: string): SocialMessage[] {
+export function inboundMessages(payload: unknown, own: Own): SocialMessage[] {
   return extractList(payload)
     .map((m) => {
       const from = isObj(m.from) ? m.from : {};
@@ -36,10 +42,12 @@ export function inboundMessages(payload: unknown, ownId: string): SocialMessage[
         id: String(m.id ?? ""),
         text: typeof m.message === "string" && m.message ? m.message : m.attachments ? "[attachment]" : "",
         fromId: String(from.id ?? ""),
+        fromIsOwn: isOwn(from, own),
         fromName: String(from.name ?? from.username ?? from.id ?? ""),
         at: Number.isFinite(at) ? at : Date.now(),
       };
     })
-    .filter((m) => m.id && m.text && m.fromId && m.fromId !== ownId)
+    .filter((m) => m.id && m.text && m.fromId && !m.fromIsOwn)
+    .map(({ fromIsOwn: _f, ...m }) => m)
     .sort((a, b) => a.at - b.at);
 }

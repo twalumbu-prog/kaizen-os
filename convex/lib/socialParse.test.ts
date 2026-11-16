@@ -13,8 +13,24 @@ describe("extractList", () => {
 describe("otherParticipant", () => {
   it("returns the contact, not our own page", () => {
     const conv = { participants: { data: [{ id: "page", name: "Us" }, { id: "u1", name: "Ann" }] } };
-    expect(otherParticipant(conv, "page")).toEqual({ id: "u1", name: "Ann" });
-    expect(otherParticipant({}, "page")).toBeNull();
+    expect(otherParticipant(conv, { ids: ["page"] })).toEqual({ id: "u1", name: "Ann" });
+    expect(otherParticipant({}, { ids: ["page"] })).toBeNull();
+  });
+});
+
+describe("Instagram's two ids for our own account", () => {
+  it("recognises our account by username when the ids differ", () => {
+    const own = { ids: ["27994"], username: "blueopus" };
+    const conv = { participants: { data: [{ id: "17841", username: "blueopus" }, { id: "111", username: "ash" }] } };
+    expect(otherParticipant(conv, own)).toEqual({ id: "111", name: "ash" });
+    const msgs = inboundMessages(
+      { data: [
+        { id: "a", message: "hi", from: { id: "111", username: "ash" }, created_time: "2026-11-01T10:00:00Z" },
+        { id: "b", message: "reply", from: { id: "17841", username: "blueopus" }, created_time: "2026-11-01T11:00:00Z" },
+      ] },
+      own,
+    );
+    expect(msgs.map((m) => m.id)).toEqual(["a"]);
   });
 });
 
@@ -27,7 +43,7 @@ describe("inboundMessages", () => {
         { id: "m3", message: "ours", from: { id: "page" }, created_time: "2026-11-02T11:00:00Z" },
         { id: "m4", message: "", from: { id: "u1" }, created_time: "2026-11-02T12:00:00Z" },
       ] },
-      "page",
+      { ids: ["page"] },
     );
     expect(out.map((m) => m.id)).toEqual(["m1", "m2"]);
   });

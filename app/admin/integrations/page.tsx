@@ -40,7 +40,9 @@ export default function IntegrationsPage() {
       return nativeIntegrations?.find((i) => i.provider === entry.slug)?.status === "active";
     }
     if (entry.kind === "messaging") {
-      return Boolean(inboxAccounts?.some((a) => a.channel === entry.slug && a.status === "active"));
+      return (
+        Boolean(inboxAccounts?.some((a) => a.channel === entry.slug && a.status === "active")) || composioConnected.has(entry.slug)
+      );
     }
     return composioConnected.has(entry.slug);
   };
@@ -112,7 +114,19 @@ export default function IntegrationsPage() {
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {filtered.map((entry) => (
-              <AppTile key={entry.slug} entry={entry} connected={Boolean(isConnected(entry))} />
+              <AppTile
+                key={entry.slug}
+                entry={entry}
+                connected={Boolean(isConnected(entry))}
+                note={
+                  entry.kind === "messaging" &&
+                  inboxAccounts !== undefined &&
+                  !inboxAccounts.some((a) => a.channel === entry.slug && a.status === "active") &&
+                  composioConnected.has(entry.slug)
+                    ? "Authorised — not in the inbox yet"
+                    : undefined
+                }
+              />
             ))}
           </div>
         )}
