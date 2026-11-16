@@ -49,3 +49,25 @@ export function timeAgo(ms: number): string {
   if (d < 7) return `${d}d`;
   return new Date(ms).toLocaleDateString(undefined, { day: "numeric", month: "short" });
 }
+
+const AVATAR_COLORS = ["violet", "sky", "emerald", "amber", "rose"] as const;
+
+/** Two initials for a contact: first letters of the first two words, or the first two letters of one word. */
+export function initialsOf(name: string, handle = ""): string {
+  const source = /\p{L}/u.test(name) ? name : handle;
+  const words = source
+    .replace(/@.*$/, "") // an email address: use the part before @
+    .split(/[\s._-]+/)
+    .map((w) => w.replace(/[^\p{L}\p{N}]/gu, ""))
+    .filter((w) => /\p{L}/u.test(w));
+  if (words.length === 0) return "#";
+  const letters = words.length > 1 ? words[0][0] + words[1][0] : Array.from(words[0]).slice(0, 2).join("");
+  return letters.toUpperCase();
+}
+
+/** Same person, same colour every time, from the Kaizen palette. */
+export function avatarColor(key: string): { dot: string; chip: string } {
+  let h = 0;
+  for (const ch of key) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return AGENT_COLOR_CLASSES[AVATAR_COLORS[h % AVATAR_COLORS.length]];
+}

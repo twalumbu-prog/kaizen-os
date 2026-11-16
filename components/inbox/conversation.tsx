@@ -7,6 +7,7 @@ import { Bot, CheckCircle2, RotateCw, Send, TriangleAlert, User } from "lucide-r
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
+import { ContactAvatar } from "@/components/inbox/contact-avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { SELECT_CLASS, agentColor, channelMeta } from "@/lib/inbox-ui";
@@ -86,7 +87,9 @@ export function Conversation({ threadId, agents }: { threadId: Id<"inboxThreads"
   return (
     <div className="flex h-full min-h-0 flex-col">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
-        <div className="min-w-0">
+        <div className="flex min-w-0 items-center gap-3">
+          <ContactAvatar name={thread.contactName} handle={thread.contactHandle} />
+          <div className="min-w-0">
           <div className="flex items-center gap-2">
             <h2 className="truncate text-base font-semibold">{thread.contactName}</h2>
             <span className={cn("rounded-full px-2 py-0.5 text-xs", ch.badge)}>{ch.label}</span>
@@ -95,6 +98,7 @@ export function Conversation({ threadId, agents }: { threadId: Id<"inboxThreads"
             {thread.subject ? `${thread.subject} · ` : ""}
             {thread.contactHandle}
           </p>
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <select
