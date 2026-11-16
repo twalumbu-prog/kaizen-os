@@ -8,7 +8,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Conversation } from "@/components/inbox/conversation";
-import { CHANNELS, SELECT_CLASS, agentColor, channelMeta, timeAgo, type Channel } from "@/lib/inbox-ui";
+import { CHANNELS, agentColor, channelMeta, timeAgo, type Channel } from "@/lib/inbox-ui";
 import { cn } from "@/lib/utils";
 
 type Status = "all" | "needs_human" | "open" | "resolved";
@@ -19,6 +19,95 @@ const STATUS_TABS: { id: Status; label: string }[] = [
   { id: "open", label: "Open" },
   { id: "resolved", label: "Resolved" },
 ];
+
+function Pill({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onClick}
+      className={cn(
+        "rounded-full px-3 py-1 text-sm font-medium transition-colors",
+        active ? "bg-foreground text-background" : "bg-muted text-muted-foreground hover:bg-muted/70 hover:text-foreground",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function FilterRow({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3">
+      <span className="w-16 shrink-0 text-xs font-medium uppercase tracking-wide text-muted-foreground">{title}</span>
+      <div className="flex flex-wrap gap-1.5">{children}</div>
+    </div>
+  );
+}
+
+function InboxFilters(props: {
+  status: Status;
+  onStatus: (s: Status) => void;
+  channel: Channel | "";
+  onChannel: (c: Channel | "") => void;
+  agentId: string;
+  onAgent: (id: string) => void;
+  label: string;
+  onLabel: (l: string) => void;
+  draftsOnly: boolean;
+  onDraftsOnly: (v: boolean) => void;
+  agents: { _id: string; name: string }[];
+  labels: string[];
+}) {
+  return (
+    <div className="flex flex-col gap-3">
+      <FilterRow title="Status">
+        {STATUS_TABS.map((t) => (
+          <Pill key={t.id} active={props.status === t.id} onClick={() => props.onStatus(t.id)}>
+            {t.label}
+          </Pill>
+        ))}
+        <Pill active={props.draftsOnly} onClick={() => props.onDraftsOnly(!props.draftsOnly)}>
+          Drafts to approve
+        </Pill>
+      </FilterRow>
+      <FilterRow title="Channel">
+        <Pill active={props.channel === ""} onClick={() => props.onChannel("")}>
+          All
+        </Pill>
+        {CHANNELS.map((c) => (
+          <Pill key={c.id} active={props.channel === c.id} onClick={() => props.onChannel(props.channel === c.id ? "" : c.id)}>
+            {c.label}
+          </Pill>
+        ))}
+      </FilterRow>
+      {props.agents.length > 0 && (
+        <FilterRow title="Agent">
+          <Pill active={props.agentId === ""} onClick={() => props.onAgent("")}>
+            All
+          </Pill>
+          {props.agents.map((a) => (
+            <Pill key={a._id} active={props.agentId === a._id} onClick={() => props.onAgent(props.agentId === a._id ? "" : a._id)}>
+              {a.name}
+            </Pill>
+          ))}
+        </FilterRow>
+      )}
+      {props.labels.length > 0 && (
+        <FilterRow title="Label">
+          <Pill active={props.label === ""} onClick={() => props.onLabel("")}>
+            All
+          </Pill>
+          {props.labels.map((l) => (
+            <Pill key={l} active={props.label === l} onClick={() => props.onLabel(props.label === l ? "" : l)}>
+              {l}
+            </Pill>
+          ))}
+        </FilterRow>
+      )}
+    </div>
+  );
+}
 
 export function InboxView() {
   const [status, setStatus] = useState<Status>("all");
@@ -73,54 +162,23 @@ export function InboxView() {
         </div>
       )}
 
-      <div className="grid min-h-[34rem] gap-4 lg:h-[calc(100vh-17rem)] lg:grid-cols-[22rem_minmax(0,1fr)]">
+      <InboxFilters
+        status={status}
+        onStatus={setStatus}
+        channel={channel}
+        onChannel={setChannel}
+        agentId={agentId}
+        onAgent={setAgentId}
+        label={label}
+        onLabel={setLabel}
+        draftsOnly={draftsOnly}
+        onDraftsOnly={setDraftsOnly}
+        agents={agents ?? []}
+        labels={allLabels}
+      />
+
+      <div className="grid min-h-[34rem] gap-4 lg:h-[calc(100vh-22rem)] lg:grid-cols-[22rem_minmax(0,1fr)]">
         <section className="flex min-h-0 flex-col rounded-xl border">
-          <div className="flex gap-1 border-b p-2">
-            {STATUS_TABS.map((t) => (
-              <button
-                key={t.id}
-                onClick={() => setStatus(t.id)}
-                className={cn(
-                  "flex-1 rounded-md px-2 py-1 text-xs font-medium transition-colors",
-                  status === t.id ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted",
-                )}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-
-          <div className="grid grid-cols-2 gap-2 border-b p-2">
-            <select aria-label="Channel" className={SELECT_CLASS} value={channel} onChange={(e) => setChannel(e.target.value as Channel | "")}>
-              <option value="">All channels</option>
-              {CHANNELS.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
-            <select aria-label="Agent" className={SELECT_CLASS} value={agentId} onChange={(e) => setAgentId(e.target.value)}>
-              <option value="">All agents</option>
-              {(agents ?? []).map((a) => (
-                <option key={a._id} value={a._id}>
-                  {a.name}
-                </option>
-              ))}
-            </select>
-            <select aria-label="Label" className={SELECT_CLASS} value={label} onChange={(e) => setLabel(e.target.value)}>
-              <option value="">All labels</option>
-              {allLabels.map((l) => (
-                <option key={l} value={l}>
-                  {l}
-                </option>
-              ))}
-            </select>
-            <label className="flex items-center gap-2 text-xs text-muted-foreground">
-              <input type="checkbox" checked={draftsOnly} onChange={(e) => setDraftsOnly(e.target.checked)} />
-              Drafts to approve
-            </label>
-          </div>
-
           <ul className="min-h-0 flex-1 overflow-y-auto">
             {threads === undefined ? (
               <li className="p-3">
