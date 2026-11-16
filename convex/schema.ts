@@ -8,6 +8,13 @@ export const ROLES = v.union(
   v.literal("employee"),
 );
 
+export const CHANNEL = v.union(
+  v.literal("gmail"),
+  v.literal("whatsapp"),
+  v.literal("instagram"),
+  v.literal("facebook"),
+);
+
 export const CADENCE = v.union(
   v.literal("daily"),
   /** Every working day — Monday to Friday, no weekend periods. */
@@ -446,4 +453,112 @@ export default defineSchema({
     /** PKCE code verifier — stored so the callback can complete the token exchange. */
     codeVerifier: v.optional(v.string()),
   }).index("by_token", ["token"]),
+
+  // ── Agents & master inbox ──────────────────────────────────────────────────
+
+  /** A role-based AI agent (e.g. "Customer Service", "Supervisor") that handles inbox conversations. */
+  agents: defineTable({
+    orgId: v.id("organizations"),
+    name: v.string(),
+    /** The role the agent plays, e.g. "Customer Service". Shown as a label in the inbox. */
+    title: v.string(),
+    /** Free-form system instructions the admin writes for this agent. */
+    instructions: v.string(),
+    /** OpenRouter model id. */
+    model: v.string(),
+    /** off = ignore, draft = write a reply for a human to approve, auto = send the reply. */
+    mode: v.union(v.literal("off"), v.literal("draft"), v.literal("auto")),
+    /** Channels this agent is allowed to handle. */
+    channels: v.array(CHANNEL),
+    /** Supervisors review escalations from other agents instead of taking new conversations. */
+    isSupervisor: v.boolean(),
+    /** Where this agent hands a conversation it cannot handle. Empty = a human. */
+    escalateToAgentId: v.optional(v.id("agents")),
+    /** Label colour in the inbox. */
+    color: v.string(),
+    createdBy: v.id("users"),
+    createdAt: v.number(),
+  }).index("by_orgId", ["orgId"]),
+
+  /** A connected messaging account (Gmail mailbox, WhatsApp number, Facebook Page, Instagram account). */
+  channelAccounts: defineTable({
+    orgId: v.id("organizations"),
+    channel: CHANNEL,
+    label: v.string(),
+    /** Gmail address, WhatsApp phone_number_id, Facebook Page id or Instagram business account id. */
+    externalId: v.string(),
+    status: v.union(v.literal("active"), v.literal("disconnected")),
+    /** JSON: access tokens etc. Never returned to the browser. */
+    config: v.optional(v.string()),
+    lastSyncAt: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_orgId", ["orgId"])
+    .index("by_channel_externalId", ["channel", "externalId"]),
+
+  /** One conversation with one contact on one channel. */
+  inboxThreads: defineTable({
+    orgId: v.id("organizations"),
+    accountId: v.id("channelAccounts"),
+    channel: CHANNEL,
+    /** Gmail thread id, WhatsApp wa_id, or Meta sender PSID/IGSID. */
+    externalThreadId: v.string(),
+    subject: v.optional(v.string()),
+    contactName: v.string(),
+    /** Email address, phone number or platform id, used to reply. */
+    contactHandle: v.string(),
+    lastMessageAt: v.number(),
+    lastMessagePreview: v.string(),
+    lastDirection: v.union(v.literal("in"), v.literal("out")),
+    unreadCount: v.number(),
+    /** open = nothing pending, needs_human = an agent or rule asked for a person, resolved = closed. */
+    status: v.union(v.literal("open"), v.literal("needs_human"), v.literal("resolved")),
+    /** The agent that owns this conversation. */
+    agentId: v.optional(v.id("agents")),
+    /** Whether the latest inbound message has been through an agent. */
+    handledUpTo: v.optional(v.number()),
+    labels: v.array(v.string()),
+  })
+    .index("by_orgId_lastMessageAt", ["orgId", "lastMessageAt"])
+    .index("by_orgId_status", ["orgId", "status", "lastMessageAt"])
+    .index("by_account_externalThread", ["accountId", "externalThreadId"]),
+
+  inboxMessages: defineTable({
+    orgId: v.id("organizations"),
+    threadId: v.id("inboxThreads"),
+    direction: v.union(v.literal("in"), v.literal("out")),
+    /** Who wrote it. */
+    author: v.union(v.literal("contact"), v.literal("agent"), v.literal("human")),
+    agentId: v.optional(v.id("agents")),
+    body: v.string(),
+    /** Provider message id; used to dedupe inbound messages. */
+    externalMessageId: v.optional(v.string()),
+    /** draft = waiting for approval, sending/sent/failed = delivery, discarded. Inbound messages are "received". */
+    status: v.union(
+      v.literal("received"),
+      v.literal("draft"),
+      v.literal("sending"),
+      v.literal("sent"),
+      v.literal("failed"),
+      v.literal("discarded"),
+    ),
+    /** Why the agent wrote this / decided what it did. */
+    agentNote: v.optional(v.string()),
+    error: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_threadId_createdAt", ["threadId", "createdAt"])
+    .index("by_thread_externalMessageId", ["threadId", "externalMessageId"]),
+
+  /** Audit trail of every agent decision. */
+  agentRuns: defineTable({
+    orgId: v.id("organizations"),
+    threadId: v.id("inboxThreads"),
+    agentId: v.id("agents"),
+    decision: v.string(),
+    model: v.string(),
+    error: v.optional(v.string()),
+    createdAt: v.number(),
+  }).index("by_threadId", ["threadId"]),
 });

@@ -56,4 +56,7 @@ crons.daily(
   internal.mew3Recon.runAllScheduled,
 );
 
+// Pull new mail into the master inbox (WhatsApp / Messenger / Instagram arrive by webhook).
+crons.interval("inbox-gmail-sync", { minutes: 5 }, internal.inboxChannels.syncAllGmail);
+
 export default crons;

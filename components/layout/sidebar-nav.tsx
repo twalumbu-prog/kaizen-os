@@ -3,7 +3,9 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  Bot,
   CalendarDays,
+  Inbox,
   LayoutDashboard,
   Puzzle,
   Settings,
@@ -34,6 +36,8 @@ const NAV_ITEMS: NavItem[] = [
   },
   { label: "Work Calendar", href: "/calendar", icon: CalendarDays },
   { label: "Leaderboard", href: "/leaderboard", icon: Trophy },
+  { label: "Inbox", href: "/inbox", icon: Inbox, roles: ["admin", "manager"] },
+  { label: "Agents", href: "/agents", icon: Bot, roles: ["admin", "manager"] },
   {
     label: "Automations",
     href: "/automations",

@@ -2,6 +2,7 @@ import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { auth } from "./auth";
+import { metaSignatureValid, parseMetaWebhook } from "./lib/metaWebhook";
 
 const http = httpRouter();
 
@@ -202,6 +203,65 @@ http.route({
     } else {
       return new Response("Failed to connect to Google Drive.", { status: 500 });
     }
+  }),
+});
+
+/**
+ * Meta webhook for WhatsApp, Facebook Messenger and Instagram DMs.
+ * Set the callback URL to <site>/api/meta/webhook with the verify token in META_WEBHOOK_VERIFY_TOKEN;
+ * META_APP_SECRET is used to check every delivery's signature.
+ */
+http.route({
+  path: "/api/meta/webhook",
+  method: "GET",
+  handler: httpAction(async (_ctx, request) => {
+    const q = new URL(request.url).searchParams;
+    const expected = process.env.META_WEBHOOK_VERIFY_TOKEN;
+    if (expected && q.get("hub.mode") === "subscribe" && q.get("hub.verify_token") === expected) {
+      return new Response(q.get("hub.challenge") ?? "", { status: 200 });
+    }
+    return new Response("Forbidden", { status: 403 });
+  }),
+});
+
+http.route({
+  path: "/api/meta/webhook",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const secret = process.env.META_APP_SECRET;
+    if (!secret) return new Response("Not configured", { status: 503 });
+    const raw = await request.text();
+    if (!(await metaSignatureValid(raw, request.headers.get("x-hub-signature-256"), secret))) {
+      return new Response("Invalid signature", { status: 401 });
+    }
+    let payload: unknown;
+    try {
+      payload = JSON.parse(raw);
+    } catch {
+      return new Response("Bad request", { status: 400 });
+    }
+
+    for (const m of parseMetaWebhook(payload)) {
+      const account = await ctx.runQuery(internal.inboxAccounts.getByExternalId, {
+        channel: m.channel,
+        externalId: m.accountExternalId,
+      });
+      // Messages for accounts nobody connected are dropped.
+      if (!account || account.status !== "active") continue;
+      await ctx.runMutation(internal.inbox.ingestMessage, {
+        orgId: account.orgId,
+        accountId: account._id,
+        channel: m.channel,
+        externalThreadId: m.contactId,
+        externalMessageId: m.messageId,
+        contactName: m.contactName,
+        contactHandle: m.contactId,
+        body: m.body,
+        receivedAt: m.at,
+      });
+    }
+    // Meta retries anything that is not a fast 200.
+    return new Response("ok", { status: 200 });
   }),
 });
 
