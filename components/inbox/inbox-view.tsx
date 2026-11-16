@@ -28,80 +28,30 @@ function Pill({ active, onClick, children }: { active: boolean; onClick: () => v
   );
 }
 
-function FilterRow({ title, children }: { title: string; children: React.ReactNode }) {
+function InboxFilters({ channel, onChannel }: { channel: Channel | ""; onChannel: (c: Channel | "") => void }) {
   return (
-    <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3">
-      <span className="w-16 shrink-0 text-xs font-medium uppercase tracking-wide text-muted-foreground">{title}</span>
-      <div className="flex flex-wrap gap-1.5">{children}</div>
-    </div>
-  );
-}
-
-function InboxFilters(props: {
-  channel: Channel | "";
-  onChannel: (c: Channel | "") => void;
-  agentId: string;
-  onAgent: (id: string) => void;
-  label: string;
-  onLabel: (l: string) => void;
-  agents: { _id: string; name: string }[];
-  labels: string[];
-}) {
-  return (
-    <div className="flex flex-col gap-3">
-      <FilterRow title="Channel">
-        <Pill active={props.channel === ""} onClick={() => props.onChannel("")}>
-          All
+    <div className="flex flex-wrap gap-1.5">
+      <Pill active={channel === ""} onClick={() => onChannel("")}>
+        All
+      </Pill>
+      {CHANNELS.map((c) => (
+        <Pill key={c.id} active={channel === c.id} onClick={() => onChannel(channel === c.id ? "" : c.id)}>
+          {c.label}
         </Pill>
-        {CHANNELS.map((c) => (
-          <Pill key={c.id} active={props.channel === c.id} onClick={() => props.onChannel(props.channel === c.id ? "" : c.id)}>
-            {c.label}
-          </Pill>
-        ))}
-      </FilterRow>
-      {props.agents.length > 0 && (
-        <FilterRow title="Agent">
-          <Pill active={props.agentId === ""} onClick={() => props.onAgent("")}>
-            All
-          </Pill>
-          {props.agents.map((a) => (
-            <Pill key={a._id} active={props.agentId === a._id} onClick={() => props.onAgent(props.agentId === a._id ? "" : a._id)}>
-              {a.name}
-            </Pill>
-          ))}
-        </FilterRow>
-      )}
-      {props.labels.length > 0 && (
-        <FilterRow title="Label">
-          <Pill active={props.label === ""} onClick={() => props.onLabel("")}>
-            All
-          </Pill>
-          {props.labels.map((l) => (
-            <Pill key={l} active={props.label === l} onClick={() => props.onLabel(props.label === l ? "" : l)}>
-              {l}
-            </Pill>
-          ))}
-        </FilterRow>
-      )}
+      ))}
     </div>
   );
 }
 
 export function InboxView() {
   const [channel, setChannel] = useState<Channel | "">("");
-  const [agentId, setAgentId] = useState("");
-  const [label, setLabel] = useState("");
   const [selected, setSelected] = useState<Id<"inboxThreads"> | null>(null);
 
   const agents = useQuery(api.agents.list);
   const accounts = useQuery(api.inbox.listAccounts);
   const threads = useQuery(api.inbox.listThreads, {
     channel: channel || undefined,
-    agentId: agentId ? (agentId as Id<"agents">) : undefined,
-    label: label || undefined,
   });
-  // Labels offered in the filter come from the unfiltered-by-label list currently on screen.
-  const allLabels = useMemo(() => [...new Set((threads ?? []).flatMap((t) => t.labels))].sort(), [threads]);
   const agentById = useMemo(() => new Map((agents ?? []).map((a) => [a._id, a])), [agents]);
 
   const noAccounts = accounts !== undefined && accounts.filter((a) => a.status === "active").length === 0;
@@ -136,16 +86,7 @@ export function InboxView() {
         </div>
       )}
 
-      <InboxFilters
-        channel={channel}
-        onChannel={setChannel}
-        agentId={agentId}
-        onAgent={setAgentId}
-        label={label}
-        onLabel={setLabel}
-        agents={agents ?? []}
-        labels={allLabels}
-      />
+      <InboxFilters channel={channel} onChannel={setChannel} />
 
       <div className="grid min-h-[34rem] gap-4 lg:h-[calc(100vh-22rem)] lg:grid-cols-[22rem_minmax(0,1fr)]">
         <section className="flex min-h-0 flex-col rounded-xl border">

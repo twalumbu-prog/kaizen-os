@@ -73,7 +73,9 @@ export function Conversation({ threadId, agents }: { threadId: Id<"inboxThreads"
   }, [unread, threadId, markRead]);
 
   const count = data?.messages.length ?? 0;
-  useEffect(() => bottom.current?.scrollIntoView({ block: "end" }), [count, threadId]);
+  useEffect(() => {
+    bottom.current?.scrollIntoView({ block: "end" });
+  }, [count, threadId]);
 
   if (data === undefined) return <Skeleton className="h-full min-h-64 w-full" />;
   if (data === null) return <p className="p-6 text-sm text-muted-foreground">Conversation not found.</p>;
