@@ -214,6 +214,27 @@ export function matchReceiptsToMoneyWise(receipts: Receipt[], entries: MwTxn[]):
   return out;
 }
 
+/** A mobile-money deposit into the MoneyWise wallet may fall short of the receipt by up to this much, the collection fee. */
+export const WALLET_FEE_FLOOR = 0.96;
+
+/**
+ * Receipts paid by mobile money and then moved into the MoneyWise wallet: the deposit's
+ * description is just the receipt number, and it is the receipt less the collection fee.
+ */
+export function matchWalletDeposits(receipts: Array<{ receiptNumber: string | null; amount: number }>, entries: MwTxn[]): Array<number | null> {
+  const used = new Set<number>();
+  return receipts.map((r) => {
+    const n = normalizeReceiptNo(r.receiptNumber);
+    if (!n || n.length < 2) return null;
+    const hit = entries.findIndex(
+      (e, ei) => !used.has(ei) && e.direction === "in" && normalizeReceiptNo(e.description) === n && e.amount <= r.amount + TOLERANCE && e.amount >= r.amount * WALLET_FEE_FLOOR,
+    );
+    if (hit < 0) return null;
+    used.add(hit);
+    return hit;
+  });
+}
+
 // ── The day's reconciliation ─────────────────────────────────────────────────
 
 export interface DatedGuest extends GuestStay {
@@ -378,15 +399,27 @@ export function reconcileDay(input: DayInput): DayResult {
     };
   });
 
-  const revenueEntries =
-    input.moneywise.ok
-      ? (() => {
-          const inflows = input.moneywise.txns.filter((t) => t.direction === "in");
-          // When nothing is categorised as revenue, every inflow is the best evidence there is.
-          return inflows.some((t) => t.isRevenue) ? inflows.filter((t) => t.isRevenue) : inflows;
-        })()
-      : [];
-  const mwMatch = input.moneywise.ok ? matchReceiptsToMoneyWise(receipts, revenueEntries) : receipts.map(() => null);
+  const allInflows = input.moneywise.ok ? input.moneywise.txns.filter((t) => t.direction === "in") : [];
+  // Receipts paid into the wallet by deposit, matched by receipt number.
+  const walletOf = matchWalletDeposits(receipts, allInflows);
+  const walletDeps = new Set(walletOf.filter((i): i is number => i !== null).map((i) => allInflows[i]));
+  const revenueEntries = input.moneywise.ok
+    ? (() => {
+        const rest = allInflows.filter((t) => !walletDeps.has(t));
+        // When nothing is categorised as revenue, every inflow is the best evidence there is.
+        return rest.some((t) => t.isRevenue) ? rest.filter((t) => t.isRevenue) : rest;
+      })()
+    : [];
+  const viaDeposit = receipts.map((_, ri) => walletOf[ri] !== null);
+  const toMatch = receipts.filter((_, ri) => !viaDeposit[ri]);
+  const matchedRest = input.moneywise.ok ? matchReceiptsToMoneyWise(toMatch, revenueEntries) : toMatch.map(() => null);
+  let nextRest = 0;
+  const mwMatch = receipts.map((_, ri) => (viaDeposit[ri] ? null : matchedRest[nextRest++]));
+  // What those walletDeps came to, against the receipts they cover: the difference is the collection fee.
+  const walletReceipted = sum(receipts.filter((_, ri) => viaDeposit[ri]).map((r) => r.amount));
+  const walletReceived = sum([...walletDeps].map((t) => t.amount));
+  const collectionFees = sum([walletReceipted - walletReceived]);
+  const unclassified = [...walletDeps].filter((t) => !t.isRevenue && !t.category).length;
 
   const receiptLines: ReceiptLine[] = receipts.map((r, ri) => {
     const mw = mwMatch[ri];
@@ -394,13 +427,13 @@ export function reconcileDay(input: DayInput): DayResult {
       receipt: r,
       channel: channelOf(r.paymentMethod),
       guestStatus: receiptOwner[ri] !== null ? "On today's register" : earlierGuestFor(r) ? "Guest checked in earlier" : "Not on any register",
-      moneywiseEntry: mw === null ? null : revenueEntries[mw].reference ?? revenueEntries[mw].id,
+      moneywiseEntry: viaDeposit[ri] ? (allInflows[walletOf[ri]!].reference ?? allInflows[walletOf[ri]!].id) : mw === null ? null : revenueEntries[mw].reference ?? revenueEntries[mw].id,
     };
   });
 
   const mwLines = input.moneywise.ok
     ? input.moneywise.txns.map((t) => {
-        const ri = mwMatch.findIndex((m) => m !== null && revenueEntries[m] === t);
+        const ri = walletDeps.has(t) ? walletOf.findIndex((d) => d !== null && allInflows[d] === t) : mwMatch.findIndex((m) => m !== null && revenueEntries[m] === t);
         return { ...t, matchedReceipt: ri >= 0 ? receiptLabel(receipts[ri]) : null };
       })
     : [];
@@ -473,13 +506,17 @@ export function reconcileDay(input: DayInput): DayResult {
     checks.push(check("revenueInMoneyWise", "Receipts recorded as revenue in MoneyWise", 20, "warning", `Not checked: ${input.moneywise.reason}`, "medium"));
     checks.push(check("cashflowMatches", "MoneyWise inflows match the money collected", 15, "warning", `Not checked: ${input.moneywise.reason}`, "medium"));
   } else {
-    mwRevenue = sum(revenueEntries.map((t) => t.amount));
-    mwInflows = sum(input.moneywise.txns.filter((t) => t.direction === "in").map((t) => t.amount));
+    // Deposits into the wallet count at the receipt's face value; their shortfall is the collection fee.
+    mwRevenue = sum([...revenueEntries.map((t) => t.amount), walletReceipted]);
+    mwInflows = sum(allInflows.map((t) => t.amount));
     const missing = receiptLines.filter((l) => l.moneywiseEntry === null);
     receiptsNotInMoneyWise = missing.length;
     const diff = sum([mwRevenue - totalReceipted]);
     checks.push(
-      near(mwRevenue, totalReceipted) && missing.length === 0
+      near(mwRevenue, totalReceipted) && missing.length === 0 && unclassified > 0
+        ? check("revenueInMoneyWise", "Receipts recorded as revenue in MoneyWise", 20, "warning",
+            `All ${receipts.length} receipts are in MoneyWise (${kwacha(mwRevenue)}), but ${unclassified} paid into the wallet by deposit ${unclassified === 1 ? "has" : "have"} not been classified as Accommodation Revenue yet.`, "medium")
+      : near(mwRevenue, totalReceipted) && missing.length === 0
         ? check("revenueInMoneyWise", "Receipts recorded as revenue in MoneyWise", 20, "pass",
             `MoneyWise revenue for the day is ${kwacha(mwRevenue)}, the same as the ${receipts.length} receipts.`, "low")
         : near(mwRevenue, totalReceipted)
@@ -524,11 +561,12 @@ export function reconcileDay(input: DayInput): DayResult {
 
   // G. MoneyWise cash flow.
   if (input.moneywise.ok && mwInflows !== null) {
-    const diff = sum([mwInflows - totalReceipted]);
+    // Collection fees taken off mobile-money deposits are money collected but never received.
+    const diff = sum([mwInflows + collectionFees - totalReceipted]);
     checks.push(
-      near(mwInflows, totalReceipted)
+      near(mwInflows + collectionFees, totalReceipted)
         ? check("cashflowMatches", "MoneyWise inflows match the money collected", 15, "pass",
-            `MoneyWise received ${kwacha(mwInflows)}, matching cash ${kwacha(byChannel.cash)} + mobile ${kwacha(byChannel.mobile)} + MoneyWise ${kwacha(byChannel.moneywise)}` +
+            `MoneyWise received ${kwacha(mwInflows)}${collectionFees > 0 ? ` plus ${kwacha(collectionFees)} in collection fees` : ""}, matching cash ${kwacha(byChannel.cash)} + mobile ${kwacha(byChannel.mobile)} + MoneyWise ${kwacha(byChannel.moneywise)}` +
               (byChannel.other ? ` + other ${kwacha(byChannel.other)}` : "") + ".", "low")
         : check("cashflowMatches", "MoneyWise inflows match the money collected", 15, "fail",
             `MoneyWise received ${kwacha(mwInflows)} but ${kwacha(totalReceipted)} was collected (cash ${kwacha(byChannel.cash)}, mobile ${kwacha(byChannel.mobile)}, MoneyWise ${kwacha(byChannel.moneywise)}` +

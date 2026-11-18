@@ -118,6 +118,26 @@ describe("reconcileDay", () => {
     expect(r.totals.roomNightsSold).toBe(3);
   });
 
+  it("counts a mobile-money wallet deposit named by receipt number, allowing for the collection fee", () => {
+    const dep = (over = {}) => mw({ id: "d1", amount: 448.47, description: "170", reference: "CR-2026-0065", category: null, isRevenue: false, wallet: "MoneyWise Wallet", ...over });
+    const base = {
+      guests: [guest({ guestName: "Brian Mabika", nights: 1 })],
+      receipts: [receipt({ receiptNumber: "170", guestName: "Brian Mabika", nights: 1, amount: 453, paymentMethod: "airtel" })],
+      deposits: [deposit({ amount: 453, source: "airtel" })],
+    };
+    const r = reconcileDay(day({ ...base, moneywise: { ok: true, txns: [dep()] } }));
+    expect(status(r, "cashflowMatches")).toBe("pass");
+    expect(r.checks.find((c) => c.key === "cashflowMatches")?.explanation).toContain("collection fees");
+    // Received in the wallet but not yet booked as revenue: a warning, not a failure.
+    expect(status(r, "revenueInMoneyWise")).toBe("warning");
+    expect(r.receipts[0].moneywiseEntry).toBe("CR-2026-0065");
+    // Once it is classified as revenue it passes.
+    const done = reconcileDay(day({ ...base, moneywise: { ok: true, txns: [dep({ category: "Accommodation Revenue", isRevenue: true })] } }));
+    expect(status(done, "revenueInMoneyWise")).toBe("pass");
+    // A deposit well below the receipt is not the same sale.
+    expect(status(reconcileDay(day({ ...base, moneywise: { ok: true, txns: [dep({ amount: 300 })] } })), "cashflowMatches")).toBe("fail");
+  });
+
   it("flags an unreceipted guest, a nights mismatch and missing revenue", () => {
     const r = reconcileDay(
       day({

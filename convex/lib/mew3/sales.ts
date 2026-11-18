@@ -1,5 +1,5 @@
 import type { GuestStay, MwTxn, PaymentMethod, Receipt } from "./types";
-import { TOLERANCE, matchGuestsToReceipts, normalizeReceiptNo } from "./recon";
+import { TOLERANCE, WALLET_FEE_FLOOR, matchGuestsToReceipts, normalizeReceiptNo } from "./recon";
 
 /**
  * Turning a day's receipts into MoneyWise sales. Finance approves the day in
@@ -41,9 +41,6 @@ export function saleKey(date: string, r: Pick<Receipt, "receiptNumber" | "guestN
   const n = normalizeReceiptNo(r.receiptNumber);
   return `kaizen:mew3:${date}:${n ? `r${n}` : `${slug(r.guestName)}-${Math.round(r.amount * 100)}`}`;
 }
-
-/** A wallet deposit may be up to this much below the receipt, the difference being the collection fee. */
-const WALLET_FEE_FLOOR = 0.96;
 
 const words = (s: string) => s.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3);
 
