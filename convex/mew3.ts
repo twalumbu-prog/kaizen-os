@@ -248,48 +248,66 @@ export const setRecordValue = mutation({
     await assertCanActOnSubmission(ctx, profile, submission, "edit");
     const rec = await ctx.db.query("extractedRecords").withIndex("by_submissionId", (q) => q.eq("submissionId", submissionId)).first();
     if (!rec || rec.orgId !== profile.orgId) throw new Error("No records were read from this submission");
-    const rows = JSON.parse(rec.rows) as Array<Record<string, unknown>>;
-
-    const apply = (row: Record<string, unknown>, raw: string) => {
-      const v2 = coerce(key, raw);
-      const isExtra = !(key in row) && row.extra && typeof row.extra === "object" && key in (row.extra as object);
-      if (isExtra) (row.extra as Record<string, unknown>)[key] = v2;
-      else row[key] = v2;
-      if (key === "paymentMethod" && "methodWritten" in row) {
-        row.methodWritten = v2;
-        row.paymentMethod = normalizeMethod(v2 === null ? null : String(v2));
-      } else if (key === "paymentMethod") {
-        row.paymentMethod = v2 === null ? null : normalizeMethod(String(v2));
-      }
-    };
-
-    if (rowIndex !== undefined) {
-      if (!rows[rowIndex]) throw new Error("That row no longer exists");
-      apply(rows[rowIndex], value);
-    } else if (rows.length === 1) {
-      apply(rows[0], value);
-    } else {
-      const parts = value.split(";").map((p) => p.trim());
-      if (NUMERIC_KEYS.has(key) || parts.length !== rows.length) {
-        throw new Error(`This value comes from ${rows.length} rows — edit them one at a time in the records table.`);
-      }
-      rows.forEach((row, i) => apply(row, parts[i]));
-    }
-
-    await ctx.db.patch(rec._id, { rows: JSON.stringify(rows) });
-
-    // Keep the Extracted Metrics & Figures panel of every file in step with the rows.
-    const template = await ctx.db.get(submission.templateId);
-    const values = fieldValues(rows, template?.aiExtractionFields ?? []);
-    const files = await ctx.db.query("submissionFiles").withIndex("by_submissionId", (q) => q.eq("submissionId", submissionId)).collect();
-    for (const f of files) {
-      if (f.extracted) await ctx.db.patch(f._id, { extracted: { ...f.extracted, metadata: { ...f.extracted.metadata, ...values } } });
-    }
-
-    await ctx.scheduler.runAfter(0, internal.mew3Recon.runOnDocumentSubmitted, { orgId: rec.orgId, date: rec.date });
+    await editRecord(ctx, submission, rec, key, value, rowIndex);
     return null;
   },
 });
+
+/** A correction made by the platform team on a user's say-so (e.g. `npx convex run mew3:correctRecord`). */
+export const correctRecord = internalMutation({
+  args: { submissionId: v.id("submissions"), key: v.string(), value: v.string(), rowIndex: v.optional(v.number()) },
+  handler: async (ctx, { submissionId, key, value, rowIndex }) => {
+    const submission = await ctx.db.get(submissionId);
+    if (!submission) throw new Error("Submission not found");
+    const rec = await ctx.db.query("extractedRecords").withIndex("by_submissionId", (q) => q.eq("submissionId", submissionId)).first();
+    if (!rec) throw new Error("No records were read from this submission");
+    await editRecord(ctx, submission, rec, key, value, rowIndex);
+    return null;
+  },
+});
+
+async function editRecord(ctx: MutationCtx, submission: Doc<"submissions">, rec: Doc<"extractedRecords">, key: string, value: string, rowIndex: number | undefined) {
+  const submissionId = submission._id;
+  const rows = JSON.parse(rec.rows) as Array<Record<string, unknown>>;
+
+  const apply = (row: Record<string, unknown>, raw: string) => {
+    const v2 = coerce(key, raw);
+    const isExtra = !(key in row) && row.extra && typeof row.extra === "object" && key in (row.extra as object);
+    if (isExtra) (row.extra as Record<string, unknown>)[key] = v2;
+    else row[key] = v2;
+    if (key === "paymentMethod" && "methodWritten" in row) {
+      row.methodWritten = v2;
+      row.paymentMethod = normalizeMethod(v2 === null ? null : String(v2));
+    } else if (key === "paymentMethod") {
+      row.paymentMethod = v2 === null ? null : normalizeMethod(String(v2));
+    }
+  };
+
+  if (rowIndex !== undefined) {
+    if (!rows[rowIndex]) throw new Error("That row no longer exists");
+    apply(rows[rowIndex], value);
+  } else if (rows.length === 1) {
+    apply(rows[0], value);
+  } else {
+    const parts = value.split(";").map((p) => p.trim());
+    if (NUMERIC_KEYS.has(key) || parts.length !== rows.length) {
+      throw new Error(`This value comes from ${rows.length} rows — edit them one at a time in the records table.`);
+    }
+    rows.forEach((row, i) => apply(row, parts[i]));
+  }
+
+  await ctx.db.patch(rec._id, { rows: JSON.stringify(rows) });
+
+  // Keep the Extracted Metrics & Figures panel of every file in step with the rows.
+  const template = await ctx.db.get(submission.templateId);
+  const values = fieldValues(rows, template?.aiExtractionFields ?? []);
+  const files = await ctx.db.query("submissionFiles").withIndex("by_submissionId", (q) => q.eq("submissionId", submissionId)).collect();
+  for (const f of files) {
+    if (f.extracted) await ctx.db.patch(f._id, { extracted: { ...f.extracted, metadata: { ...f.extracted.metadata, ...values } } });
+  }
+
+  await ctx.scheduler.runAfter(0, internal.mew3Recon.runOnDocumentSubmitted, { orgId: rec.orgId, date: rec.date });
+}
 
 /** How far back stays and receipts are looked up for multi-day stays and the master register. */
 const HISTORY_DAYS = 90;

@@ -67,6 +67,8 @@ describe("normalisers", () => {
     expect(normalizeMethod("Airtel Money")).toBe("airtel");
     expect(normalizeMethod("MTN MoMo")).toBe("mtn");
     expect(normalizeMethod("Money Wise")).toBe("moneywise");
+    expect(normalizeMethod("L.Simutinta")).toBe("unknown"); // the cashier's name, not a payment method
+    expect(normalizeMethod("Cheque 0123")).toBe("other");
     expect(normalizeMethod("")).toBe("unknown");
   });
   it("reads day-first dates", () => {

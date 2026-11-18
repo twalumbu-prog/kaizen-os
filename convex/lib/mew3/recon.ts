@@ -32,6 +32,9 @@ export function normalizeMethod(raw: string | null | undefined): PaymentMethod {
   if (/cash/.test(s)) return "cash";
   if (/card|visa|master|pos|swipe/.test(s)) return "card";
   if (/bank|eft|transfer|zanaco|fnb|absa|stanbic|natsave|deposit/.test(s)) return "bank";
+  if (/cheque|check/.test(s)) return "other";
+  // A bare name on the payment line is the cashier who took the money, not a way of paying.
+  if (!/\d/.test(s) && /^[a-z][a-z.'’\- ]{2,40}$/.test(s.trim())) return "unknown";
   return "other";
 }
 
