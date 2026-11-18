@@ -169,7 +169,8 @@ async function reconcileDate(ctx: ActionCtx, automationId: Id<"automations">, da
   try {
     const raw = await ctx.runAction(internal.moneywise.fetchDayTransactions, { orgId: day.orgId, date });
     const all = raw.map(normalizeMwTxn).filter((t): t is MwTxn => !!t);
-    const txns = all.filter((t) => t.date === date);
+    // A wallet deposit for a receipt can land up to three days later; the day's check keeps only those that match one.
+    const txns = all.filter((t) => t.date === date || (t.date !== null && t.date > date && t.date <= addDays(date, 3) && /^[A-Za-z]?\d{2,6}$/.test(t.description.trim())));
     moneywise = { ok: true, txns };
     mwNote = `MoneyWise: ${txns.length} transactions dated ${date} (Lusaka time), read from ${raw.length} returned for ${addDays(date, -1)} to ${addDays(date, 1)}.`;
   } catch (err) {

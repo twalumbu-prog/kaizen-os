@@ -552,7 +552,7 @@ export const createPaymentLink = action({
 /**
  * Every MoneyWise transaction dated `date` (YYYY-MM-DD) for an org, raw as the
  * API returns them — the reconciliation normalises them (lib/mew3/moneywise.ts).
- * Asks for the day either side as well, since the API's day boundary may be UTC
+ * Asks for the day before and the three days after as well, since the API's day boundary may be UTC
  * and the business runs on Lusaka time.
  */
 /** MoneyWise's built-in ledgers: its own wallet, plus cash, Airtel Money and bank takings. */
@@ -574,7 +574,7 @@ export const fetchDayTransactions = internalAction({
     for (const which of ledgers) {
       let cursor: string | undefined;
       for (let page = 0; page < 50; page++) {
-        const params = new URLSearchParams({ ...which, start_date: day(-1), end_date: day(1), limit: "200" });
+        const params = new URLSearchParams({ ...which, start_date: day(-1), end_date: day(3), limit: "200" });
         if (cursor) params.set("cursor", cursor);
         const res = (await mwpFetch(token, `/transactions?${params.toString()}`)) as
           | { data?: unknown[]; next_cursor?: string | null }

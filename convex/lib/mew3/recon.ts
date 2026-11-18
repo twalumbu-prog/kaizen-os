@@ -399,7 +399,12 @@ export function reconcileDay(input: DayInput): DayResult {
     };
   });
 
-  const allInflows = input.moneywise.ok ? input.moneywise.txns.filter((t) => t.direction === "in") : [];
+  // A wallet deposit can land a day or two after the receipt, so later-dated inflows are looked at too,
+  // but only those that turn out to be a deposit for one of today's receipts are kept.
+  const candidates = input.moneywise.ok ? input.moneywise.txns.filter((t) => t.direction === "in") : [];
+  const lateDeposits = new Set(matchWalletDeposits(receipts, candidates).filter((i): i is number => i !== null).map((i) => candidates[i]));
+  const allInflows = candidates.filter((t) => !t.date || t.date <= date || lateDeposits.has(t));
+  const keptTxns = input.moneywise.ok ? input.moneywise.txns.filter((t) => t.direction !== "in" || allInflows.includes(t)) : [];
   // Receipts paid into the wallet by deposit, matched by receipt number.
   const walletOf = matchWalletDeposits(receipts, allInflows);
   const walletDeps = new Set(walletOf.filter((i): i is number => i !== null).map((i) => allInflows[i]));
@@ -432,7 +437,7 @@ export function reconcileDay(input: DayInput): DayResult {
   });
 
   const mwLines = input.moneywise.ok
-    ? input.moneywise.txns.map((t) => {
+    ? keptTxns.map((t) => {
         const ri = walletDeps.has(t) ? walletOf.findIndex((d) => d !== null && allInflows[d] === t) : mwMatch.findIndex((m) => m !== null && revenueEntries[m] === t);
         return { ...t, matchedReceipt: ri >= 0 ? receiptLabel(receipts[ri]) : null };
       })

@@ -138,6 +138,25 @@ describe("reconcileDay", () => {
     expect(status(reconcileDay(day({ ...base, moneywise: { ok: true, txns: [dep({ amount: 300 })] } })), "cashflowMatches")).toBe("fail");
   });
 
+  it("accepts a wallet deposit that lands the day after the receipt, and ignores other inflows", () => {
+    const r = reconcileDay(
+      day({
+        guests: [guest({ guestName: "Ethel Chisambi", nights: 3 })],
+        receipts: [receipt({ receiptNumber: "173", guestName: "Ethel Chisambi", nights: 3, amount: 1840, paymentMethod: "airtel" })],
+        deposits: [deposit({ amount: 1840, source: "airtel" })],
+        moneywise: {
+          ok: true,
+          txns: [
+            mw({ id: "d", date: "2026-11-02", amount: 1816.6, description: "173", reference: "CR-1", category: null, isRevenue: false }),
+            mw({ id: "x", date: "2026-11-02", amount: 405, description: "174", reference: "CR-2", category: null, isRevenue: false }),
+          ],
+        },
+      }),
+    );
+    expect(r.checks.find((c) => c.key === "cashflowMatches")?.status).toBe("pass");
+    expect(r.moneywise).toHaveLength(1);
+  });
+
   it("flags an unreceipted guest, a nights mismatch and missing revenue", () => {
     const r = reconcileDay(
       day({

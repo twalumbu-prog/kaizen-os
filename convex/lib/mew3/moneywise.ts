@@ -88,7 +88,7 @@ function fromCashbook(o: Obj, index: number): MwTxn | null {
     inflow &&
     (/^sale:/i.test(text(o.description) ?? "") ||
       /revenue|income|sales?\b|accommodation|lodging|rent|room/i.test(category ?? "") ||
-      !/transfer|deposit|withdraw|float|top.?up/i.test(description));
+      !/transfer|deposit|withdraw|float|top.?up|change from|operating expense|refund|reimburs/i.test(description));
   const ledger = text(o.ledger);
   return {
     id: text(o.id) ?? `row-${index + 1}`,
