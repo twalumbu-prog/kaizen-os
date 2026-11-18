@@ -27,6 +27,10 @@ describe("normalizeMwTxn on MoneyWise cashbook entries", () => {
     expect(normalizeMwTxn(row({ debit: 950, type: "ADJUSTMENT", description: "Transfer from Cash" }), 0)).toMatchObject({ direction: "transfer", isRevenue: false });
   });
 
+  it("does not count change returned from an expense as takings", () => {
+    expect(normalizeMwTxn(row({ debit: 40, description: "Change from operating expenses", ledger: "MONEYWISE_WALLET", account: null }), 0)).toMatchObject({ direction: "transfer", isRevenue: false });
+  });
+
   it("skips zero rows", () => {
     expect(normalizeMwTxn(row({}), 0)).toBeNull();
   });

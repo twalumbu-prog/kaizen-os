@@ -83,7 +83,9 @@ function fromCashbook(o: Obj, index: number): MwTxn | null {
   const category = text(account?.name) ?? null;
   const payer = text(o.payer_name);
   const description = [text(o.description), payer ? `from ${payer}` : null].filter(Boolean).join(" ");
-  const inflow = debit > 0 && (type === "INFLOW" || type === "");
+  // Money returned to the wallet (change from an expense, a refund) is not takings.
+  const returned = /change from|operating expense|refund|reimburs/i.test(description);
+  const inflow = debit > 0 && (type === "INFLOW" || type === "") && !returned;
   const isRevenue =
     inflow &&
     (/^sale:/i.test(text(o.description) ?? "") ||
