@@ -157,6 +157,11 @@ describe("reconcileDay", () => {
     expect(r.moneywise).toHaveLength(1);
   });
 
+  it("warns, rather than fails, when unmarked receipts balance the mobile money transferred", () => {
+    const r = reconcileDay(day({ receipts: [receipt({ amount: 405, paymentMethod: "unknown" })], deposits: [deposit({ amount: 405, source: "airtel" })] }));
+    expect(status(r, "mobileDeposited")).toBe("warning");
+  });
+
   it("flags an unreceipted guest, a nights mismatch and missing revenue", () => {
     const r = reconcileDay(
       day({

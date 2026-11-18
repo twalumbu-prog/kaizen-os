@@ -560,6 +560,9 @@ export function reconcileDay(input: DayInput): DayResult {
       ? check("mobileDeposited", "Mobile money transferred to MoneyWise", 10, "pass", "No mobile money was taken today.", "low")
       : near(byChannel.mobile, mobileDeposited)
         ? check("mobileDeposited", "Mobile money transferred to MoneyWise", 10, "pass", `Mobile money receipted and transferred are both ${kwacha(byChannel.mobile)}.`, "low")
+        : near(byChannel.mobile + unknownReceipted, mobileDeposited)
+          ? check("mobileDeposited", "Mobile money transferred to MoneyWise", 10, "warning",
+              `Balances only if the ${kwacha(unknownReceipted)} on receipts with no payment method written was mobile money — ask Finance to write the method on each receipt.`, "medium")
         : check("mobileDeposited", "Mobile money transferred to MoneyWise", 10, "fail",
             `Mobile money receipted is ${kwacha(byChannel.mobile)} but the proof of deposit shows ${kwacha(mobileDeposited)} transferred.`, "high"),
   );
