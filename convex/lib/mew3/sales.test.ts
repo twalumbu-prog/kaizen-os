@@ -45,6 +45,18 @@ describe("MEW3 sales for MoneyWise", () => {
     expect(planSales(D, [receipt({})], [], [mw({ description: "Svea Hannekum", reference: "REC-9" })])[0].existingEntry).toBe("REC-9");
   });
 
+  it("recognises a wallet deposit named by receipt number, less the collection fee", () => {
+    const dep = mw({ id: "d1", amount: 448.47, description: "170", reference: "CR-2026-0065", wallet: "MoneyWise Wallet", isRevenue: false });
+    expect(findInMoneyWise([receipt({ receiptNumber: "170", guestName: "Mr Brian Mabika", amount: 453 })], [dep])).toEqual([0]);
+    const [s] = planSales(D, [receipt({ receiptNumber: "170", amount: 453 })], [], [dep]);
+    expect(s.existingEntry).toBe("CR-2026-0065");
+  });
+
+  it("does not take a deposit for a different receipt, or one far below the receipt, as the same sale", () => {
+    expect(findInMoneyWise([receipt({ receiptNumber: "170", amount: 453 })], [mw({ amount: 448.47, description: "171" })])).toEqual([null]);
+    expect(findInMoneyWise([receipt({ receiptNumber: "170", amount: 453 })], [mw({ amount: 300, description: "170" })])).toEqual([null]);
+  });
+
   it("gives identical unnumbered receipts distinct keys", () => {
     const keys = planSales(D, [receipt({}), receipt({})], [], []).map((s) => s.key);
     expect(new Set(keys).size).toBe(2);

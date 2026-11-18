@@ -42,6 +42,9 @@ export function saleKey(date: string, r: Pick<Receipt, "receiptNumber" | "guestN
   return `kaizen:mew3:${date}:${n ? `r${n}` : `${slug(r.guestName)}-${Math.round(r.amount * 100)}`}`;
 }
 
+/** A wallet deposit may be up to this much below the receipt, the difference being the collection fee. */
+const WALLET_FEE_FLOOR = 0.96;
+
 const words = (s: string) => s.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3);
 
 /**
@@ -52,9 +55,9 @@ const words = (s: string) => s.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w
 export function findInMoneyWise(receipts: Array<Pick<Receipt, "receiptNumber" | "guestName" | "amount">>, entries: MwTxn[]): Array<number | null> {
   const used = new Set<number>();
   const text = entries.map((e) => `${e.description} ${e.reference ?? ""}`);
-  const pick = (ri: number, test: (ei: number) => boolean) => {
+  const pick = (ri: number, test: (ei: number) => boolean, within: (entryAmount: number, receiptAmount: number) => boolean = (a, b) => Math.abs(a - b) <= TOLERANCE) => {
     const r = receipts[ri];
-    const hit = entries.findIndex((e, ei) => !used.has(ei) && Math.abs(e.amount - r.amount) <= TOLERANCE && test(ei));
+    const hit = entries.findIndex((e, ei) => !used.has(ei) && within(e.amount, r.amount) && test(ei));
     if (hit < 0) return null;
     used.add(hit);
     return hit;
@@ -63,6 +66,18 @@ export function findInMoneyWise(receipts: Array<Pick<Receipt, "receiptNumber" | 
   receipts.forEach((r, ri) => {
     const n = normalizeReceiptNo(r.receiptNumber);
     if (n && n.length >= 2) out[ri] = pick(ri, (ei) => text[ei].toUpperCase().split(/[^A-Z0-9]+/).some((w) => normalizeReceiptNo(w) === n));
+  });
+  // Mobile money paid into the MoneyWise wallet: the deposit's description is just the receipt number,
+  // and its amount is the receipt less the collection fee (about 1 to 2%).
+  receipts.forEach((r, ri) => {
+    if (out[ri] !== null) return;
+    const n = normalizeReceiptNo(r.receiptNumber);
+    if (!n || n.length < 2) return;
+    out[ri] = pick(
+      ri,
+      (ei) => normalizeReceiptNo(entries[ei].description) === n,
+      (a, b) => a <= b + TOLERANCE && a >= b * WALLET_FEE_FLOOR,
+    );
   });
   receipts.forEach((r, ri) => {
     if (out[ri] !== null) return;
