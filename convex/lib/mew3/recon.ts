@@ -402,28 +402,24 @@ export function reconcileDay(input: DayInput): DayResult {
     };
   });
 
-  // A wallet deposit can land a day or two after the receipt, so later-dated inflows are looked at too,
-  // but only those that turn out to be a deposit for one of today's receipts are kept.
+  // Mobile money is entered as a sale (Airtel ledger) and then moved into the MoneyWise wallet; the wallet
+  // deposit's description is just the receipt number, less the collection fee, and may land a day or two late.
   const candidates = input.moneywise.ok ? input.moneywise.txns.filter((t) => t.direction === "in") : [];
-  const lateDeposits = new Set(matchWalletDeposits(receipts, candidates).filter((i): i is number => i !== null).map((i) => candidates[i]));
-  const allInflows = candidates.filter((t) => !t.date || t.date <= date || lateDeposits.has(t));
-  const keptTxns = input.moneywise.ok ? input.moneywise.txns.filter((t) => t.direction !== "in" || allInflows.includes(t)) : [];
-  // Receipts paid into the wallet by deposit, matched by receipt number.
-  const walletOf = matchWalletDeposits(receipts, allInflows);
-  const walletDeps = new Set(walletOf.filter((i): i is number => i !== null).map((i) => allInflows[i]));
-  const revenueEntries = input.moneywise.ok
-    ? (() => {
-        const rest = allInflows.filter((t) => !walletDeps.has(t));
-        // When nothing is categorised as revenue, every inflow is the best evidence there is.
-        return rest.some((t) => t.isRevenue) ? rest.filter((t) => t.isRevenue) : rest;
-      })()
-    : [];
-  const viaDeposit = receipts.map((_, ri) => walletOf[ri] !== null);
-  const toMatch = receipts.filter((_, ri) => !viaDeposit[ri]);
-  const matchedRest = input.moneywise.ok ? matchReceiptsToMoneyWise(toMatch, revenueEntries) : toMatch.map(() => null);
-  let nextRest = 0;
-  const mwMatch = receipts.map((_, ri) => (viaDeposit[ri] ? null : matchedRest[nextRest++]));
-  // What those walletDeps came to, against the receipts they cover: the difference is the collection fee.
+  const walletIdx = matchWalletDeposits(receipts, candidates);
+  const walletSet = new Set(walletIdx.filter((i): i is number => i !== null).map((i) => candidates[i]));
+  const salePool = candidates.filter((t) => !walletSet.has(t) && (!t.date || t.date <= date));
+  // When nothing is categorised as revenue, every inflow is the best evidence there is.
+  const revenueEntries = salePool.some((t) => t.isRevenue) ? salePool.filter((t) => t.isRevenue) : salePool;
+  const mwMatch = input.moneywise.ok ? matchReceiptsToMoneyWise(receipts, revenueEntries) : receipts.map(() => null);
+  // A receipt with its own sale: its wallet deposit is only the transfer of that money, not a second inflow.
+  // A receipt with no sale: the wallet deposit is the record of it.
+  const viaDeposit = receipts.map((_, ri) => mwMatch[ri] === null && walletIdx[ri] !== null);
+  const walletFor = (ri: number) => (walletIdx[ri] === null ? null : candidates[walletIdx[ri]!]);
+  const walletDeps = new Set(receipts.flatMap((_, ri) => (viaDeposit[ri] ? [walletFor(ri)!] : [])));
+  const transferDeps = new Set(receipts.flatMap((_, ri) => (!viaDeposit[ri] && walletIdx[ri] !== null ? [walletFor(ri)!] : [])));
+  const allInflows = candidates.filter((t) => !transferDeps.has(t) && (!t.date || t.date <= date || walletDeps.has(t)));
+  const keptTxns = input.moneywise.ok ? input.moneywise.txns.filter((t) => t.direction !== "in" || allInflows.includes(t) || transferDeps.has(t)) : [];
+  // What those wallet deposits came to, against the receipts they cover: the difference is the collection fee.
   const walletReceipted = sum(receipts.filter((_, ri) => viaDeposit[ri]).map((r) => r.amount));
   const walletReceived = sum([...walletDeps].map((t) => t.amount));
   const collectionFees = sum([walletReceipted - walletReceived]);
@@ -435,13 +431,13 @@ export function reconcileDay(input: DayInput): DayResult {
       receipt: r,
       channel: channelOf(r.paymentMethod),
       guestStatus: receiptOwner[ri] !== null ? "On today's register" : earlierGuestFor(r) ? "Guest checked in earlier" : "Not on any register",
-      moneywiseEntry: viaDeposit[ri] ? (allInflows[walletOf[ri]!].reference ?? allInflows[walletOf[ri]!].id) : mw === null ? null : revenueEntries[mw].reference ?? revenueEntries[mw].id,
+      moneywiseEntry: viaDeposit[ri] ? (walletFor(ri)!.reference ?? walletFor(ri)!.id) : mw === null ? null : revenueEntries[mw].reference ?? revenueEntries[mw].id,
     };
   });
 
   const mwLines = input.moneywise.ok
     ? keptTxns.map((t) => {
-        const ri = walletDeps.has(t) ? walletOf.findIndex((d) => d !== null && allInflows[d] === t) : mwMatch.findIndex((m) => m !== null && revenueEntries[m] === t);
+        const ri = walletSet.has(t) ? receipts.findIndex((_, i) => walletFor(i) === t) : mwMatch.findIndex((m) => m !== null && revenueEntries[m] === t);
         return { ...t, matchedReceipt: ri >= 0 ? receiptLabel(receipts[ri]) : null };
       })
     : [];

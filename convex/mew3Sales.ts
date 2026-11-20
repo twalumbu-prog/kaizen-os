@@ -4,6 +4,7 @@ import { internalAction, internalMutation, internalQuery, mutation, query } from
 import type { Doc, Id } from "./_generated/dataModel";
 import type { ActionCtx, QueryCtx } from "./_generated/server";
 import { requireProfile } from "./lib/roles";
+import { KIND } from "./mew3";
 import { normalizeMwTxn } from "./lib/mew3/moneywise";
 import { findInMoneyWise, planSales, saleRequest, type PlannedSale, type SaleLedger } from "./lib/mew3/sales";
 import type { GuestStay, MwTxn, Receipt } from "./lib/mew3/types";
@@ -92,15 +93,75 @@ export const saveDrafts = internalMutation({
   },
 });
 
-/** Drafts (or refreshes) the day's sales from its latest receipts and register. Never throws. */
+type SalesSettings = { automationId: Id<"automations"> | null; autoPost: boolean; defaultLedger: SaleLedger | null };
+
+/**
+ * Settings kept in the MEW3 automation's config:
+ *   autoPostSales    — post a day's sales as soon as its receipts are read, without waiting for approval
+ *   defaultSaleLedger — the ledger for receipts that don't say how they were paid ("CASH" | "AIRTEL_MONEY" | "BANK")
+ */
+export const settings = internalQuery({
+  args: { orgId: v.id("organizations") },
+  handler: async (ctx, { orgId }): Promise<SalesSettings> => {
+    const a = (await ctx.db.query("automations").withIndex("by_orgId", (q) => q.eq("orgId", orgId)).collect()).find((x) => x.kind === KIND && x.enabled);
+    let c: { autoPostSales?: unknown; defaultSaleLedger?: unknown } = {};
+    try {
+      c = JSON.parse(a?.config ?? "{}");
+    } catch {
+      /* settings that are not JSON are ignored */
+    }
+    const ledgers = ["CASH", "AIRTEL_MONEY", "BANK"];
+    return {
+      automationId: a?._id ?? null,
+      autoPost: c.autoPostSales === true,
+      defaultLedger: typeof c.defaultSaleLedger === "string" && ledgers.includes(c.defaultSaleLedger) ? (c.defaultSaleLedger as SaleLedger) : null,
+    };
+  },
+});
+
+export const setSettings = internalMutation({
+  args: { orgId: v.id("organizations"), autoPostSales: v.optional(v.boolean()), defaultSaleLedger: v.optional(ledger) },
+  handler: async (ctx, { orgId, autoPostSales, defaultSaleLedger }) => {
+    const a = (await ctx.db.query("automations").withIndex("by_orgId", (q) => q.eq("orgId", orgId)).collect()).find((x) => x.kind === KIND);
+    if (!a) throw new Error("No MEW3 reconciliation automation for this organization");
+    let c: Record<string, unknown> = {};
+    try {
+      c = JSON.parse(a.config ?? "{}");
+    } catch {
+      /* start afresh */
+    }
+    if (autoPostSales !== undefined) c.autoPostSales = autoPostSales;
+    if (defaultSaleLedger !== undefined) c.defaultSaleLedger = defaultSaleLedger;
+    await ctx.db.patch(a._id, { config: JSON.stringify(c) });
+    return c;
+  },
+});
+
+/** Approves the day's ready drafts (and retries failed ones) with no one signing off. Returns how many. */
+export const approveReady = internalMutation({
+  args: { orgId: v.id("organizations"), date: v.string() },
+  handler: async (ctx, { orgId, date }) => {
+    const sales = await ctx.db.query("mew3Sales").withIndex("by_orgId_date", (q) => q.eq("orgId", orgId).eq("date", date)).collect();
+    const ready = sales.filter((s) => (s.status === "draft" || s.status === "failed") && s.ledger);
+    for (const s of ready) await ctx.db.patch(s._id, { status: "approved", approvedAt: Date.now(), error: undefined });
+    return ready.length;
+  },
+});
+
+/** Drafts (or refreshes) the day's sales from its latest receipts and register, and posts them when auto-post is on. Never throws. */
 export const prepareDay = internalAction({
   args: { orgId: v.id("organizations"), date: v.string() },
   handler: async (ctx, { orgId, date }) => {
     if (!isDay(date)) return;
     const { receipts, guests } = await ctx.runQuery(internal.mew3Sales.dayInputs, { orgId, date });
+    const cfg = await ctx.runQuery(internal.mew3Sales.settings, { orgId });
     const mw = (await moneywiseDay(ctx, orgId, date)) ?? [];
-    const planned = planSales(date, receipts, guests, mw);
+    const planned = planSales(date, receipts, guests, mw).map((p) => ({ ...p, ledger: p.ledger ?? cfg.defaultLedger }));
     await ctx.runMutation(internal.mew3Sales.saveDrafts, { orgId, date, planned: JSON.stringify(planned) });
+    if (cfg.autoPost && planned.length) {
+      const n = await ctx.runMutation(internal.mew3Sales.approveReady, { orgId, date });
+      if (n > 0) await ctx.runAction(internal.mew3Sales.postApproved, { orgId, date });
+    }
   },
 });
 

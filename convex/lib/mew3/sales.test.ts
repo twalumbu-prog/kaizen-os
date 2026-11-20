@@ -45,16 +45,21 @@ describe("MEW3 sales for MoneyWise", () => {
     expect(planSales(D, [receipt({})], [], [mw({ description: "Svea Hannekum", reference: "REC-9" })])[0].existingEntry).toBe("REC-9");
   });
 
-  it("recognises a wallet deposit named by receipt number, less the collection fee", () => {
+  it("does not take a wallet deposit for the sale: the sale is entered in the Airtel ledger, the deposit is its transfer", () => {
     const dep = mw({ id: "d1", amount: 448.47, description: "170", reference: "CR-2026-0065", wallet: "MoneyWise Wallet", isRevenue: false });
-    expect(findInMoneyWise([receipt({ receiptNumber: "170", guestName: "Mr Brian Mabika", amount: 453 })], [dep])).toEqual([0]);
-    const [s] = planSales(D, [receipt({ receiptNumber: "170", amount: 453 })], [], [dep]);
-    expect(s.existingEntry).toBe("CR-2026-0065");
+    expect(findInMoneyWise([receipt({ receiptNumber: "170", guestName: "Mr Brian Mabika", amount: 453 })], [dep])).toEqual([null]);
+    expect(planSales(D, [receipt({ receiptNumber: "170", amount: 453 })], [], [dep])[0].existingEntry).toBeNull();
   });
 
   it("does not take a deposit for a different receipt, or one far below the receipt, as the same sale", () => {
     expect(findInMoneyWise([receipt({ receiptNumber: "170", amount: 453 })], [mw({ amount: 448.47, description: "171" })])).toEqual([null]);
     expect(findInMoneyWise([receipt({ receiptNumber: "170", amount: 453 })], [mw({ amount: 300, description: "170" })])).toEqual([null]);
+  });
+
+  it("does not take a guest's earlier sale for a new receipt (a stay extended on a new receipt, same amount)", () => {
+    const earlier = mw({ amount: 405, description: "Sale: Accommodation – Musonda Machiko (Room 7, 16 Nov–17 Nov, Receipt #174)", reference: "REC-2026-0081" });
+    expect(findInMoneyWise([receipt({ receiptNumber: "175", guestName: "Musonda Machiko", amount: 405 })], [earlier])).toEqual([null]);
+    expect(findInMoneyWise([receipt({ receiptNumber: "174", guestName: "Musonda Machiko", amount: 405 })], [earlier])).toEqual([0]);
   });
 
   it("gives identical unnumbered receipts distinct keys", () => {

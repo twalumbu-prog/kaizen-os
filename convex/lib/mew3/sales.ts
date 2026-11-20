@@ -1,5 +1,5 @@
 import type { GuestStay, MwTxn, PaymentMethod, Receipt } from "./types";
-import { TOLERANCE, WALLET_FEE_FLOOR, matchGuestsToReceipts, normalizeReceiptNo } from "./recon";
+import { TOLERANCE, matchGuestsToReceipts, normalizeReceiptNo } from "./recon";
 
 /**
  * Turning a day's receipts into MoneyWise sales. Finance approves the day in
@@ -45,7 +45,8 @@ export function saleKey(date: string, r: Pick<Receipt, "receiptNumber" | "guestN
 const words = (s: string) => s.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3);
 
 /**
- * Which MoneyWise inflow (if any) already records each receipt. Stricter than the
+ * Which MoneyWise sale (if any) already records each receipt. A mobile-money deposit into the wallet
+ * is not a sale: the sale is entered in the Airtel ledger and the deposit is the transfer of that money. Stricter than the
  * reconciliation's pairing: the amount must agree AND the entry must name the
  * receipt number or the guest, since a false match here means a sale never gets posted.
  */
@@ -64,22 +65,16 @@ export function findInMoneyWise(receipts: Array<Pick<Receipt, "receiptNumber" | 
     const n = normalizeReceiptNo(r.receiptNumber);
     if (n && n.length >= 2) out[ri] = pick(ri, (ei) => text[ei].toUpperCase().split(/[^A-Z0-9]+/).some((w) => normalizeReceiptNo(w) === n));
   });
-  // Mobile money paid into the MoneyWise wallet: the deposit's description is just the receipt number,
-  // and its amount is the receipt less the collection fee (about 1 to 2%).
-  receipts.forEach((r, ri) => {
-    if (out[ri] !== null) return;
-    const n = normalizeReceiptNo(r.receiptNumber);
-    if (!n || n.length < 2) return;
-    out[ri] = pick(
-      ri,
-      (ei) => normalizeReceiptNo(entries[ei].description) === n,
-      (a, b) => a <= b + TOLERANCE && a >= b * WALLET_FEE_FLOOR,
-    );
-  });
   receipts.forEach((r, ri) => {
     if (out[ri] !== null) return;
     const names = words(r.guestName).filter((w) => !["mr", "mrs", "miss", "the", "group", "ltd"].includes(w));
-    if (names.length) out[ri] = pick(ri, (ei) => names.some((w) => text[ei].toLowerCase().includes(w)));
+    // An entry that names a different receipt number is another sale (a guest staying on pays again on a new receipt).
+    const n = normalizeReceiptNo(r.receiptNumber);
+    const namesOther = (ei: number) => {
+      const m = /receipt\s*#?\s*([a-z0-9-]+)/i.exec(text[ei]);
+      return !!m && !!n && normalizeReceiptNo(m[1]) !== n;
+    };
+    if (names.length) out[ri] = pick(ri, (ei) => !namesOther(ei) && names.some((w) => text[ei].toLowerCase().includes(w)));
   });
   return out;
 }

@@ -140,6 +140,21 @@ describe("reconcileDay", () => {
     expect(status(reconcileDay(day({ ...base, moneywise: { ok: true, txns: [dep({ amount: 300 })] } })), "cashflowMatches")).toBe("fail");
   });
 
+  it("treats the wallet deposit as the transfer of a sale already entered in the Airtel ledger", () => {
+    const base = {
+      guests: [guest({ guestName: "Brian Mabika", nights: 1 })],
+      receipts: [receipt({ receiptNumber: "170", guestName: "Brian Mabika", nights: 1, amount: 453, paymentMethod: "airtel" })],
+      deposits: [deposit({ amount: 453, source: "airtel" })],
+    };
+    const sale = mw({ id: "s1", amount: 453, description: "Sale: Accommodation – Brian Mabika (Receipt #170)", reference: "REC-1" });
+    const dep = mw({ id: "d1", amount: 448.47, description: "170", reference: "CR-1", category: null, isRevenue: false });
+    const r = reconcileDay(day({ ...base, moneywise: { ok: true, txns: [sale, dep] } }));
+    expect(status(r, "revenueInMoneyWise")).toBe("pass");
+    // The K453 sale and its K448.47 deposit are one inflow, not two.
+    expect(status(r, "cashflowMatches")).toBe("pass");
+    expect(r.receipts[0].moneywiseEntry).toBe("REC-1");
+  });
+
   it("accepts a wallet deposit that lands the day after the receipt, and ignores other inflows", () => {
     const r = reconcileDay(
       day({
